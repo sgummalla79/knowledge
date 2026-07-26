@@ -1,0 +1,78 @@
+from sqlalchemy.exc import IntegrityError
+
+from app.domain import error_codes
+from app.domain.entities import Library as LibraryEntity
+from app.domain.errors import ConflictError
+from app.infrastructure.orm import Library as LibraryModel
+
+_SORTABLE_COLUMNS = {
+    "name": LibraryModel.name,
+    "created_at": LibraryModel.created_at,
+}
+
+
+def _to_entity(model: LibraryModel) -> LibraryEntity:
+    return LibraryEntity(
+        id=model.id,
+        name=model.name,
+        description=model.description,
+        embedding_provider=model.embedding_provider,
+        embedding_model=model.embedding_model,
+        chunk_size=model.chunk_size,
+        chunk_overlap=model.chunk_overlap,
+        document_count=model.document_count,
+        chunk_count=model.chunk_count,
+        last_ingested_at=model.last_ingested_at,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def _apply_sort(query, sort: str):
+    descending = sort.startswith("-")
+    key = sort[1:] if descending else sort
+    column = _SORTABLE_COLUMNS.get(key, LibraryModel.created_at)
+    return query.order_by(column.desc() if descending else column.asc())
+
+
+class LibraryRepository:
+    def __init__(self, session):
+        self._session = session
+
+    def create(self, **fields) -> LibraryEntity:
+        model = LibraryModel(**fields)
+        self._session.add(model)
+        try:
+            self._session.flush()
+        except IntegrityError:
+            self._session.rollback()
+            raise ConflictError(
+                error_codes.LIBRARY_NAME_TAKEN,
+                f"A library named '{fields.get('name')}' already exists.",
+                field="name",
+            )
+        return _to_entity(model)
+
+    def get(self, library_id) -> LibraryEntity | None:
+        model = self._session.get(LibraryModel, library_id)
+        return _to_entity(model) if model is not None else None
+
+    def list(self, limit: int, offset: int, sort: str) -> list[LibraryEntity]:
+        query = _apply_sort(self._session.query(LibraryModel), sort)
+        models = query.offset(offset).limit(limit).all()
+        return [_to_entity(model) for model in models]
+
+    def count(self) -> int:
+        return self._session.query(LibraryModel).count()
+
+    def delete(self, library_id) -> None:
+        model = self._session.get(LibraryModel, library_id)
+        if model is not None:
+            self._session.delete(model)
+            self._session.flush()
+
+    def increment_counts(self, library_id, document_delta: int, chunk_delta: int) -> None:
+        model = self._session.get(LibraryModel, library_id)
+        model.document_count += document_delta
+        model.chunk_count += chunk_delta
+        self._session.flush()

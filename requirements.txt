@@ -1,0 +1,13 @@
+flask==3.0.3
+gunicorn==22.0.0
+sqlalchemy==2.0.32
+psycopg2-binary==2.9.10
+pgvector==0.3.2
+alembic==1.13.2
+voyageai==0.2.3
+pypdf==4.3.1
+requests==2.32.3
+mcp==1.2.0
+python-dotenv==1.0.1
+pydantic==2.10.3
+flask-limiter==3.8.0

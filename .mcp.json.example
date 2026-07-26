@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rag-knowledge": {
+      "command": "docker",
+      "args": ["exec", "-i", "rag-api", "python", "-m", "mcp_server.server"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+import voyageai
+
+from app.infrastructure.embeddings.base import EmbeddingProvider
+
+
+class VoyageEmbeddingProvider(EmbeddingProvider):
+    def __init__(self, api_key: str, model: str):
+        self._client = voyageai.Client(api_key=api_key)
+        self._model = model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        result = self._client.embed(texts, model=self._model, input_type="document")
+        return result.embeddings
+
+    def embed_query(self, text: str) -> list[float]:
+        result = self._client.embed([text], model=self._model, input_type="query")
+        return result.embeddings[0]
