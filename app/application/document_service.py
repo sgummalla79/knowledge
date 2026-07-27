@@ -10,6 +10,7 @@ from app.domain.ports import DocumentRepositoryPort, LibraryRepositoryPort
 from app.infrastructure.orm import SessionLocal
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
+from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
 
 
@@ -55,7 +56,12 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
         JobStore.mark_running(job_id)
         library_repo = LibraryRepository(session)
         library = library_repo.get(library_id)
-        ingestion_service = IngestionService(library_repo, DocumentRepository(session), ChunkRepository(session))
+        ingestion_service = IngestionService(
+            library_repo,
+            DocumentRepository(session),
+            ChunkRepository(session),
+            EmbeddingSettingsRepository(session),
+        )
         document = ingestion_service.ingest(library, filename, file_bytes)
         session.commit()
         JobStore.mark_completed(job_id, document.id)

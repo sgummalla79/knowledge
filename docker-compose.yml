@@ -1,6 +1,7 @@
 services:
-  db:
+  knowledge-db:
     image: pgvector/pgvector:pg16
+    container_name: knowledge-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-rag}
       POSTGRES_USER: ${POSTGRES_USER:-rag}
@@ -15,17 +16,26 @@ services:
 
   api:
     build: .
-    container_name: rag-api
+    # Explicit "prod" tag (this is the image rag-desktop and MCP clients actually talk to) so it
+    # reads clearly in `docker images` instead of relying on the implicit ":latest" default —
+    # distinct from the ":testing" tag built by docker-compose.test.yml.
+    image: knowledge-api:prod
+    container_name: knowledge-api
     depends_on:
-      db:
+      knowledge-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-rag}
-      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
-      API_KEY: ${API_KEY}
-      PORT: ${PORT:-8000}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD}@knowledge-db:5432/${POSTGRES_DB:-rag}
+      SECRET_KEY: ${SECRET_KEY}
+      PORT: ${PORT:-13102}
+      # mcp_server authenticates as a registered Application via OAuth2 client_credentials —
+      # register it from the /dashboard and set its client_id/secret here.
+      MCP_CLIENT_ID: ${MCP_CLIENT_ID}
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET}
     ports:
-      - "${PORT:-8000}:${PORT:-8000}"
+      # 13102: same 13100 series as rag-desktop's dev ports (13100 vite, 13101 HMR) —
+      # keeps every port this project touches in one clearly-distinct block.
+      - "${PORT:-13102}:${PORT:-13102}"
 
 volumes:
   rag-db-data:

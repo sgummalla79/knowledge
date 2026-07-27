@@ -3,7 +3,7 @@ from flask_limiter import Limiter
 
 
 def _rate_limit_key() -> str:
-    return request.headers.get("X-API-Key") or request.remote_addr or "anonymous"
+    return request.headers.get("Authorization") or request.remote_addr or "anonymous"
 
 
 # default_limits is deliberately not set here — Flask-Limiter reads app.config["RATELIMIT_DEFAULT"]

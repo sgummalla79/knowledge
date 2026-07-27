@@ -4,9 +4,10 @@ import os
 class Config:
     def __init__(self):
         self.database_url = self._require("DATABASE_URL")
-        self.voyage_api_key = self._require("VOYAGE_API_KEY")
-        self.api_key = self._require("API_KEY")
-        self.port = int(os.environ.get("PORT", "8000"))
+        # Signs both JWT access tokens and the admin dashboard's session cookies — one secret, not
+        # two, is proportional at this scale (single local deployment, single admin).
+        self.secret_key = self._require("SECRET_KEY")
+        self.port = int(os.environ.get("PORT", "13102"))
 
     @staticmethod
     def _require(name):

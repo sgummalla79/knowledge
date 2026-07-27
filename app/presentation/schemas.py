@@ -6,11 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.constants import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_EMBEDDING_PROVIDER,
     DEFAULT_TOP_K,
 )
-from app.domain.entities import Document, Library, ScoredChunk
+from app.application.embedding_settings_service import EmbeddingSettingsStatus
+from app.domain.entities import Document, Library, ScoredChunk, SearchSettings
 
 
 class LibraryCreateRequest(BaseModel):
@@ -18,10 +17,6 @@ class LibraryCreateRequest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    embedding_provider: str = DEFAULT_EMBEDDING_PROVIDER
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    chunk_size: int = Field(default=DEFAULT_CHUNK_SIZE, gt=0)
-    chunk_overlap: int = Field(default=DEFAULT_CHUNK_OVERLAP, ge=0)
 
 
 class PaginationQuery(BaseModel):
@@ -36,10 +31,6 @@ class LibraryResponse(BaseModel):
     id: UUID
     name: str
     description: str | None
-    embedding_provider: str
-    embedding_model: str
-    chunk_size: int
-    chunk_overlap: int
     document_count: int
     chunk_count: int
     last_ingested_at: datetime | None
@@ -52,10 +43,6 @@ class LibraryResponse(BaseModel):
             id=library.id,
             name=library.name,
             description=library.description,
-            embedding_provider=library.embedding_provider,
-            embedding_model=library.embedding_model,
-            chunk_size=library.chunk_size,
-            chunk_overlap=library.chunk_overlap,
             document_count=library.document_count,
             chunk_count=library.chunk_count,
             last_ingested_at=library.last_ingested_at,
@@ -104,7 +91,7 @@ class ScoredChunkResponse(BaseModel):
     document_id: UUID
     chunk_index: int
     content: str
-    distance: float
+    score: float
 
     @classmethod
     def from_entity(cls, chunk: ScoredChunk) -> "ScoredChunkResponse":
@@ -113,5 +100,71 @@ class ScoredChunkResponse(BaseModel):
             document_id=chunk.document_id,
             chunk_index=chunk.chunk_index,
             content=chunk.content,
-            distance=chunk.distance,
+            score=chunk.score,
+        )
+
+
+class EmbeddingSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key: str = Field(min_length=1)
+    chunk_size: int = Field(default=DEFAULT_CHUNK_SIZE, gt=0)
+    chunk_overlap: int = Field(default=DEFAULT_CHUNK_OVERLAP, ge=0)
+
+
+class EmbeddingSettingsResponse(BaseModel):
+    provider: str | None
+    model: str | None
+    configured: bool
+    chunk_size: int
+    chunk_overlap: int
+    updated_at: datetime | None
+
+    @classmethod
+    def from_status(cls, status: EmbeddingSettingsStatus) -> "EmbeddingSettingsResponse":
+        return cls(
+            provider=status.provider,
+            model=status.model,
+            configured=status.configured,
+            chunk_size=status.chunk_size,
+            chunk_overlap=status.chunk_overlap,
+            updated_at=status.updated_at,
+        )
+
+
+class SearchSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rerank_enabled: bool
+    rerank_provider: str = Field(min_length=1)
+    rerank_model: str = Field(min_length=1)
+    dense_k: int = Field(gt=0, le=100)
+    sparse_k: int = Field(gt=0, le=100)
+    rerank_candidates: int = Field(gt=0, le=100)
+    rrf_k: int = Field(gt=0, le=1000)
+
+
+class SearchSettingsResponse(BaseModel):
+    rerank_enabled: bool
+    rerank_provider: str
+    rerank_model: str
+    dense_k: int
+    sparse_k: int
+    rerank_candidates: int
+    rrf_k: int
+    updated_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, settings: SearchSettings) -> "SearchSettingsResponse":
+        return cls(
+            rerank_enabled=settings.rerank_enabled,
+            rerank_provider=settings.rerank_provider,
+            rerank_model=settings.rerank_model,
+            dense_k=settings.dense_k,
+            sparse_k=settings.sparse_k,
+            rerank_candidates=settings.rerank_candidates,
+            rrf_k=settings.rrf_k,
+            updated_at=settings.updated_at,
         )

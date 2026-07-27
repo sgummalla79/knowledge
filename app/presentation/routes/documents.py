@@ -3,7 +3,7 @@ from uuid import UUID
 from flask import Blueprint, jsonify, request
 
 from app.application.document_service import DocumentService
-from app.auth import require_api_key
+from app.auth import require_scope
 from app.container import get_session
 from app.domain import error_codes
 from app.domain.errors import ValidationError
@@ -20,7 +20,7 @@ def _service() -> DocumentService:
 
 
 @documents_bp.post("/documents")
-@require_api_key
+@require_scope("documents:write")
 def upload_document(library_id: UUID):
     if "file" not in request.files:
         raise ValidationError(error_codes.VALIDATION_ERROR, "file is required", field="file")
@@ -32,7 +32,7 @@ def upload_document(library_id: UUID):
 
 
 @documents_bp.get("/documents")
-@require_api_key
+@require_scope("documents:read")
 def list_documents(library_id: UUID):
     query = PaginationQuery.model_validate(request.args.to_dict())
     documents, total = _service().list_documents(library_id, query.limit, query.offset, query.sort)
@@ -42,7 +42,7 @@ def list_documents(library_id: UUID):
 
 
 @documents_bp.get("/jobs/<job_id>")
-@require_api_key
+@require_scope("documents:read")
 def get_job(library_id: UUID, job_id: str):
     status = _service().get_job_status(job_id)
     return jsonify(JobStatusResponse(**status).model_dump())

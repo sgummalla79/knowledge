@@ -3,15 +3,21 @@ from flask import Flask, jsonify
 from app.config import config
 from app.constants import MAX_UPLOAD_MB, RATE_LIMIT_DEFAULT
 from app.container import teardown_session
+from app.infrastructure.auth.bootstrap import bootstrap_default_admin
+from app.infrastructure.orm import SessionLocal
 from app.presentation.error_handlers import register_error_handlers
 from app.presentation.routes import ALL_BLUEPRINTS
 from app.rate_limit import limiter
 
 
-def create_app(testing: bool = False, rate_limit_default: str = RATE_LIMIT_DEFAULT) -> Flask:
+def create_app(
+    testing: bool = False,
+    rate_limit_default: str = RATE_LIMIT_DEFAULT,
+    bootstrap_admin: bool | None = None,
+) -> Flask:
     app = Flask(__name__)
     app.testing = testing
-    app.config["API_KEY"] = config.api_key
+    app.config["SECRET_KEY"] = config.secret_key
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
     # The Limiter instance (and its in-memory counters) is a module-level singleton shared
     # across every create_app() call in this process — harmless in production (one app per
@@ -26,6 +32,19 @@ def create_app(testing: bool = False, rate_limit_default: str = RATE_LIMIT_DEFAU
     register_error_handlers(app)
     app.teardown_appcontext(teardown_session)
     limiter.init_app(app)
+
+    # A separate flag from `testing`: most unit tests use testing=True (no real DB) and this is
+    # correctly skipped for them, but test_rate_limit.py deliberately uses testing=False (to
+    # exercise the real rate limiter) against a route that still needs no DB — bootstrap_admin
+    # lets that test opt out explicitly rather than being forced into a real DB connection.
+    if bootstrap_admin is None:
+        bootstrap_admin = not testing
+    if bootstrap_admin:
+        session = SessionLocal()
+        try:
+            bootstrap_default_admin(session)
+        finally:
+            session.close()
 
     @app.get("/health")
     def health():

@@ -5,10 +5,10 @@ from app.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvide
 
 
 def test_resolve_voyage_returns_voyage_provider():
-    provider = EmbeddingProviderRegistry.resolve("voyage", "voyage-3")
+    provider = EmbeddingProviderRegistry.resolve("voyage", "voyage-3", "test-key")
     assert isinstance(provider, VoyageEmbeddingProvider)
 
 
 def test_resolve_unsupported_provider_raises():
     with pytest.raises(UnsupportedEmbeddingProviderError):
-        EmbeddingProviderRegistry.resolve("openai", "text-embedding-3")
+        EmbeddingProviderRegistry.resolve("openai", "text-embedding-3", "test-key")

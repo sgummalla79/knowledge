@@ -1,0 +1,32 @@
+services:
+  knowledge-db-test:
+    image: pgvector/pgvector:pg16
+    container_name: knowledge-db-test
+    environment:
+      POSTGRES_DB: rag_test
+      POSTGRES_USER: rag_test
+      POSTGRES_PASSWORD: rag_test
+    # tmpfs data dir: this stack is throwaway by design, never needs to survive a restart.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api-test:
+    build: .
+    image: knowledge-api:testing
+    container_name: knowledge-api-test
+    depends_on:
+      knowledge-db-test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://rag_test:rag_test@knowledge-db-test:5432/rag_test
+      SECRET_KEY: test-secret-key
+      PORT: 13199
+    ports:
+      # 13199: deliberately outside the 13100 series used by the real api/rag-desktop, so this
+      # stack can never collide with a live knowledge-api/rag-desktop instance running at the same time.
+      - "13199:13199"

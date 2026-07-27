@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Knowledge{% endblock %}
+{% block card_class %}card wide{% endblock %}
+{% block content %}
+<div class="top-bar">
+  <form method="post" action="{{ url_for('auth_ui.logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="secondary">Log out</button>
+  </form>
+</div>
+
+<h1>Applications</h1>
+<p class="subtitle">Registered OAuth2 clients — each gets its own client_id/client_secret and a scoped token.</p>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<table>
+  <thead><tr><th>Application Name</th><th>Last used</th><th>Token</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for app in applications %}
+    <tr>
+      <td>
+        {{ app.name }}
+        <button type="button" class="info-icon-btn" data-name="{{ app.name }}" data-client-id="{{ app.id }}" data-scopes="{{ app.allowed_scopes | join(', ') }}" aria-label="Show application details" title="Show application details">i</button>
+      </td>
+      <td>{{ app.last_used_at or '—' }}</td>
+      <td>
+        {% if app.token_status == 'active' %}<span class="badge active">active</span>
+        {% elif app.token_status == 'revoked' %}<span class="badge revoked">revoked</span>
+        {% else %}<span class="badge revoked">none issued</span>{% endif %}
+      </td>
+      <td>
+        <div class="btn-group">
+          <form method="post" action="{{ url_for('auth_ui.revoke_token', application_id=app.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger" {% if app.token_status != 'active' %}disabled{% endif %}>Revoke</button>
+          </form>
+          <form method="post" action="{{ url_for('auth_ui.delete_application', application_id=app.id) }}" class="confirm-delete-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4">No applications registered yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<div class="popup-overlay" id="scope-popup-overlay" hidden>
+  <div class="popup">
+    <div class="popup-header">
+      <strong id="scope-popup-title">Application details</strong>
+      <button type="button" class="popup-close" id="scope-popup-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="popup-field"><strong>Client Id</strong><br><code id="scope-popup-client-id"></code></p>
+    <p class="popup-field">
+      <strong>Client Secret</strong><br>
+      <span class="popup-hint">Hidden — shown only once, when generated. If it's lost, delete this application and register it again.</span>
+    </p>
+    <p class="popup-field"><strong>Allowed scopes</strong></p>
+    <ul id="scope-popup-list"></ul>
+  </div>
+</div>
+
+{% if new_credential %}
+<div class="popup-overlay" id="new-credential-overlay">
+  <div class="popup">
+    <div class="popup-header">
+      <strong>{{ new_credential.name }}</strong>
+      <button type="button" class="popup-close" id="new-credential-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="popup-hint" style="margin: -4px 0 12px;">Copy this now — it will not be shown again.</p>
+    <p class="popup-field">
+      <strong>Client Id</strong><br>
+      <span class="copy-row">
+        <code id="new-credential-client-id">{{ new_credential.client_id }}</code>
+        <button type="button" class="copy-btn" data-copy-target="new-credential-client-id" aria-label="Copy Client Id" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3.5 10.5H2.5A1 1 0 0 1 1.5 9.5v-7A1 1 0 0 1 2.5 1.5h7a1 1 0 0 1 1 1v1"/></svg>
+        </button>
+      </span>
+    </p>
+    <p class="popup-field">
+      <strong>Client Secret</strong><br>
+      <span class="copy-row">
+        <code id="new-credential-client-secret">{{ new_credential.client_secret }}</code>
+        <button type="button" class="copy-btn" data-copy-target="new-credential-client-secret" aria-label="Copy Client Secret" title="Copy">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3.5 10.5H2.5A1 1 0 0 1 1.5 9.5v-7A1 1 0 0 1 2.5 1.5h7a1 1 0 0 1 1 1v1"/></svg>
+        </button>
+      </span>
+    </p>
+  </div>
+</div>
+{% endif %}
+
+<h1 style="margin-top: 32px;">Register application</h1>
+<form method="post" action="{{ url_for('auth_ui.register_application') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="name">Name</label>
+  <input type="text" id="name" name="name" required>
+  <label>Allowed scopes <button type="button" class="link-btn" id="select-all-scopes">Select all</button></label>
+  <div class="scope-list">
+    {% for scope in supported_scopes %}
+    <label><input type="checkbox" name="scopes" value="{{ scope }}"> {{ scope }}</label>
+    {% endfor %}
+  </div>
+  <button type="submit">Register</button>
+</form>
+
+<script>
+  (function () {
+    var overlay = document.getElementById("scope-popup-overlay");
+    var title = document.getElementById("scope-popup-title");
+    var clientIdEl = document.getElementById("scope-popup-client-id");
+    var list = document.getElementById("scope-popup-list");
+
+    document.querySelectorAll(".info-icon-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        title.textContent = btn.dataset.name;
+        clientIdEl.textContent = btn.dataset.clientId || "";
+        list.innerHTML = "";
+        (btn.dataset.scopes || "").split(", ").filter(Boolean).forEach(function (scope) {
+          var li = document.createElement("li");
+          li.textContent = scope;
+          list.appendChild(li);
+        });
+        overlay.hidden = false;
+      });
+    });
+
+    document.getElementById("scope-popup-close").addEventListener("click", function () {
+      overlay.hidden = true;
+    });
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay) overlay.hidden = true;
+    });
+
+    var newCredentialOverlay = document.getElementById("new-credential-overlay");
+    if (newCredentialOverlay) {
+      document.getElementById("new-credential-close").addEventListener("click", function () {
+        newCredentialOverlay.hidden = true;
+      });
+      newCredentialOverlay.addEventListener("click", function (event) {
+        if (event.target === newCredentialOverlay) newCredentialOverlay.hidden = true;
+      });
+    }
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      document.querySelectorAll(".popup-overlay").forEach(function (popup) {
+        popup.hidden = true;
+      });
+    });
+
+    document.querySelectorAll(".copy-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var target = document.getElementById(btn.dataset.copyTarget);
+        if (!target) return;
+        navigator.clipboard.writeText(target.textContent).then(function () {
+          btn.classList.add("copied");
+          setTimeout(function () { btn.classList.remove("copied"); }, 1200);
+        });
+      });
+    });
+
+    var selectAllBtn = document.getElementById("select-all-scopes");
+    var scopeCheckboxes = document.querySelectorAll('input[name="scopes"]');
+    selectAllBtn.addEventListener("click", function () {
+      var shouldCheck = Array.prototype.some.call(scopeCheckboxes, function (cb) { return !cb.checked; });
+      scopeCheckboxes.forEach(function (cb) { cb.checked = shouldCheck; });
+      selectAllBtn.textContent = shouldCheck ? "Deselect all" : "Select all";
+    });
+
+    document.querySelectorAll(".confirm-delete-form").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        if (!window.confirm("Delete this application? This permanently removes its credentials and token — this cannot be undone.")) {
+          event.preventDefault();
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

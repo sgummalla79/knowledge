@@ -1,7 +1,16 @@
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.entities import Document, Library, ScoredChunk
+from app.domain.entities import (
+    Application,
+    Document,
+    EmbeddingSettings,
+    Library,
+    RefreshToken,
+    ScoredChunk,
+    SearchSettings,
+    User,
+)
 
 # Protocol (structural typing), not ABC — infra classes satisfy these by shape alone, no
 # explicit inheritance needed. Same Dependency Inversion benefit, less ceremony.
@@ -37,3 +46,74 @@ class ChunkRepositoryPort(Protocol):
     def bulk_create(self, document_id: UUID, library_id: UUID, chunks: list[tuple[int, str, list[float]]]) -> None: ...
 
     def similarity_search(self, library_id: UUID, query_embedding: list[float], top_k: int) -> list[ScoredChunk]: ...
+
+    def sparse_search(self, library_id: UUID, query_text: str, top_k: int) -> list[ScoredChunk]: ...
+
+
+class EmbeddingSettingsRepositoryPort(Protocol):
+    def get(self) -> EmbeddingSettings | None: ...
+
+    def upsert(
+        self, provider: str, model: str, api_key: str, chunk_size: int, chunk_overlap: int
+    ) -> EmbeddingSettings: ...
+
+    def clear(self) -> None: ...
+
+
+class SearchSettingsRepositoryPort(Protocol):
+    def get(self) -> SearchSettings | None: ...
+
+    def upsert(
+        self,
+        rerank_enabled: bool,
+        rerank_provider: str,
+        rerank_model: str,
+        dense_k: int,
+        sparse_k: int,
+        rerank_candidates: int,
+        rrf_k: int,
+    ) -> SearchSettings: ...
+
+
+class RerankProviderPort(Protocol):
+    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]]: ...
+
+
+class UserRepositoryPort(Protocol):
+    def get(self) -> User | None: ...
+
+    def create_default(self, username: str, password_hash: str) -> User: ...
+
+    def update_password(self, user_id: UUID, password_hash: str) -> None: ...
+
+
+class ApplicationRepositoryPort(Protocol):
+    def create(self, name: str, client_secret_hash: str, allowed_scopes: list[str]) -> Application: ...
+
+    def list(self) -> list[Application]: ...
+
+    def get(self, application_id: UUID) -> Application | None: ...
+
+    def get_by_name(self, name: str) -> Application | None: ...
+
+    def find_by_credentials(self, application_id: UUID, client_secret_hash: str) -> Application | None: ...
+
+    def update_secret(self, application_id: UUID, client_secret_hash: str) -> None: ...
+
+    def delete(self, application_id: UUID) -> None: ...
+
+    def update_secret(self, application_id: UUID, client_secret_hash: str) -> None: ...
+
+
+class RefreshTokenRepositoryPort(Protocol):
+    def create(
+        self, application_id: UUID, token_hash: str, scope: list[str], expires_at
+    ) -> RefreshToken: ...
+
+    def find_valid_by_hash(self, token_hash: str) -> RefreshToken | None: ...
+
+    def find_current_for_application(self, application_id: UUID) -> RefreshToken | None: ...
+
+    def revoke(self, token_id: UUID) -> None: ...
+
+    def touch_last_used(self, token_id: UUID) -> None: ...

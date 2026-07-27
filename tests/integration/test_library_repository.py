@@ -11,10 +11,6 @@ def _create_library(repo, **overrides):
     fields = {
         "name": "test-library",
         "description": None,
-        "embedding_provider": "voyage",
-        "embedding_model": "voyage-3",
-        "chunk_size": 800,
-        "chunk_overlap": 100,
     }
     fields.update(overrides)
     return repo.create(**fields)
