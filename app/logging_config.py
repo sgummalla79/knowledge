@@ -26,6 +26,8 @@ _EXTRA_ALLOWLIST = (
     "base_url",
     "chunk_count",
     "batch_size",
+    "batch_number",
+    "total_batches",
     "top_k",
     "dense_count",
     "sparse_count",

@@ -12,7 +12,13 @@ _EMBED_PATH = "/api/embed"
 # (input_type "document" vs "query") one level down, at the text level instead of an API parameter.
 _DOCUMENT_PREFIX = "search_document: "
 _QUERY_PREFIX = "search_query: "
-_REQUEST_TIMEOUT_SECONDS = 60
+_REQUEST_TIMEOUT_SECONDS = 120
+# A document's full chunk set was originally sent to Ollama in one request — fine for small
+# documents, but CPU-only local inference of several hundred chunks in a single call routinely
+# exceeded even a generous timeout (a 457-chunk PDF timed out at 60s in practice). Splitting into
+# fixed-size batches bounds each request's duration regardless of total document size, and a
+# transient failure only loses one batch's progress instead of the whole document.
+_DOCUMENT_BATCH_SIZE = 32
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
@@ -21,7 +27,23 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         self._model = model
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self._embed([_DOCUMENT_PREFIX + text for text in texts])
+        embeddings: list[list[float]] = []
+        batches = [
+            texts[start : start + _DOCUMENT_BATCH_SIZE]
+            for start in range(0, len(texts), _DOCUMENT_BATCH_SIZE)
+        ]
+        for batch_number, batch in enumerate(batches, start=1):
+            logger.debug(
+                "Embedding batch",
+                extra={
+                    "model": self._model,
+                    "batch_size": len(batch),
+                    "batch_number": batch_number,
+                    "total_batches": len(batches),
+                },
+            )
+            embeddings.extend(self._embed([_DOCUMENT_PREFIX + text for text in batch]))
+        return embeddings
 
     def embed_query(self, text: str) -> list[float]:
         return self._embed([_QUERY_PREFIX + text])[0]
