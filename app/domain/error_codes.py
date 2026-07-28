@@ -1,6 +1,7 @@
 LIBRARY_NOT_FOUND = "library_not_found"
 LIBRARY_NAME_TAKEN = "library_name_taken"
 DOCUMENT_NOT_FOUND = "document_not_found"
+DOCUMENT_NOT_RETRYABLE = "document_not_retryable"
 JOB_NOT_FOUND = "job_not_found"
 VALIDATION_ERROR = "validation_error"
 UNSUPPORTED_FILE_TYPE = "unsupported_file_type"

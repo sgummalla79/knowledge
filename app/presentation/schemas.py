@@ -57,6 +57,7 @@ class DocumentResponse(BaseModel):
     source_filename: str
     file_type: str
     status: str
+    error_message: str | None
     ingested_at: datetime | None
     created_at: datetime
 
@@ -68,6 +69,7 @@ class DocumentResponse(BaseModel):
             source_filename=document.source_filename,
             file_type=document.file_type,
             status=document.status,
+            error_message=document.error_message,
             ingested_at=document.ingested_at,
             created_at=document.created_at,
         )
@@ -109,7 +111,8 @@ class EmbeddingSettingsUpdateRequest(BaseModel):
 
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
-    api_key: str = Field(min_length=1)
+    api_key: str | None = Field(default=None, min_length=1)
+    base_url: str | None = Field(default=None, min_length=1)
     chunk_size: int = Field(default=DEFAULT_CHUNK_SIZE, gt=0)
     chunk_overlap: int = Field(default=DEFAULT_CHUNK_OVERLAP, ge=0)
 
@@ -118,6 +121,7 @@ class EmbeddingSettingsResponse(BaseModel):
     provider: str | None
     model: str | None
     configured: bool
+    base_url: str | None
     chunk_size: int
     chunk_overlap: int
     updated_at: datetime | None
@@ -128,6 +132,7 @@ class EmbeddingSettingsResponse(BaseModel):
             provider=status.provider,
             model=status.model,
             configured=status.configured,
+            base_url=status.base_url,
             chunk_size=status.chunk_size,
             chunk_overlap=status.chunk_overlap,
             updated_at=status.updated_at,

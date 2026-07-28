@@ -48,7 +48,13 @@ class SearchSettingsService:
         rerank_candidates: int,
         rrf_k: int,
     ) -> SearchSettings:
-        validate_rerank_choice(rerank_provider, rerank_model)
+        # Only validate rerank_provider/model against SUPPORTED_RERANK_MODELS_BY_PROVIDER when
+        # actually turning reranking on — with no supported provider today (see app/constants.py),
+        # this keeps updating the other search settings (dense_k, sparse_k, rrf_k, ...) working
+        # normally while rerank stays off, rather than blocking every update on an unenforceable
+        # provider/model pair.
+        if rerank_enabled:
+            validate_rerank_choice(rerank_provider, rerank_model)
         return self._repository.upsert(
             rerank_enabled=rerank_enabled,
             rerank_provider=rerank_provider,

@@ -19,7 +19,13 @@ def client():
 
 def test_get_status_not_configured(client, auth_headers):
     status = EmbeddingSettingsStatus(
-        provider=None, model=None, configured=False, chunk_size=800, chunk_overlap=100, updated_at=None
+        provider=None,
+        model=None,
+        configured=False,
+        base_url=None,
+        chunk_size=800,
+        chunk_overlap=100,
+        updated_at=None,
     )
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingSettingsService.get_status",
@@ -36,9 +42,10 @@ def test_get_status_not_configured(client, auth_headers):
 
 def test_get_status_configured(client, auth_headers):
     status = EmbeddingSettingsStatus(
-        provider="voyage",
-        model="voyage-3",
+        provider="ollama",
+        model="nomic-embed-text",
         configured=True,
+        base_url="http://ollama:11434",
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc),
@@ -51,20 +58,53 @@ def test_get_status_configured(client, auth_headers):
 
     body = response.get_json()
     assert body["configured"] is True
-    assert body["provider"] == "voyage"
-    assert body["model"] == "voyage-3"
+    assert body["provider"] == "ollama"
+    assert body["model"] == "nomic-embed-text"
+    assert body["base_url"] == "http://ollama:11434"
     assert "api_key" not in body
 
 
-def test_update_missing_api_key_returns_structured_400(client, auth_headers):
+def test_update_unsupported_voyage_model_returns_structured_400(client, auth_headers):
+    # voyage-3 produces 1024-dim vectors, incompatible with this deployment's EMBEDDING_DIM (768),
+    # and "voyage" isn't a key in SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER at all anymore — real
+    # (unmocked) validate_embedding_choice rejects it as an unsupported provider before any DB
+    # access happens.
     response = client.put(
         "/embedding-settings",
-        json={"provider": "voyage", "model": "voyage-3"},
+        json={"provider": "voyage", "model": "voyage-3", "api_key": "secret"},
         headers=auth_headers("embedding_settings:write"),
     )
 
     assert response.status_code == 400
-    assert response.get_json()["error"]["field"] == "api_key"
+    assert response.get_json()["error"]["field"] == "embedding_provider"
+
+
+def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
+    # Ollama is self-hosted/keyless — proves api_key is genuinely optional end-to-end at the HTTP
+    # layer, not just required-with-empty-string.
+    status = EmbeddingSettingsStatus(
+        provider="ollama",
+        model="nomic-embed-text",
+        configured=True,
+        base_url="http://ollama:11434",
+        chunk_size=800,
+        chunk_overlap=100,
+        updated_at=datetime.now(timezone.utc),
+    )
+    with patch(
+        "app.presentation.routes.embedding_settings.EmbeddingSettingsService.update",
+        return_value=status,
+    ):
+        response = client.put(
+            "/embedding-settings",
+            json={"provider": "ollama", "model": "nomic-embed-text"},
+            headers=auth_headers("embedding_settings:write"),
+        )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["configured"] is True
+    assert body["base_url"] == "http://ollama:11434"
 
 
 def test_update_unsupported_model_returns_structured_400(client, auth_headers):
@@ -99,9 +139,10 @@ def test_update_bad_chunking_returns_structured_400(client, auth_headers):
 
 def test_update_success_returns_configured_true(client, auth_headers):
     status = EmbeddingSettingsStatus(
-        provider="voyage",
-        model="voyage-3",
+        provider="ollama",
+        model="nomic-embed-text",
         configured=True,
+        base_url="http://ollama:11434",
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc),
@@ -112,7 +153,7 @@ def test_update_success_returns_configured_true(client, auth_headers):
     ):
         response = client.put(
             "/embedding-settings",
-            json={"provider": "voyage", "model": "voyage-3", "api_key": "secret"},
+            json={"provider": "ollama", "model": "nomic-embed-text"},
             headers=auth_headers("embedding_settings:write"),
         )
 
@@ -127,7 +168,13 @@ def test_missing_auth_returns_401(client):
 
 def test_delete_clears_settings_and_returns_configured_false(client, auth_headers):
     status = EmbeddingSettingsStatus(
-        provider=None, model=None, configured=False, chunk_size=800, chunk_overlap=100, updated_at=None
+        provider=None,
+        model=None,
+        configured=False,
+        base_url=None,
+        chunk_size=800,
+        chunk_overlap=100,
+        updated_at=None,
     )
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingSettingsService.clear",

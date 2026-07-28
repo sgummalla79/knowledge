@@ -15,6 +15,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # Service key stays "ollama" (matching docker-compose.yml) — only container_name differs, for
+  # human-readable `docker ps` output — so app/constants.py's DEFAULT_OLLAMA_BASE_URL
+  # ("http://ollama:11434") resolves correctly in this isolated stack without any override.
+  ollama:
+    image: ollama/ollama:0.3.14
+    container_name: knowledge-ollama-test
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama-pull:
+    image: ollama/ollama:0.3.14
+    container_name: knowledge-ollama-pull-test
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull nomic-embed-text"]
+    restart: "no"
+
   api-test:
     build: .
     image: knowledge-api:testing
@@ -22,10 +45,13 @@ services:
     depends_on:
       knowledge-db-test:
         condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://rag_test:rag_test@knowledge-db-test:5432/rag_test
       SECRET_KEY: test-secret-key
       PORT: 13199
+      LOG_LEVEL: DEBUG
     ports:
       # 13199: deliberately outside the 13100 series used by the real api/rag-desktop, so this
       # stack can never collide with a live knowledge-api/rag-desktop instance running at the same time.

@@ -1,17 +1,44 @@
 # pgvector requires a fixed vector dimension at table-creation time, so the embedding column
 # cannot be sized dynamically per library. v1 standardizes on a single embedding model/dimension;
 # supporting a different dimension later requires a migration (documented "start narrow" tradeoff).
-EMBEDDING_DIM = 1024
+EMBEDDING_DIM = 768
 
-DEFAULT_EMBEDDING_PROVIDER = "voyage"
-DEFAULT_EMBEDDING_MODEL = "voyage-3"
+DEFAULT_EMBEDDING_PROVIDER = "ollama"
+DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
 
 # Exposed via GET /embedding-options so clients (e.g. the desktop UI) populate choices from the
 # API instead of hardcoding provider/model names. EMBEDDING_DIM constrains this to models that
-# produce EMBEDDING_DIM-length vectors until per-library dimensions are supported.
+# produce EMBEDDING_DIM-length vectors until per-library dimensions are supported. "voyage-3" is
+# intentionally absent: it produces 1024-dim vectors, incompatible with EMBEDDING_DIM=768. The
+# VoyageEmbeddingProvider class/registry entry stays in the codebase (may be re-enabled if a
+# 768-dim-capable Voyage model shows up) but is unreachable via this API until it's added back here.
 SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER = {
     DEFAULT_EMBEDDING_PROVIDER: [DEFAULT_EMBEDDING_MODEL],
 }
+
+# Declares the vector dimension each (provider, model) pair natively produces, so
+# validate_embedding_choice can reject a dimension-mismatched selection with a clear 400 instead of
+# a cryptic pgvector error at ingest time. Includes entries not currently in
+# SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER (e.g. voyage-3) purely for documentation/future re-enable.
+EMBEDDING_MODEL_DIMENSIONS = {
+    ("ollama", "nomic-embed-text"): 768,
+    ("voyage", "voyage-3"): 1024,
+}
+
+# Providers whose embedding_settings.api_key is required (non-empty) vs. optional (self-hosted).
+# Data-driven so validation never branches on a provider's name directly (Open/Closed).
+EMBEDDING_PROVIDERS_REQUIRING_API_KEY = {"voyage"}
+
+# Providers that accept a connection override via embedding_settings.base_url (self-hosted
+# providers only). Drives whether GET /embedding-options advertises a base_url field.
+EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama"}
+
+# The one genuinely "inevitable" literal in this file: the compile-time-known network address of
+# the bundled Ollama sidecar (docker-compose service key "ollama", Ollama's default port). Used
+# only to seed the embedding_settings bootstrap row's initial base_url — once seeded, base_url is
+# a normal DB value editable via PUT /embedding-settings (e.g. to point at an external/GPU-hosted
+# Ollama instead), not a hardcoded runtime dependency.
+DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
 # Fallback chunking parameters used only when a library is created without explicit values;
 # callers can always override per-library via the create/update library request body.
@@ -32,9 +59,15 @@ DEFAULT_RERANK_PROVIDER = "voyage"
 DEFAULT_RERANK_MODEL = "rerank-2"
 
 # Exposed via GET /rerank-options, same rationale as SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER above.
-SUPPORTED_RERANK_MODELS_BY_PROVIDER = {
-    DEFAULT_RERANK_PROVIDER: [DEFAULT_RERANK_MODEL],
-}
+# Intentionally empty: Voyage was the only rerank provider, and (like voyage-3 for embeddings)
+# it's now inactive now that the default embedding provider is keyless local Ollama — reranking
+# would otherwise be the one remaining feature still requiring an external API key. The
+# VoyageRerankProvider class/registry entry stays in the codebase (may be re-enabled if a keyless
+# or otherwise-supported rerank provider shows up) but is unreachable via this API: with no
+# supported provider, rerank_enabled can never be validly turned on (see
+# SearchSettingsService.update, which only validates rerank_provider/model when actually enabling
+# it, so leaving rerank off still works normally).
+SUPPORTED_RERANK_MODELS_BY_PROVIDER = {}
 
 MAX_UPLOAD_MB = 50
 

@@ -94,6 +94,141 @@ def test_ingest_without_configured_embeddings_raises(db_session):
     assert documents == []
 
 
+def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-clears-bytes-test")
+    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    service = _make_service(db_session)
+    text = "abcdefghijklmnopqrstuvwxyz" * 3
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        document = service.ingest(library, "notes.txt", text.encode())
+    db_session.commit()
+
+    # The original file is only needed to retry a failed ingestion — once completed, it's dead
+    # weight and should be reclaimed automatically (DocumentRepository.update_status).
+    assert document_repo.get_raw_bytes(document.id) is None
+    assert document.error_message is None
+
+
+def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-keeps-bytes-test")
+    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    service = _make_service(db_session)
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        side_effect=RuntimeError("embedding API unavailable"),
+    ):
+        with pytest.raises(RuntimeError):
+            service.ingest(library, "notes.txt", b"hello world")
+    db_session.commit()
+
+    documents = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")
+    assert len(documents) == 1
+    failed_document = documents[0]
+    assert failed_document.status == "failed"
+    assert "embedding API unavailable" in failed_document.error_message
+    assert document_repo.get_raw_bytes(failed_document.id) == b"hello world"
+
+
+def test_retry_after_failure_succeeds_without_double_counting(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="retry-success-test")
+    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    service = _make_service(db_session)
+    text = "abcdefghijklmnopqrstuvwxyz" * 3
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        side_effect=RuntimeError("embedding API unavailable"),
+    ):
+        with pytest.raises(RuntimeError):
+            service.ingest(library, "notes.txt", text.encode())
+    db_session.commit()
+
+    failed_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    assert failed_document.status == "failed"
+    after_failure_library = library_repo.get(library.id)
+    assert after_failure_library.document_count == 0
+    assert after_failure_library.chunk_count == 0
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        retried_document = service.retry(failed_document, library)
+    db_session.commit()
+
+    assert retried_document.status == "completed"
+    assert retried_document.error_message is None
+    assert document_repo.get_raw_bytes(retried_document.id) is None
+
+    final_library = library_repo.get(library.id)
+    assert final_library.document_count == 1
+    assert final_library.chunk_count > 0
+
+
+def test_retry_without_stored_bytes_raises_document_not_retryable(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="retry-no-bytes-test")
+    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    db_session.commit()
+
+    # Simulates a document that predates raw-bytes storage (or whose bytes were already cleared) —
+    # created directly via the repository, bypassing IngestionService.ingest(), so raw_file_bytes
+    # stays NULL.
+    document_repo = DocumentRepository(db_session)
+    document = document_repo.create(
+        library_id=library.id,
+        source_filename="legacy.txt",
+        file_type="txt",
+        content_hash="deadbeef",
+        status="failed",
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    with pytest.raises(ValidationError) as exc_info:
+        service.retry(document, library)
+    assert exc_info.value.code == error_codes.DOCUMENT_NOT_RETRYABLE
+
+
+def test_retry_without_configured_embeddings_raises(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="retry-unconfigured-test")
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    document = document_repo.create(
+        library_id=library.id,
+        source_filename="notes.txt",
+        file_type="txt",
+        content_hash="deadbeef",
+        status="failed",
+        raw_file_bytes=b"hello world",
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    with pytest.raises(ValidationError) as exc_info:
+        service.retry(document, library)
+    assert exc_info.value.code == error_codes.EMBEDDINGS_NOT_CONFIGURED
+
+
 def test_embedding_settings_clear_removes_the_row(db_session):
     repo = EmbeddingSettingsRepository(db_session)
     repo.upsert("voyage", "voyage-3", "secret", chunk_size=800, chunk_overlap=100)

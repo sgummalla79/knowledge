@@ -26,6 +26,7 @@ class Document:
     source_filename: str
     file_type: str
     status: str
+    error_message: str | None
     ingested_at: datetime | None
     created_at: datetime
 
@@ -47,7 +48,8 @@ class EmbeddingSettings:
     id: UUID
     provider: str
     model: str
-    api_key: str
+    api_key: str | None
+    base_url: str | None
     chunk_size: int
     chunk_overlap: int
     created_at: datetime

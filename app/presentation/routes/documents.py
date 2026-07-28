@@ -7,6 +7,7 @@ from app.auth import require_scope
 from app.container import get_session
 from app.domain import error_codes
 from app.domain.errors import ValidationError
+from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.presentation.schemas import DocumentResponse, JobStatusResponse, PaginationQuery
@@ -16,7 +17,7 @@ documents_bp = Blueprint("documents", __name__, url_prefix="/libraries/<uuid:lib
 
 def _service() -> DocumentService:
     session = get_session()
-    return DocumentService(DocumentRepository(session), LibraryRepository(session))
+    return DocumentService(DocumentRepository(session), LibraryRepository(session), ChunkRepository(session))
 
 
 @documents_bp.post("/documents")
@@ -46,3 +47,17 @@ def list_documents(library_id: UUID):
 def get_job(library_id: UUID, job_id: str):
     status = _service().get_job_status(job_id)
     return jsonify(JobStatusResponse(**status).model_dump())
+
+
+@documents_bp.delete("/documents/<uuid:document_id>")
+@require_scope("documents:write")
+def delete_document(library_id: UUID, document_id: UUID):
+    _service().delete_document(library_id, document_id)
+    return "", 204
+
+
+@documents_bp.post("/documents/<uuid:document_id>/retry")
+@require_scope("documents:write")
+def retry_document(library_id: UUID, document_id: UUID):
+    job_id = _service().start_retry(library_id, document_id)
+    return jsonify({"job_id": job_id}), 202

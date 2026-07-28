@@ -24,7 +24,9 @@ def get_embedding_settings():
 @require_scope("embedding_settings:write")
 def update_embedding_settings():
     dto = EmbeddingSettingsUpdateRequest.model_validate(request.get_json(silent=True) or {})
-    status = _service().update(dto.provider, dto.model, dto.api_key, dto.chunk_size, dto.chunk_overlap)
+    status = _service().update(
+        dto.provider, dto.model, dto.api_key, dto.chunk_size, dto.chunk_overlap, dto.base_url
+    )
     return jsonify(EmbeddingSettingsResponse.from_status(status).model_dump(mode="json"))
 
 

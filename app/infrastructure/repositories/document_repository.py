@@ -14,6 +14,7 @@ def _to_entity(model: DocumentModel) -> DocumentEntity:
         source_filename=model.source_filename,
         file_type=model.file_type,
         status=model.status,
+        error_message=model.error_message,
         ingested_at=model.ingested_at,
         created_at=model.created_at,
     )
@@ -49,10 +50,29 @@ class DocumentRepository:
     def count_for_library(self, library_id) -> int:
         return self._session.query(DocumentModel).filter(DocumentModel.library_id == library_id).count()
 
-    def update_status(self, document_id, status: str, ingested_at=None) -> DocumentEntity:
+    def update_status(self, document_id, status: str, ingested_at=None, error_message=None) -> DocumentEntity:
         model = self._session.get(DocumentModel, document_id)
         model.status = status
         if ingested_at is not None:
             model.ingested_at = ingested_at
+        model.error_message = error_message
+        if status == "completed":
+            # The original file is only ever needed to retry a failed ingestion — once a document
+            # is fully ingested, its content lives in `chunks` and the raw upload is dead weight.
+            # Reclaiming it here (not left to callers to remember) keeps storage bounded by
+            # currently-processing-or-failed documents, not total historical upload volume.
+            model.raw_file_bytes = None
         self._session.flush()
         return _to_entity(model)
+
+    def get_raw_bytes(self, document_id) -> bytes | None:
+        model = self._session.get(DocumentModel, document_id)
+        return model.raw_file_bytes if model is not None else None
+
+    def delete(self, document_id) -> None:
+        model = self._session.get(DocumentModel, document_id)
+        if model is not None:
+            # Chunk rows cascade-delete at the DB level (chunks.document_id has ON DELETE CASCADE
+            # — see migrations/versions/0001_initial.py) — no explicit chunk cleanup needed here.
+            self._session.delete(model)
+            self._session.flush()

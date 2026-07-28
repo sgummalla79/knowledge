@@ -1,9 +1,12 @@
+import logging
 from uuid import UUID
 
 from app.domain import error_codes
 from app.domain.entities import Library
 from app.domain.errors import NotFoundError
 from app.domain.ports import LibraryRepositoryPort
+
+logger = logging.getLogger(__name__)
 
 
 class LibraryService:
@@ -29,3 +32,4 @@ class LibraryService:
         if self._repository.get(library_id) is None:
             raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
         self._repository.delete(library_id)
+        logger.info("Library deleted", extra={"library_id": str(library_id)})

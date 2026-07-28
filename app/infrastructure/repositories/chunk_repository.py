@@ -8,6 +8,9 @@ class ChunkRepository:
     def __init__(self, session):
         self._session = session
 
+    def count_for_document(self, document_id) -> int:
+        return self._session.query(Chunk).filter(Chunk.document_id == document_id).count()
+
     def bulk_create(self, document_id, library_id, chunks: list[tuple[int, str, list[float]]]) -> None:
         models = [
             Chunk(

@@ -1,7 +1,8 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, LargeBinary, String, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import deferred
 
 from app.infrastructure.orm.base import Base
 
@@ -15,6 +16,11 @@ class Document(Base):
     file_type = Column(String, nullable=False)
     content_hash = Column(String, nullable=False)
     status = Column(String, nullable=False, default="pending")
+    # Deferred: only loaded when explicitly accessed (DocumentRepository.get_raw_bytes), not on
+    # every plain get()/list_for_library() query — those don't need this column and it can be up
+    # to MAX_UPLOAD_MB per row, so loading it unconditionally on every list call would be wasteful.
+    raw_file_bytes = deferred(Column(LargeBinary, nullable=True))
+    error_message = Column(String, nullable=True)
     ingested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

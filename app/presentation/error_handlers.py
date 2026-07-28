@@ -1,4 +1,6 @@
-from flask import jsonify, current_app
+import logging
+
+from flask import jsonify
 from flask_limiter.errors import RateLimitExceeded
 from pydantic import ValidationError as PydanticValidationError
 from werkzeug.exceptions import HTTPException
@@ -6,6 +8,8 @@ from werkzeug.exceptions import HTTPException
 from app.container import rollback_session_if_active
 from app.domain import error_codes
 from app.domain.errors import DomainError
+
+logger = logging.getLogger(__name__)
 
 
 def _envelope(code: str, message: str, field: str | None, status: int):
@@ -22,6 +26,7 @@ def _envelope(code: str, message: str, field: str | None, status: int):
 def register_error_handlers(app):
     @app.errorhandler(DomainError)
     def handle_domain_error(error: DomainError):
+        logger.debug("Domain error: %s (%s)", error.message, error.code)
         return _envelope(error.code, error.message, error.field, error.http_status)
 
     @app.errorhandler(PydanticValidationError)
@@ -42,5 +47,5 @@ def register_error_handlers(app):
 
     @app.errorhandler(Exception)
     def handle_unexpected_error(error: Exception):
-        current_app.logger.exception("Unhandled exception")
+        logger.exception("Unhandled exception")
         return _envelope(error_codes.INTERNAL_ERROR, "An unexpected error occurred.", None, 500)

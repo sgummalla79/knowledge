@@ -4,9 +4,12 @@ from app.auth import require_scope
 from app.constants import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_EMBEDDING_PROVIDER,
+    DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_RERANK_MODEL,
     DEFAULT_RERANK_PROVIDER,
     EMBEDDING_DIM,
+    EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
+    EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
     SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER,
     SUPPORTED_RERANK_MODELS_BY_PROVIDER,
 )
@@ -20,7 +23,15 @@ def get_embedding_options():
     return jsonify(
         {
             "providers": [
-                {"name": provider, "models": models}
+                {
+                    "name": provider,
+                    "models": models,
+                    "api_key_required": provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
+                    "base_url_supported": provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
+                    "default_base_url": DEFAULT_OLLAMA_BASE_URL
+                    if provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL
+                    else None,
+                }
                 for provider, models in SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER.items()
             ],
             "default_provider": DEFAULT_EMBEDDING_PROVIDER,

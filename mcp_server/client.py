@@ -1,9 +1,12 @@
+import logging
 import os
 import time
 
 import requests
 
 from app.config import config
+
+logger = logging.getLogger(__name__)
 
 # Requested once, at first token exchange — matches exactly what mcp_server's tools use today
 # (list_libraries, query_library) plus offline_access so a refresh token is also issued.
@@ -56,6 +59,9 @@ class RagApiClient:
             data={"grant_type": "refresh_token", "refresh_token": self._refresh_token},
         )
         if not response.ok:
+            # Not necessarily a real failure — _ensure_access_token falls back to a fresh
+            # client_credentials grant right after this returns False, so WARNING, not ERROR.
+            logger.warning("Refresh-token grant failed, status=%s", response.status_code)
             return False
         self._cache_token_response(response.json())
         return True
@@ -70,7 +76,11 @@ class RagApiClient:
                 "scope": _OAUTH_SCOPE,
             },
         )
-        self._raise_for_status(response)
+        try:
+            self._raise_for_status(response)
+        except RagApiError:
+            logger.warning("Client-credentials grant failed")
+            raise
         self._cache_token_response(response.json())
 
     def _cache_token_response(self, body: dict) -> None:
@@ -90,6 +100,12 @@ class RagApiClient:
             except (ValueError, KeyError, TypeError):
                 message = str(error)
                 code = None
+            logger.warning(
+                "API call failed: %s %s -> %s",
+                response.request.method,
+                response.request.url,
+                response.status_code,
+            )
             raise RagApiError(message, code) from error
 
     def _get(self, path: str, retried: bool = False) -> requests.Response:

@@ -7,9 +7,14 @@ from app import create_app
 def client():
     # testing=False so the limiter is actually enabled; a tiny override limit keeps the test
     # fast and deterministic instead of hammering the real "200 per minute" default.
-    # bootstrap_admin=False: this test has no real database behind it (see the route comment
-    # below), so the admin-seeding step (which needs one) must be skipped explicitly here.
-    app = create_app(testing=False, rate_limit_default="2 per minute", bootstrap_admin=False)
+    # bootstrap_admin=False / bootstrap_embedding_settings=False: this test has no real database
+    # behind it (see the route comment below), so both DB-seeding steps must be skipped explicitly.
+    app = create_app(
+        testing=False,
+        rate_limit_default="2 per minute",
+        bootstrap_admin=False,
+        bootstrap_embedding_settings=False,
+    )
     return app.test_client()
 
 

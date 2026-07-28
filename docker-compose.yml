@@ -13,6 +13,45 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Local embedding model runtime — bundled so the app works out of the box with no external API
+  # key. The service key must stay literally "ollama" (Compose resolves internal DNS by service
+  # key, not container_name): app/constants.py's DEFAULT_OLLAMA_BASE_URL ("http://ollama:11434")
+  # depends on it, and that's only the *seed* value for embedding_settings.base_url — editable via
+  # PUT /embedding-settings without a redeploy if Ollama ever runs elsewhere.
+  ollama:
+    image: ollama/ollama:0.3.14
+    container_name: knowledge-ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # One-shot: pulls nomic-embed-text into the ollama-data volume, then exits. api waits on this
+  # completing successfully before it starts, so the default model is always present.
+  ollama-pull:
+    image: ollama/ollama:0.3.14
+    container_name: knowledge-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull nomic-embed-text"]
+    restart: "no"
 
   api:
     build: .
@@ -24,6 +63,8 @@ services:
     depends_on:
       knowledge-db:
         condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD}@knowledge-db:5432/${POSTGRES_DB:-rag}
       SECRET_KEY: ${SECRET_KEY}
@@ -32,10 +73,17 @@ services:
       # register it from the /dashboard and set its client_id/secret here.
       MCP_CLIENT_ID: ${MCP_CLIENT_ID}
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       # 13102: same 13100 series as rag-desktop's dev ports (13100 vite, 13101 HMR) —
       # keeps every port this project touches in one clearly-distinct block.
       - "${PORT:-13102}:${PORT:-13102}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   rag-db-data:
+  ollama-data:

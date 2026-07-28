@@ -1,3 +1,4 @@
+import logging
 from dataclasses import replace
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from app.domain.ports import (
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.rerank.registry import RerankProviderRegistry
 
+logger = logging.getLogger(__name__)
+
 
 class RetrievalService:
     def __init__(
@@ -30,6 +33,7 @@ class RetrievalService:
         self._search_settings = search_settings_repo
 
     def query(self, library_id: UUID, query_text: str, top_k: int) -> list[ScoredChunk]:
+        logger.info("Query started", extra={"library_id": str(library_id), "top_k": top_k})
         library = self._libraries.get(library_id)
         if library is None:
             raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
@@ -43,7 +47,10 @@ class RetrievalService:
         search_settings = self._search_settings.get() or default_search_settings()
 
         provider = EmbeddingProviderRegistry.resolve(
-            embedding_settings.provider, embedding_settings.model, embedding_settings.api_key
+            embedding_settings.provider,
+            embedding_settings.model,
+            embedding_settings.api_key,
+            embedding_settings.base_url,
         )
         query_embedding = provider.embed_query(query_text)
 
@@ -51,6 +58,9 @@ class RetrievalService:
         # no extra external calls. Reranking is the opt-in, external-API-call step on top.
         dense = self._chunks.similarity_search(library.id, query_embedding, search_settings.dense_k)
         sparse = self._chunks.sparse_search(library.id, query_text, search_settings.sparse_k)
+        logger.debug(
+            "Retrieval candidates", extra={"dense_count": len(dense), "sparse_count": len(sparse)}
+        )
 
         chunks_by_id = {chunk.id: chunk for chunk in (*dense, *sparse)}
         fused = reciprocal_rank_fusion(

@@ -31,14 +31,22 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> Waiting for knowledge-api-test to become healthy on :13199"
+healthy=false
 for _ in $(seq 1 30); do
   if curl -sf http://localhost:13199/health >/dev/null 2>&1; then
-    echo "==> knowledge-api-test is up"
-    echo "==> Test image is ready to promote: run scripts/promote-image.sh"
-    exit 0
+    healthy=true
+    break
   fi
   sleep 1
 done
 
-echo "!! knowledge-api-test never became healthy — check: docker compose -f docker-compose.test.yml logs api-test"
-exit 1
+if [ "$healthy" != true ]; then
+  echo "!! knowledge-api-test never became healthy — check: docker compose -f docker-compose.test.yml logs api-test"
+  exit 1
+fi
+echo "==> knowledge-api-test is up"
+
+echo "==> Running end-to-end smoke check (dashboard login, app registration, ingest, query — proves the Ollama sidecar works, not just that migrations applied)"
+"$PYTHON" scripts/smoke_test.py
+
+echo "==> Test image is ready to promote: run scripts/promote-image.sh"

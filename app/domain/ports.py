@@ -39,7 +39,13 @@ class DocumentRepositoryPort(Protocol):
 
     def count_for_library(self, library_id: UUID) -> int: ...
 
-    def update_status(self, document_id: UUID, status: str, ingested_at=None) -> Document: ...
+    def update_status(
+        self, document_id: UUID, status: str, ingested_at=None, error_message: str | None = None
+    ) -> Document: ...
+
+    def get_raw_bytes(self, document_id: UUID) -> bytes | None: ...
+
+    def delete(self, document_id: UUID) -> None: ...
 
 
 class ChunkRepositoryPort(Protocol):
@@ -49,12 +55,20 @@ class ChunkRepositoryPort(Protocol):
 
     def sparse_search(self, library_id: UUID, query_text: str, top_k: int) -> list[ScoredChunk]: ...
 
+    def count_for_document(self, document_id: UUID) -> int: ...
+
 
 class EmbeddingSettingsRepositoryPort(Protocol):
     def get(self) -> EmbeddingSettings | None: ...
 
     def upsert(
-        self, provider: str, model: str, api_key: str, chunk_size: int, chunk_overlap: int
+        self,
+        provider: str,
+        model: str,
+        api_key: str | None,
+        chunk_size: int,
+        chunk_overlap: int,
+        base_url: str | None = None,
     ) -> EmbeddingSettings: ...
 
     def clear(self) -> None: ...
