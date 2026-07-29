@@ -6,10 +6,7 @@ from app.config import config
 from app.constants import MAX_UPLOAD_MB, RATE_LIMIT_DEFAULT
 from app.container import teardown_session
 from app.infrastructure.auth.bootstrap import bootstrap_default_admin
-from app.infrastructure.embeddings.bootstrap import (
-    bootstrap_default_embedding_settings,
-    bootstrap_embedding_provider_settings,
-)
+from app.infrastructure.embeddings.bootstrap import bootstrap_embedding_provider_settings
 from app.infrastructure.orm import SessionLocal
 from app.logging_config import configure_logging, reset_request_id, set_request_id
 from app.presentation.error_handlers import register_error_handlers
@@ -79,7 +76,6 @@ def create_app(
     if bootstrap_embedding_settings:
         session = SessionLocal()
         try:
-            bootstrap_default_embedding_settings(session)
             bootstrap_embedding_provider_settings(session)
         finally:
             session.close()

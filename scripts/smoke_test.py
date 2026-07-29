@@ -2,16 +2,20 @@
 
 Drives the real HTTP surface exactly as a human/client would: log into the dashboard (server-
 rendered, JSON-API doesn't cover app registration by design), register an OAuth2 application,
-mint a token, then create a library, ingest a document, and query it — proving the bundled Ollama
-sidecar's embedding pipeline actually works end to end, not just that migrations applied and
-/health responds.
+mint a token, then create a library — proving the DB, migrations, auth/scope machinery, and core
+CRUD path all work, not just that /health responds.
+
+No embedding provider is enabled by default (the bundled Ollama sidecar was removed from
+docker-compose — see app/constants.py's DEFAULT_DISABLED_EMBEDDING_PROVIDERS), so this
+deliberately stops short of document ingestion/query, which need one configured and enabled
+first. Once an embedding provider is set up, ingest/query are exercised by
+tests/integration/test_ingestion_service.py and test_retrieval_service.py instead.
 
 Run only by scripts/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against the prod stack.
 """
 import re
 import sys
-import time
 
 import requests
 
@@ -20,14 +24,7 @@ _ADMIN_USERNAME = "admin"
 _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
 _APP_NAME = "smoke-test"
-_REQUIRED_SCOPES = [
-    "libraries:write",
-    "libraries:read",
-    "documents:write",
-    "documents:read",
-    "query:execute",
-]
-_JOB_POLL_TIMEOUT_SECONDS = 60
+_REQUIRED_SCOPES = ["libraries:write", "libraries:read"]
 _CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
 _CLIENT_ID_RE = re.compile(r'id="new-credential-client-id">([^<]+)<')
 _CLIENT_SECRET_RE = re.compile(r'id="new-credential-client-secret">([^<]+)<')
@@ -87,20 +84,6 @@ def _register_application_and_get_token() -> str:
     return token_response.json()["access_token"]
 
 
-def _wait_for_job(headers: dict, library_id: str, job_id: str) -> None:
-    deadline = time.monotonic() + _JOB_POLL_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        response = requests.get(f"{BASE_URL}/libraries/{library_id}/jobs/{job_id}", headers=headers)
-        response.raise_for_status()
-        status = response.json()["status"]
-        if status == "completed":
-            return
-        if status == "failed":
-            raise RuntimeError(f"smoke_test: ingestion job failed: {response.json()['error']}")
-        time.sleep(1)
-    raise RuntimeError(f"smoke_test: ingestion job did not complete within {_JOB_POLL_TIMEOUT_SECONDS}s")
-
-
 def main() -> None:
     access_token = _register_application_and_get_token()
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -111,31 +94,12 @@ def main() -> None:
     library_response.raise_for_status()
     library_id = library_response.json()["id"]
 
-    document_content = (
-        b"The knowledge-api smoke test verifies that the bundled Ollama sidecar can embed and "
-        b"retrieve real content end to end."
-    )
-    upload_response = requests.post(
-        f"{BASE_URL}/libraries/{library_id}/documents",
-        files={"file": ("smoke-test.txt", document_content, "text/plain")},
-        headers=headers,
-    )
-    upload_response.raise_for_status()
-    job_id = upload_response.json()["job_id"]
+    get_response = requests.get(f"{BASE_URL}/libraries/{library_id}", headers=headers)
+    get_response.raise_for_status()
+    if get_response.json()["name"] != "smoke-test-library":
+        raise RuntimeError("smoke_test: library round-trip returned unexpected data")
 
-    _wait_for_job(headers, library_id, job_id)
-
-    query_response = requests.post(
-        f"{BASE_URL}/libraries/{library_id}/query",
-        json={"query": "What does the smoke test verify?", "top_k": 1},
-        headers=headers,
-    )
-    query_response.raise_for_status()
-    chunks = query_response.json()["chunks"]
-    if not chunks:
-        raise RuntimeError("smoke_test: query returned zero chunks")
-
-    print(f"smoke_test: OK — ingested and queried successfully ({len(chunks)} chunk(s) returned)")
+    print("smoke_test: OK — auth, scopes, and library CRUD all worked")
 
 
 if __name__ == "__main__":

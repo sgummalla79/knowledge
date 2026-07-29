@@ -3,7 +3,9 @@ from app.infrastructure.orm import EmbeddingProviderSetting
 
 
 def _to_entity(model: EmbeddingProviderSetting) -> EmbeddingProviderToggle:
-    return EmbeddingProviderToggle(provider=model.provider, enabled=model.enabled, updated_at=model.updated_at)
+    return EmbeddingProviderToggle(
+        id=model.id, provider=model.provider, enabled=model.enabled, updated_at=model.updated_at
+    )
 
 
 class EmbeddingProviderSettingsRepository:

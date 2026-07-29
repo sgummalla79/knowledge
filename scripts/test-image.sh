@@ -46,7 +46,7 @@ if [ "$healthy" != true ]; then
 fi
 echo "==> knowledge-api-test is up"
 
-echo "==> Running end-to-end smoke check (dashboard login, app registration, ingest, query — proves the Ollama sidecar works, not just that migrations applied)"
+echo "==> Running end-to-end smoke check (dashboard login, app registration, library CRUD — proves auth/scopes/DB work, not just that migrations applied)"
 "$PYTHON" scripts/smoke_test.py
 
 echo "==> Test image is ready to promote: run scripts/promote-image.sh"

@@ -5,53 +5,191 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Knowledge{% endblock %}</title>
   <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0f172a; color: #e2e8f0; margin: 0; padding: 40px 20px;
+    /* Tokens ported from tweakcn "Professional Theme" (dark mode — this app has no light/dark
+       toggle, so the dark palette is applied unconditionally) */
+    :root {
+      --background: oklch(0.1371 0.0360 258.5258);
+      --foreground: oklch(0.9838 0.0035 247.8583);
+      --card: oklch(0.1371 0.0360 258.5258);
+      --card-foreground: oklch(0.9838 0.0035 247.8583);
+      --primary: oklch(0.6232 0.1879 259.7964);
+      --primary-foreground: oklch(0.2079 0.0399 265.7275);
+      --secondary: oklch(0.2800 0.0369 259.9740);
+      --secondary-foreground: oklch(0.9838 0.0035 247.8583);
+      --muted: oklch(0.2800 0.0369 259.9740);
+      --muted-foreground: oklch(0.7107 0.0351 256.7877);
+      --accent: oklch(0.2800 0.0369 259.9740);
+      --accent-foreground: oklch(0.9838 0.0035 247.8583);
+      --destructive: oklch(0.3959 0.1331 25.7205);
+      --destructive-foreground: oklch(0.9838 0.0035 247.8583);
+      --border: oklch(0.2800 0.0369 259.9740);
+      --input: oklch(0.2800 0.0369 259.9740);
+      --ring: oklch(0.4878 0.2170 264.3876);
+      --radius: 0.375rem;
+      --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
     }
-    .card { max-width: 480px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 32px; }
-    .card.wide { max-width: 900px; }
-    h1 { font-size: 20px; margin: 0 0 8px; }
-    p.subtitle { color: #94a3b8; font-size: 13px; margin: 0 0 24px; }
-    label { display: block; font-size: 13px; color: #cbd5e1; margin-bottom: 6px; }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      font-family: var(--font-sans); letter-spacing: -0.015em; line-height: 1.6;
+      background: var(--background); color: var(--foreground); margin: 0;
+    }
+    a { color: var(--primary); }
+    :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+    p, li, td, th { line-height: 1.6; }
+
+    /* ---- App shell / sidebar ----
+       Desktop: a full-height left column (.sidebar-top = brand row, .sidebar-panel = nav + logout,
+       both always visible — .menu-toggle is hidden). Below 720px this becomes a slim top bar
+       (brand + hamburger) with .sidebar-panel collapsed into a dropdown toggled by JS — the panel
+       is never squeezed inline next to the brand, it's either fully hidden or fully shown below it. */
+    .app-shell { display: flex; min-height: 100vh; align-items: stretch; }
+    .sidebar {
+      width: 232px; flex-shrink: 0; background: var(--card); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; padding: 22px 14px; position: sticky; top: 0; height: 100vh;
+    }
+    .sidebar-top { display: flex; align-items: center; justify-content: space-between; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--foreground); padding: 4px 10px 24px; }
+    .brand-icon { width: 34px; height: 34px; display: inline-flex; flex-shrink: 0; }
+    .brand-icon svg, .brand-icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
+    .brand-name { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+    .login-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 8px; }
+    .menu-toggle {
+      display: none; flex-shrink: 0; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: var(--radius); border: 1px solid var(--border);
+      background: transparent; color: var(--foreground); cursor: pointer;
+    }
+    .menu-toggle:hover { background: var(--secondary); }
+    .menu-icon { width: 18px; height: 18px; flex-shrink: 0; }
+    .sidebar-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+    .sidebar-nav a {
+      display: flex; align-items: center; gap: 10px;
+      color: var(--muted-foreground); text-decoration: none; font-size: 13.5px; line-height: 1.4;
+      padding: 9px 12px; border-radius: var(--radius);
+    }
+    .sidebar-nav a:hover { color: var(--foreground); background: var(--secondary); }
+    .sidebar-nav a.active { color: var(--foreground); background: var(--secondary); font-weight: 600; }
+    .nav-icon { width: 16px; height: 16px; flex-shrink: 0; }
+    .sidebar-footer { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
+    .sidebar-footer button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .main-area { flex: 1; min-width: 0; }
+    @media (max-width: 720px) {
+      .app-shell { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; position: static; padding: 0; }
+      .sidebar-top { padding: 12px clamp(16px, 4vw, 32px); }
+      .brand { padding: 4px 0; }
+      .menu-toggle { display: flex; }
+      .sidebar-panel {
+        display: none; flex: none;
+        border-top: 1px solid var(--border);
+        padding: 10px clamp(16px, 4vw, 32px) 16px;
+      }
+      .sidebar-panel.open { display: flex; }
+      .sidebar-footer { margin-top: 14px; }
+    }
+
+    /* ---- Page / card ----
+       .card is a boxed, bordered surface — appropriate for the standalone login/change-password
+       forms. Pages that live inside the sidebar shell (Dashboard, Configuration, API Docs) use
+       .page instead: no border/radius/box, just a readable content width — they're pages, not a
+       floating card next to a nav rail. */
+    .page-body { padding: 40px 20px; }
+    .card { max-width: 480px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 32px; }
+    .page { max-width: 900px; }
+    .page.docs { max-width: 1180px; }
+    h1 { font-size: 20px; line-height: 1.3; margin: 0 0 8px; }
+    h2 { font-size: 15px; line-height: 1.3; margin: 32px 0 8px; }
+    h2:first-child { margin-top: 0; }
+    p.subtitle { color: var(--muted-foreground); font-size: 13px; line-height: 1.55; margin: 0 0 24px; }
+    label { display: block; font-size: 13px; color: var(--muted-foreground); margin-bottom: 6px; }
     input[type=text], input[type=password], input[type=number] {
-      width: 100%; padding: 8px 10px; margin-bottom: 16px; border-radius: 6px;
-      border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px;
+      width: 100%; padding: 8px 10px; margin-bottom: 16px; border-radius: var(--radius);
+      border: 1px solid var(--input); background: var(--background); color: var(--foreground); font-size: 14px;
+      font-family: inherit;
     }
     button, .btn {
-      display: inline-block; padding: 8px 16px; border-radius: 6px; border: none;
-      background: #3b82f6; color: white; font-size: 13px; cursor: pointer; text-decoration: none;
+      display: inline-block; padding: 8px 16px; border-radius: var(--radius); border: none;
+      background: var(--primary); color: var(--primary-foreground); font-size: 13px; cursor: pointer;
+      text-decoration: none; font-family: inherit;
     }
-    button.secondary { background: transparent; border: 1px solid #475569; color: #cbd5e1; }
-    button.danger { background: #ef4444; }
-    .error { background: #451a1a; border: 1px solid #7f1d1d; color: #fca5a5; padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--secondary-foreground); }
+    button.danger { background: var(--destructive); color: var(--destructive-foreground); }
+    .error {
+      background: color-mix(in oklch, var(--destructive) 20%, var(--background));
+      border: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--background));
+      color: oklch(0.8368 0.0847 25.3259);
+      padding: 10px 14px; border-radius: var(--radius); font-size: 13px; margin-bottom: 16px;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
-    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #334155; vertical-align: top; }
-    th { color: #94a3b8; font-weight: 600; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted-foreground); font-weight: 600; }
     .link-btn {
       display: inline; background: none; border: none; padding: 0; margin-left: 8px;
-      color: #60a5fa; font-size: 12px; cursor: pointer; text-decoration: underline;
+      color: var(--primary); font-size: 12px; cursor: pointer; text-decoration: underline; font-family: inherit;
     }
-    .link-btn:hover { color: #93c5fd; }
+    .link-btn:hover { opacity: 0.85; }
     .scope-list { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 8px 0 16px; }
-    .scope-list label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: #e2e8f0; }
+    .scope-list label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--foreground); }
     .scope-list input { margin: 0; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; white-space: nowrap; }
-    .badge.active { background: #052e1f; color: #86efac; }
-    .badge.revoked { background: #451a1a; color: #fca5a5; }
+    .badge.active { background: oklch(0.2200 0.0700 155); color: oklch(0.8600 0.1400 155); }
+    .badge.revoked { background: color-mix(in oklch, var(--destructive) 30%, var(--background)); color: oklch(0.8368 0.0847 25.3259); }
     .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
     .btn-group form { display: inline-block; }
     .btn-group button { padding: 5px 10px; font-size: 12px; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .top-bar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+
+    /* ---- API docs page ---- */
+    .docs-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; align-items: start; }
+    .docs-nav { position: sticky; top: 32px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+    @media (max-width: 760px) {
+      .docs-layout { grid-template-columns: 1fr; }
+      /* Collapsed to a single column, .docs-nav is now a long list stacked above the endpoint
+         content rather than a side rail — staying `sticky` would float it over everything below
+         as the page scrolls, permanently blocking content instead of aiding navigation. */
+      .docs-nav { position: static; }
+    }
+    .docs-nav .docs-nav-group { color: var(--muted-foreground); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 14px 10px 4px; }
+    .docs-nav a { color: var(--muted-foreground); text-decoration: none; padding: 5px 10px; border-radius: var(--radius); }
+    .docs-nav a:hover { color: var(--foreground); background: var(--secondary); }
+    .docs-main { min-width: 0; }
+    .docs-main h2 { font-size: 20px; line-height: 1.3; margin: 0 0 6px; scroll-margin-top: 16px; }
+    .docs-main h2:not(:first-child) { margin-top: 40px; }
+    .docs-main .lede { color: var(--muted-foreground); font-size: 13.5px; line-height: 1.65; max-width: 68ch; margin: 0 0 20px; }
+    .endpoint { border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; margin-bottom: 16px; scroll-margin-top: 16px; }
+    .endpoint-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+    .endpoint-path { font-family: var(--font-mono); font-size: 13.5px; color: var(--foreground); overflow-wrap: anywhere; }
+    .table-scroll { overflow-x: auto; }
+    .endpoint-desc { color: var(--muted-foreground); font-size: 13px; line-height: 1.6; margin: 6px 0 12px; }
+    .method { display: inline-block; font-family: var(--font-mono); font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.02em; }
+    .method-get { background: oklch(0.2400 0.0700 240); color: oklch(0.8200 0.1000 220); }
+    .method-post { background: oklch(0.2200 0.0700 155); color: oklch(0.8600 0.1400 155); }
+    .method-put { background: oklch(0.2600 0.0900 75); color: oklch(0.8300 0.1500 85); }
+    .method-delete { background: color-mix(in oklch, var(--destructive) 30%, var(--background)); color: oklch(0.8368 0.0847 25.3259); }
+    .scope-tag { font-family: var(--font-mono); font-size: 11px; color: var(--secondary-foreground); background: var(--background); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; overflow-wrap: anywhere; }
+    .scope-tag.none { color: var(--muted-foreground); font-style: italic; }
+    code { font-family: var(--font-mono); background: var(--background); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border); }
+    pre.code { background: var(--background); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 8px 0; }
+    pre.code code { background: none; border: none; padding: 0; font-size: 1em; }
+    .endpoint h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-foreground); margin: 14px 0 4px; }
+    .endpoint h4:first-of-type { margin-top: 4px; }
+    .params-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 4px 0 0; }
+    .params-table th, .params-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+    .params-table th { color: var(--muted-foreground); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+    .callout {
+      background: color-mix(in oklch, var(--primary) 16%, var(--background));
+      border: 1px solid color-mix(in oklch, var(--primary) 40%, var(--background));
+      color: var(--foreground); font-size: 12.5px; padding: 10px 14px; border-radius: 6px; margin: 10px 0 20px;
+    }
     .info-icon-btn {
       display: inline-flex; align-items: center; justify-content: center;
       width: 18px; height: 18px; border-radius: 50%; margin-left: 6px; vertical-align: middle;
-      background: #334155; color: #cbd5e1; border: none; font-size: 11px; font-style: italic;
+      background: var(--secondary); color: var(--secondary-foreground); border: none; font-size: 11px; font-style: italic;
       font-weight: 700; padding: 0; cursor: pointer;
     }
-    .info-icon-btn:hover { background: #475569; }
+    .info-icon-btn:hover { opacity: 0.85; }
     .popup-overlay {
       position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
       display: flex; align-items: center; justify-content: center; z-index: 100;
@@ -60,29 +198,36 @@
        above (also 0,1,0, but declared later) — without this, "display: flex" wins regardless of
        the hidden attribute, so the popup shows on load and never visually closes. */
     .popup-overlay[hidden] { display: none; }
-    .popup { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; max-width: 420px; width: 90%; }
+    .popup { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; max-width: 420px; width: 90%; }
     .popup-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
-    .popup-close { background: none; border: none; color: #94a3b8; font-size: 20px; line-height: 1; padding: 0; cursor: pointer; }
-    .popup ul { margin: 0; padding-left: 18px; font-size: 13px; color: #e2e8f0; }
+    .popup-close { background: none; border: none; color: var(--muted-foreground); font-size: 20px; line-height: 1; padding: 0; cursor: pointer; }
+    .popup ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--foreground); }
     .popup li { margin-bottom: 4px; }
-    .popup-field { margin: 0 0 12px; font-size: 13px; color: #e2e8f0; }
-    .popup-field code { display: inline-block; margin-top: 2px; word-break: break-all; background: #0f172a; padding: 4px 6px; border-radius: 4px; font-size: 12px; }
-    .popup-hint { color: #94a3b8; font-size: 12px; }
+    .popup-field { margin: 0 0 12px; font-size: 13px; color: var(--foreground); }
+    .popup-field code { display: inline-block; margin-top: 2px; word-break: break-all; padding: 4px 6px; font-size: 12px; }
+    .popup-hint { color: var(--muted-foreground); font-size: 12px; }
     .copy-row { display: flex; align-items: center; gap: 6px; }
     .copy-row code { flex: 1; min-width: 0; }
     .copy-btn {
       flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
       width: 24px; height: 24px; padding: 0; border-radius: 5px; margin-top: 2px;
-      background: #334155; border: none; color: #cbd5e1; cursor: pointer;
+      background: var(--secondary); border: none; color: var(--secondary-foreground); cursor: pointer;
     }
-    .copy-btn:hover { background: #475569; }
-    .copy-btn.copied { background: #14532d; color: #86efac; }
+    .copy-btn:hover { opacity: 0.85; }
+    .copy-btn.copied { background: oklch(0.2200 0.0700 155); color: oklch(0.8600 0.1400 155); }
     .copy-btn svg { width: 13px; height: 13px; display: block; }
   </style>
 </head>
 <body>
-  <div class="{% block card_class %}card{% endblock %}">
-    {% block content %}{% endblock %}
+  <div class="app-shell">
+    {% block sidebar %}{% endblock %}
+    <div class="main-area">
+      <div class="page-body">
+        <div class="{% block card_class %}card{% endblock %}">
+          {% block content %}{% endblock %}
+        </div>
+      </div>
+    </div>
   </div>
 </body>
 </html>

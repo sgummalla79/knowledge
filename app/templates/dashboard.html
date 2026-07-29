@@ -1,15 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — Knowledge{% endblock %}
-{% block card_class %}card wide{% endblock %}
+{% block title %}Registered Applications — Knowledge{% endblock %}
+{% block card_class %}page{% endblock %}
+{% block sidebar %}{% include "_sidebar.html" %}{% endblock %}
 {% block content %}
-<div class="top-bar">
-  <form method="post" action="{{ url_for('auth_ui.logout') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="secondary">Log out</button>
-  </form>
-</div>
-
-<h1>Applications</h1>
+<h1>Registered Applications</h1>
 <p class="subtitle">Registered OAuth2 clients — each gets its own client_id/client_secret and a scoped token.</p>
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
@@ -94,7 +88,7 @@
 </div>
 {% endif %}
 
-<h1 style="margin-top: 32px;">Register application</h1>
+<h2>Register application</h2>
 <form method="post" action="{{ url_for('auth_ui.register_application') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label for="name">Name</label>

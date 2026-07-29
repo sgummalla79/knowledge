@@ -58,7 +58,8 @@ erDiagram
         timestamptz updated_at
     }
     EMBEDDING_PROVIDER_SETTINGS {
-        string provider PK
+        uuid id PK
+        string provider UK
         bool enabled
         timestamptz updated_at
     }
@@ -201,7 +202,8 @@ deployment) without touching whichever provider/model is currently configured an
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
-| `provider` | `string` | no | — | PK — the registry key itself (`voyage`, `ollama`, `openai_compatible`, ...), not a surrogate UUID |
+| `id` | `uuid` | no | — | PK |
+| `provider` | `string` | no | — | **unique** — the registry key itself (`voyage`, `ollama`, `openai_compatible`, ...); every lookup/route addresses a row by this, not by `id` |
 | `enabled` | `boolean` | no | `true` | |
 | `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
 

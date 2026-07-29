@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Log in — Knowledge{% endblock %}
 {% block content %}
-<h1>Knowledge admin</h1>
-<p class="subtitle">Sign in to manage registered applications.</p>
+<div class="login-brand">
+  <span class="brand-icon" aria-hidden="true">
+    <img src="{{ url_for('static', filename='brand-icon.png') }}" alt="">
+  </span>
+  <span class="brand-name">Knowledge</span>
+</div>
+<p class="subtitle" style="text-align: center;">Sign in to manage registered applications.</p>
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 <form method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

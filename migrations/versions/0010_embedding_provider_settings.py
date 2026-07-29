@@ -17,6 +17,7 @@ Create Date: 2026-07-28
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0010"
 down_revision = "0009"
@@ -27,7 +28,8 @@ depends_on = None
 def upgrade():
     op.create_table(
         "embedding_provider_settings",
-        sa.Column("provider", sa.String, primary_key=True),
+        sa.Column("id", UUID(as_uuid=True), primary_key=True),
+        sa.Column("provider", sa.String, nullable=False, unique=True),
         sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.true()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )

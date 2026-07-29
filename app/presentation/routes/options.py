@@ -3,8 +3,6 @@ from flask import Blueprint, jsonify
 from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
 from app.auth import require_scope
 from app.constants import (
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_EMBEDDING_PROVIDER,
     DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_RERANK_MODEL,
     DEFAULT_RERANK_PROVIDER,
@@ -43,8 +41,12 @@ def get_embedding_options():
                 }
                 for provider in enabled_providers
             ],
-            "default_provider": DEFAULT_EMBEDDING_PROVIDER,
-            "default_model": DEFAULT_EMBEDDING_MODEL,
+            # No provider is bundled/enabled by default anymore (the Ollama sidecar was removed
+            # from docker-compose) — there's no single sensible "default" until an admin enables
+            # one via the Configuration page, so these are null rather than pointing at a
+            # provider that may not even appear in `providers` above.
+            "default_provider": None,
+            "default_model": None,
             # Convenience suggestions only, never validated/enforced — see app/constants.py.
             "suggested_models": EMBEDDING_MODEL_PRESETS,
         }

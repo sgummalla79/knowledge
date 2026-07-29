@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from uuid import uuid4
+
 from app import create_app
 from app.domain.entities import EmbeddingProviderToggle
 from app.domain.errors import ValidationError
@@ -17,7 +19,9 @@ def client():
 
 
 def _toggle(provider, enabled=True):
-    return EmbeddingProviderToggle(provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc))
+    return EmbeddingProviderToggle(
+        id=uuid4(), provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc)
+    )
 
 
 def test_list_returns_all_provider_toggles(client, auth_headers):

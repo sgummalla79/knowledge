@@ -5,10 +5,15 @@ from flask import Blueprint, redirect, render_template, request, session, url_fo
 
 from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
+from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
 from app.constants import SUPPORTED_SCOPES
 from app.container import get_session
+from app.domain.entities import EmbeddingProviderToggle
 from app.domain.errors import DomainError
 from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.embedding_provider_settings_repository import (
+    EmbeddingProviderSettingsRepository,
+)
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 from app.presentation.web.csrf import csrf_token, validate_csrf
@@ -24,6 +29,14 @@ def _auth_service() -> AuthService:
 def _application_service() -> ApplicationService:
     session_ = get_session()
     return ApplicationService(ApplicationRepository(session_), RefreshTokenRepository(session_))
+
+
+def _embedding_provider_settings_service() -> EmbeddingProviderSettingsService:
+    return EmbeddingProviderSettingsService(EmbeddingProviderSettingsRepository(get_session()))
+
+
+def _embedding_providers() -> list[EmbeddingProviderToggle]:
+    return _embedding_provider_settings_service().list_providers()
 
 
 def login_required(view):
@@ -123,7 +136,29 @@ def dashboard():
         return redirect(url_for("auth_ui.change_password"))
     service = _application_service()
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
-    return render_template("dashboard.html", applications=applications, supported_scopes=SUPPORTED_SCOPES)
+    return render_template(
+        "dashboard.html",
+        applications=applications,
+        supported_scopes=SUPPORTED_SCOPES,
+    )
+
+
+@auth_ui_bp.get("/dashboard/configuration")
+@login_required
+def configuration():
+    user = UserRepository(get_session()).get()
+    if user is not None and user.must_change_password:
+        return redirect(url_for("auth_ui.change_password"))
+    return render_template("configuration.html", embedding_providers=_embedding_providers())
+
+
+@auth_ui_bp.get("/api-docs")
+@login_required
+def api_docs():
+    user = UserRepository(get_session()).get()
+    if user is not None and user.must_change_password:
+        return redirect(url_for("auth_ui.change_password"))
+    return render_template("api_docs.html")
 
 
 @auth_ui_bp.post("/dashboard/applications")
@@ -142,7 +177,8 @@ def register_application():
         raw_secret, application = service.register(name, scopes)
     except DomainError as error:
         return render_template(
-            "dashboard.html", applications=applications, supported_scopes=SUPPORTED_SCOPES, error=error.message,
+            "dashboard.html", applications=applications, supported_scopes=SUPPORTED_SCOPES,
+            error=error.message,
         ), 400
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
     return render_template(
@@ -169,3 +205,12 @@ def delete_application(application_id: UUID):
     if _csrf_valid():
         service.delete_application(application_id)
     return redirect(url_for("auth_ui.dashboard"))
+
+
+@auth_ui_bp.post("/dashboard/embedding-providers/<provider>/toggle")
+@login_required
+def toggle_embedding_provider(provider: str):
+    if _csrf_valid():
+        enabled = request.form.get("enabled") == "true"
+        _embedding_provider_settings_service().set_enabled(provider, enabled)
+    return redirect(url_for("auth_ui.configuration"))

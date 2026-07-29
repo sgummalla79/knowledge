@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+from uuid import uuid4
+
 from app import create_app
 from app.domain.entities import EmbeddingProviderToggle
 
@@ -14,7 +16,9 @@ def client():
 
 
 def _toggle(provider, enabled):
-    return EmbeddingProviderToggle(provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc))
+    return EmbeddingProviderToggle(
+        id=uuid4(), provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc)
+    )
 
 
 def test_embedding_options_describes_provider_capabilities(client, auth_headers):
@@ -27,8 +31,9 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
 
     assert response.status_code == 200
     body = response.get_json()
-    assert body["default_provider"] == "ollama"
-    assert body["default_model"] == "nomic-embed-text"
+    # No provider is bundled/enabled by default anymore — nothing sensible to point at.
+    assert body["default_provider"] is None
+    assert body["default_model"] is None
     assert isinstance(body["suggested_models"], list)
 
     providers_by_name = {provider["name"]: provider for provider in body["providers"]}

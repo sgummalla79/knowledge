@@ -59,6 +59,7 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True)
 class EmbeddingProviderToggle:
+    id: UUID
     provider: str
     enabled: bool
     updated_at: datetime

@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}API Documentation — Knowledge{% endblock %}
+{% block card_class %}page docs{% endblock %}
+{% block sidebar %}{% include "_sidebar.html" %}{% endblock %}
+{% block content %}
+<h1>API Documentation</h1>
+<p class="subtitle">knowledge-api — REST reference. Every route below returns JSON and is served from this same host.</p>
+
+<div class="docs-layout">
+  <nav class="docs-nav">
+    <a href="#overview">Overview</a>
+    <a href="#auth">Authentication</a>
+    <a href="#errors">Errors</a>
+    <div class="docs-nav-group">Resources</div>
+    <a href="#libraries">Libraries</a>
+    <a href="#documents">Documents</a>
+    <a href="#query">Query</a>
+    <div class="docs-nav-group">Configuration</div>
+    <a href="#embedding-settings">Embedding Settings</a>
+    <a href="#embedding-providers">Embedding Providers</a>
+    <a href="#search-settings">Search Settings</a>
+    <a href="#options">Reference Options</a>
+  </nav>
+
+  <div class="docs-main">
+
+    <h2 id="overview">Overview</h2>
+    <p class="lede">
+      All endpoints accept and return <code>application/json</code> (document upload is
+      <code>multipart/form-data</code>; the token endpoint is form-encoded, standard OAuth2
+      convention). List endpoints are paginated with <code>limit</code> (default 100, max 500),
+      <code>offset</code> (default 0), and <code>sort</code> (default <code>-created_at</code>)
+      query params, and return the total row count in an <code>X-Total-Count</code> header.
+      Requests are rate-limited to 200 per minute by default.
+    </p>
+    <p class="lede">
+      This app also bundles a stdio MCP server (<code>list_libraries</code> /
+      <code>query_library</code> tools) for MCP clients — a separate interface from the HTTP API
+      documented here.
+    </p>
+
+    <h2 id="auth">Authentication</h2>
+    <p class="lede">
+      OAuth2. Register an application from the <a href="{{ url_for('auth_ui.dashboard') }}">Dashboard</a>
+      to get a <code>client_id</code> / <code>client_secret</code> and a set of allowed scopes,
+      then exchange them for a short-lived access token. Send it as
+      <code>Authorization: Bearer &lt;token&gt;</code> on every resource request.
+    </p>
+
+    <div class="endpoint" id="post-oauth-token">
+      <div class="endpoint-head">
+        <span class="method method-post">POST</span>
+        <span class="endpoint-path">/oauth/token</span>
+        <span class="scope-tag none">no auth required</span>
+      </div>
+      <p class="endpoint-desc">Form-encoded (<code>application/x-www-form-urlencoded</code>), dispatched on <code>grant_type</code>.</p>
+
+      <h4>client_credentials request</h4>
+      <pre class="code"><code>grant_type=client_credentials
+client_id=&lt;uuid&gt;
+client_secret=&lt;secret&gt;
+scope=libraries:read query:execute offline_access</code></pre>
+
+      <h4>refresh_token request</h4>
+      <pre class="code"><code>grant_type=refresh_token
+refresh_token=&lt;opaque token&gt;</code></pre>
+
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{
+  "access_token": "eyJhbGciOi...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "libraries:read query:execute",
+  "refresh_token": "..."  // only present if offline_access was requested/granted
+}</code></pre>
+      <p class="endpoint-desc">
+        Access tokens are JWTs (HS256, 1 hour TTL, stateless — never re-checked against the DB).
+        Refresh tokens are opaque, DB-backed, and <strong>reusable</strong> — not rotated on use.
+        <code>offline_access</code> is a control flag (whether a refresh token is issued), not a
+        resource scope itself, so it's never present in the access token's own <code>scope</code>.
+      </p>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>invalid_client</code></td><td>401 — bad client_id/client_secret</td></tr>
+          <tr><td><code>invalid_grant</code></td><td>400 — refresh token missing, expired, or revoked</td></tr>
+          <tr><td><code>invalid_scope</code></td><td>400 — requested scope exceeds the application's allowed_scopes</td></tr>
+          <tr><td><code>unsupported_grant_type</code></td><td>400 — grant_type isn't client_credentials or refresh_token</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-top: 24px;"><strong>Scopes</strong></p>
+    <div class="table-scroll" style="max-width: 480px;">
+      <table class="params-table">
+        <tr><td><code>libraries:read</code> / <code>libraries:write</code></td><td>Library CRUD</td></tr>
+        <tr><td><code>documents:read</code> / <code>documents:write</code></td><td>Document upload/list/delete/retry</td></tr>
+        <tr><td><code>query:execute</code></td><td>Run a retrieval query against a library</td></tr>
+        <tr><td><code>embedding_settings:read</code> / <code>:write</code></td><td>Embedding config + provider enable/disable</td></tr>
+        <tr><td><code>search_settings:read</code> / <code>:write</code></td><td>Hybrid search / rerank tuning</td></tr>
+        <tr><td><code>offline_access</code></td><td>Controls whether <code>/oauth/token</code> also issues a refresh token</td></tr>
+      </table>
+    </div>
+
+    <h2 id="errors">Errors</h2>
+    <p class="lede">Every error, from every endpoint, uses the same structured envelope:</p>
+    <pre class="code"><code>{
+  "error": {
+    "code": "library_not_found",
+    "message": "Library not found.",
+    "field": "library_id"   // omitted when not applicable
+  }
+}</code></pre>
+    <p class="lede">
+      <code>401</code> = missing/invalid/expired token. <code>403</code> = valid token, wrong
+      scope (<code>insufficient_scope</code>). <code>400</code> = validation error. <code>404</code> =
+      not found. <code>429</code> = rate limited.
+    </p>
+
+    <h2 id="libraries">Libraries</h2>
+    <p class="lede">A named collection of documents. Chunking/embedding config is global, not per-library — see Embedding Settings.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries</span><span class="scope-tag">libraries:write</span></div>
+      <h4>Request body</h4>
+      <pre class="code"><code>{ "name": "product-docs", "description": "optional" }</code></pre>
+      <h4>Response — 201</h4>
+      <pre class="code"><code>{
+  "id": "uuid", "name": "product-docs", "description": "optional",
+  "document_count": 0, "chunk_count": 0, "last_ingested_at": null,
+  "created_at": "...", "updated_at": "..."
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries</span><span class="scope-tag">libraries:read</span></div>
+      <p class="endpoint-desc">Paginated (<code>limit</code>, <code>offset</code>, <code>sort</code>). Returns an array of the same shape as above; total count in <code>X-Total-Count</code>.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}</span><span class="scope-tag">libraries:read</span></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-delete">DELETE</span><span class="endpoint-path">/libraries/{library_id}</span><span class="scope-tag">libraries:write</span></div>
+      <p class="endpoint-desc">Cascades to its documents and chunks. Returns <code>204</code>.</p>
+    </div>
+
+    <h2 id="documents">Documents</h2>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/documents</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc"><code>multipart/form-data</code> with a <code>file</code> field (max 50MB). Parses, chunks, and embeds the file asynchronously.</p>
+      <h4>Response — 202</h4>
+      <pre class="code"><code>{ "job_id": "..." }</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}/jobs/{job_id}</span><span class="scope-tag">documents:read</span></div>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{ "status": "pending | running | completed | failed", "error": null, "document_id": "uuid or null" }</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}/documents</span><span class="scope-tag">documents:read</span></div>
+      <p class="endpoint-desc">Paginated. Each item: <code>id, library_id, source_filename, file_type, status, error_message, ingested_at, created_at</code>.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-delete">DELETE</span><span class="endpoint-path">/libraries/{library_id}/documents/{document_id}</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc">Removes the document and its chunks, decrements the library's counts. Returns <code>204</code>.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/documents/{document_id}/retry</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc">Re-runs ingestion for a <code>failed</code> document using its originally-stored bytes. Returns <code>202</code> with a new <code>job_id</code>.</p>
+    </div>
+
+    <h2 id="query">Query</h2>
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/query</span><span class="scope-tag">query:execute</span></div>
+      <h4>Request body</h4>
+      <pre class="code"><code>{ "query": "how do I reset a password?", "top_k": 5 }</code></pre>
+      <p class="endpoint-desc">Hybrid retrieval: dense (pgvector) + sparse (keyword) candidates fused via reciprocal rank fusion, with optional reranking — all tuned via Search Settings.</p>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{
+  "chunks": [
+    { "id": "uuid", "document_id": "uuid", "chunk_index": 0, "content": "...", "score": 0.82 }
+  ]
+}</code></pre>
+    </div>
+
+    <h2 id="embedding-settings">Embedding Settings</h2>
+    <p class="lede">
+      Single global configuration — every library shares the same embedding provider/model.
+      Changing provider, model, base_url, or dimensions is rejected once any document exists
+      anywhere (embeddings from different models aren't comparable); rotating just the api_key is
+      always allowed.
+    </p>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:read</span></div>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{
+  "provider": "ollama", "model": "nomic-embed-text", "configured": true,
+  "base_url": "http://ollama:11434", "dimensions": 768,
+  "chunk_size": 800, "chunk_overlap": 100, "updated_at": "..."
+}</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:write</span></div>
+      <h4>Request body</h4>
+      <pre class="code"><code>{
+  "provider": "openai_compatible",
+  "model": "text-embedding-3-small",
+  "api_key": "sk-...",
+  "base_url": "https://api.openai.com/v1",
+  "dimensions": 1536,
+  "chunk_size": 800,
+  "chunk_overlap": 100
+}</code></pre>
+      <p class="endpoint-desc">
+        On a first-time save or any provider/model/base_url/dimensions change, the endpoint is
+        live-verified (an actual embed call) and the <code>chunks</code> vector column is resized
+        to match before the new settings are persisted.
+      </p>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>unsupported_embedding_provider</code></td><td>400 — not a registered provider adapter</td></tr>
+          <tr><td><code>embedding_provider_disabled</code></td><td>400 — provider exists but an admin disabled it (see Embedding Providers)</td></tr>
+          <tr><td><code>embedding_model_locked</code></td><td>400 — provider/model/base_url/dimensions changed while documents already exist</td></tr>
+          <tr><td><code>embedding_dimension_mismatch</code></td><td>400 — declared dimensions don't match what the provider actually returned</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-delete">DELETE</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:write</span></div>
+      <p class="endpoint-desc">Clears the configuration entirely (<code>configured: false</code> afterward).</p>
+    </div>
+
+    <h2 id="embedding-providers">Embedding Providers</h2>
+    <p class="lede">
+      Per-provider enable/disable, independent of whichever provider is currently configured
+      above — also manageable from the <a href="{{ url_for('auth_ui.dashboard') }}">Dashboard</a>.
+      Disabling a provider only blocks it from future selection in
+      <code>PUT /embedding-settings</code>; it never affects an already-configured, in-use provider.
+    </p>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-provider-settings</span><span class="scope-tag">embedding_settings:read</span></div>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>[
+  { "provider": "ollama", "enabled": true, "updated_at": "..." },
+  { "provider": "voyage", "enabled": false, "updated_at": "..." },
+  { "provider": "openai_compatible", "enabled": true, "updated_at": "..." }
+]</code></pre>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/embedding-provider-settings/{provider}</span><span class="scope-tag">embedding_settings:write</span></div>
+      <h4>Request body</h4>
+      <pre class="code"><code>{ "enabled": false }</code></pre>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{ "provider": "voyage", "enabled": false, "updated_at": "..." }</code></pre>
+    </div>
+
+    <h2 id="search-settings">Search Settings</h2>
+    <p class="lede">Single global configuration for hybrid retrieval and optional reranking. Absent is not an error — defaults apply.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/search-settings</span><span class="scope-tag">search_settings:read</span></div>
+    </div>
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/search-settings</span><span class="scope-tag">search_settings:write</span></div>
+      <h4>Request body</h4>
+      <pre class="code"><code>{
+  "rerank_enabled": false,
+  "rerank_provider": "voyage",
+  "rerank_model": "rerank-2",
+  "dense_k": 20,
+  "sparse_k": 20,
+  "rerank_candidates": 20,
+  "rrf_k": 60
+}</code></pre>
+      <p class="endpoint-desc"><code>rerank_provider</code>/<code>rerank_model</code> are only validated when <code>rerank_enabled</code> is true.</p>
+    </div>
+
+    <h2 id="options">Reference Options</h2>
+    <p class="lede">Read-only capability listings for building a config UI — any authenticated token works, no specific scope required.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-options</span><span class="scope-tag none">any authenticated token</span></div>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{
+  "providers": [
+    { "name": "ollama", "api_key_required": false, "base_url_required": false, "base_url_supported": true, "default_base_url": "http://ollama:11434" },
+    { "name": "openai_compatible", "api_key_required": false, "base_url_required": true, "base_url_supported": true }
+  ],
+  "default_provider": "ollama",
+  "default_model": "nomic-embed-text",
+  "suggested_models": [ { "provider": "ollama", "model": "nomic-embed-text", "dimensions": 768 } ]
+}</code></pre>
+      <p class="endpoint-desc">Only <em>enabled</em> providers are listed (see Embedding Providers). <code>suggested_models</code> are convenience hints only — never enforced.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/rerank-options</span><span class="scope-tag none">any authenticated token</span></div>
+      <pre class="code"><code>{ "providers": [], "default_provider": "voyage", "default_model": "rerank-2" }</code></pre>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

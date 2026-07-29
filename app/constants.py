@@ -5,6 +5,11 @@
 # no longer consulted anywhere else.
 EMBEDDING_DIM = 768
 
+# Historical only: migration 0001's initial DDL used these as the `libraries.embedding_provider`/
+# `embedding_model` columns' server_default (those columns were dropped in migration 0005 — see
+# its docstring). Migrations are a historical record replayed from scratch on every fresh
+# database, so these stay here for that import even though no active application code reads them
+# anymore (bootstrap_embedding_provider_settings / GET /embedding-options don't use them).
 DEFAULT_EMBEDDING_PROVIDER = "ollama"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
 
@@ -29,11 +34,16 @@ EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
 # — base_url is mandatory for these, not just an optional override.
 EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
-# The one genuinely "inevitable" literal in this file: the compile-time-known network address of
-# the bundled Ollama sidecar (docker-compose service key "ollama", Ollama's default port). Used
-# only to seed the embedding_settings bootstrap row's initial base_url — once seeded, base_url is
-# a normal DB value editable via PUT /embedding-settings (e.g. to point at an external/GPU-hosted
-# Ollama instead), not a hardcoded runtime dependency.
+# The bundled Ollama sidecar has been removed from docker-compose.yml (it required bundling a
+# multi-GB local model runtime by default) — the "ollama" adapter/registry entry still exists in
+# code, but bootstrap_embedding_provider_settings seeds it disabled out of the box so it can't be
+# selected until an admin actually has an Ollama instance to point at. Re-enable via the
+# Configuration page (or PUT /embedding-provider-settings/ollama) once Ollama is available again.
+DEFAULT_DISABLED_EMBEDDING_PROVIDERS = {"ollama"}
+
+# Kept as the registry's fallback base_url for the "ollama" adapter (app/infrastructure/embeddings/
+# registry.py) — only used if/when a caller enables ollama and doesn't supply their own base_url;
+# not a runtime dependency by itself since the provider defaults to disabled (see above).
 DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
 # Fallback chunking parameters used only when a library is created without explicit values;
