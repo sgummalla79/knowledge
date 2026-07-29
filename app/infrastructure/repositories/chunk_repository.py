@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 from app.domain.entities import ScoredChunk
 from app.infrastructure.orm import Chunk
@@ -10,6 +10,26 @@ class ChunkRepository:
 
     def count_for_document(self, document_id) -> int:
         return self._session.query(Chunk).filter(Chunk.document_id == document_id).count()
+
+    def count_all(self) -> int:
+        return self._session.query(Chunk).count()
+
+    def resize_embedding_column(self, dimensions: int) -> None:
+        """Only ever called when count_all() == 0 (enforced by EmbeddingSettingsService's
+        model-switch lock) — mirrors the one-time 1024->768 cutover migration 0007 did by hand,
+        generalized into a runtime operation.
+
+        `vector(N)` is a type modifier, not a data value — Postgres doesn't accept a bind
+        parameter there, so `dimensions` is interpolated directly. Safe only because it's an
+        int (pydantic-validated upstream as `gt=0`), never a caller-supplied string.
+        """
+        if not isinstance(dimensions, int) or dimensions <= 0:
+            raise ValueError(f"dimensions must be a positive int, got {dimensions!r}")
+        self._session.execute(text("DROP INDEX IF EXISTS ix_chunks_embedding_hnsw"))
+        self._session.execute(text(f"ALTER TABLE chunks ALTER COLUMN embedding TYPE vector({dimensions})"))
+        self._session.execute(
+            text("CREATE INDEX ix_chunks_embedding_hnsw ON chunks USING hnsw (embedding vector_cosine_ops)")
+        )
 
     def bulk_create(self, document_id, library_id, chunks: list[tuple[int, str, list[float]]]) -> None:
         models = [

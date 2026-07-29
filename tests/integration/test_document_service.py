@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.application.document_service import DocumentService, _run_ingestion_job, _run_retry_job
 from app.application.ingestion_service import IngestionService
 from app.application.job_store import JobStore
+from app.constants import EMBEDDING_DIM
 from app.domain import error_codes
 from app.domain.errors import NotFoundError, ValidationError
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
@@ -40,7 +41,7 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
 
     library = LibraryRepository(db_session).create(name="log-fail-test", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -72,7 +73,7 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
 
     library = LibraryRepository(db_session).create(name="log-success-test", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -129,7 +130,7 @@ def test_delete_document_removes_chunks_and_decrements_library_counts(db_session
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="delete-doc-test", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -157,7 +158,7 @@ def test_delete_document_from_wrong_library_raises_document_not_found(db_session
     library_a = library_repo.create(name="delete-doc-lib-a", description=None)
     library_b = library_repo.create(name="delete-doc-lib-b", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -213,7 +214,7 @@ def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_ses
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="retry-not-failed-test", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -232,7 +233,7 @@ def test_start_retry_from_wrong_library_raises_document_not_found(db_session):
     library_a = library_repo.create(name="retry-lib-a", description=None)
     library_b = library_repo.create(name="retry-lib-b", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -251,7 +252,7 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="retry-job-success-test", description=None)
     EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 

@@ -9,7 +9,7 @@ from app.constants import (
     DEFAULT_TOP_K,
 )
 from app.application.embedding_settings_service import EmbeddingSettingsStatus
-from app.domain.entities import Document, Library, ScoredChunk, SearchSettings
+from app.domain.entities import Document, EmbeddingProviderToggle, Library, ScoredChunk, SearchSettings
 
 
 class LibraryCreateRequest(BaseModel):
@@ -113,6 +113,7 @@ class EmbeddingSettingsUpdateRequest(BaseModel):
     model: str = Field(min_length=1)
     api_key: str | None = Field(default=None, min_length=1)
     base_url: str | None = Field(default=None, min_length=1)
+    dimensions: int = Field(gt=0)
     chunk_size: int = Field(default=DEFAULT_CHUNK_SIZE, gt=0)
     chunk_overlap: int = Field(default=DEFAULT_CHUNK_OVERLAP, ge=0)
 
@@ -122,6 +123,7 @@ class EmbeddingSettingsResponse(BaseModel):
     model: str | None
     configured: bool
     base_url: str | None
+    dimensions: int | None
     chunk_size: int
     chunk_overlap: int
     updated_at: datetime | None
@@ -133,10 +135,27 @@ class EmbeddingSettingsResponse(BaseModel):
             model=status.model,
             configured=status.configured,
             base_url=status.base_url,
+            dimensions=status.dimensions,
             chunk_size=status.chunk_size,
             chunk_overlap=status.chunk_overlap,
             updated_at=status.updated_at,
         )
+
+
+class EmbeddingProviderToggleResponse(BaseModel):
+    provider: str
+    enabled: bool
+    updated_at: datetime
+
+    @classmethod
+    def from_entity(cls, toggle: EmbeddingProviderToggle) -> "EmbeddingProviderToggleResponse":
+        return cls(provider=toggle.provider, enabled=toggle.enabled, updated_at=toggle.updated_at)
+
+
+class EmbeddingProviderToggleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class SearchSettingsUpdateRequest(BaseModel):

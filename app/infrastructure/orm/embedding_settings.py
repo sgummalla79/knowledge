@@ -15,6 +15,7 @@ class EmbeddingSettings(Base):
     model = Column(String, nullable=False)
     api_key = Column(String, nullable=True)
     base_url = Column(String, nullable=True)
+    dimensions = Column(Integer, nullable=False)
     chunk_size = Column(Integer, nullable=False, default=DEFAULT_CHUNK_SIZE)
     chunk_overlap = Column(Integer, nullable=False, default=DEFAULT_CHUNK_OVERLAP)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

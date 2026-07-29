@@ -4,6 +4,7 @@ from uuid import UUID
 from app.domain.entities import (
     Application,
     Document,
+    EmbeddingProviderToggle,
     EmbeddingSettings,
     Library,
     RefreshToken,
@@ -57,6 +58,10 @@ class ChunkRepositoryPort(Protocol):
 
     def count_for_document(self, document_id: UUID) -> int: ...
 
+    def count_all(self) -> int: ...
+
+    def resize_embedding_column(self, dimensions: int) -> None: ...
+
 
 class EmbeddingSettingsRepositoryPort(Protocol):
     def get(self) -> EmbeddingSettings | None: ...
@@ -66,12 +71,21 @@ class EmbeddingSettingsRepositoryPort(Protocol):
         provider: str,
         model: str,
         api_key: str | None,
+        dimensions: int,
         chunk_size: int,
         chunk_overlap: int,
         base_url: str | None = None,
     ) -> EmbeddingSettings: ...
 
     def clear(self) -> None: ...
+
+
+class EmbeddingProviderSettingsRepositoryPort(Protocol):
+    def list(self) -> list[EmbeddingProviderToggle]: ...
+
+    def get_enabled_providers(self) -> set[str]: ...
+
+    def set_enabled(self, provider: str, enabled: bool) -> EmbeddingProviderToggle: ...
 
 
 class SearchSettingsRepositoryPort(Protocol):

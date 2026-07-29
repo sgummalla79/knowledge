@@ -90,6 +90,12 @@ class IngestionService:
                 extra={"provider": settings.provider, "model": settings.model, "chunk_count": len(pieces)},
             )
             vectors = provider.embed_documents(pieces)
+            if vectors and len(vectors[0]) != settings.dimensions:
+                raise ValidationError(
+                    error_codes.EMBEDDING_DIMENSION_MISMATCH,
+                    f"Embedding provider '{settings.provider}' model '{settings.model}' produced a "
+                    f"{len(vectors[0])}-dimension vector, not the configured {settings.dimensions}.",
+                )
 
             chunks = [(index, piece, vector) for index, (piece, vector) in enumerate(zip(pieces, vectors))]
             self._chunks.bulk_create(document.id, library.id, chunks)

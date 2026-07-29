@@ -1,11 +1,15 @@
 from app.constants import DEFAULT_OLLAMA_BASE_URL
 from app.infrastructure.embeddings.ollama_provider import OllamaEmbeddingProvider
+from app.infrastructure.embeddings.openai_compatible_provider import OpenAICompatibleEmbeddingProvider
 from app.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvider
 
 _PROVIDER_FACTORIES = {
     "voyage": lambda model, api_key, base_url: VoyageEmbeddingProvider(api_key=api_key, model=model),
     "ollama": lambda model, api_key, base_url: OllamaEmbeddingProvider(
         base_url=base_url or DEFAULT_OLLAMA_BASE_URL, model=model
+    ),
+    "openai_compatible": lambda model, api_key, base_url: OpenAICompatibleEmbeddingProvider(
+        base_url=base_url, api_key=api_key, model=model
     ),
 }
 
@@ -15,6 +19,10 @@ class UnsupportedEmbeddingProviderError(ValueError):
 
 
 class EmbeddingProviderRegistry:
+    @staticmethod
+    def known_providers() -> set[str]:
+        return set(_PROVIDER_FACTORIES.keys())
+
     @staticmethod
     def resolve(provider: str, model: str, api_key: str | None, base_url: str | None = None):
         factory = _PROVIDER_FACTORIES.get(provider)

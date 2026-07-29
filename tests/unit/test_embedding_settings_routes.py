@@ -23,6 +23,7 @@ def test_get_status_not_configured(client, auth_headers):
         model=None,
         configured=False,
         base_url=None,
+        dimensions=None,
         chunk_size=800,
         chunk_overlap=100,
         updated_at=None,
@@ -46,6 +47,7 @@ def test_get_status_configured(client, auth_headers):
         model="nomic-embed-text",
         configured=True,
         base_url="http://ollama:11434",
+        dimensions=768,
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc),
@@ -61,22 +63,71 @@ def test_get_status_configured(client, auth_headers):
     assert body["provider"] == "ollama"
     assert body["model"] == "nomic-embed-text"
     assert body["base_url"] == "http://ollama:11434"
+    assert body["dimensions"] == 768
     assert "api_key" not in body
 
 
-def test_update_unsupported_voyage_model_returns_structured_400(client, auth_headers):
-    # voyage-3 produces 1024-dim vectors, incompatible with this deployment's EMBEDDING_DIM (768),
-    # and "voyage" isn't a key in SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER at all anymore — real
-    # (unmocked) validate_embedding_choice rejects it as an unsupported provider before any DB
-    # access happens.
+def test_update_missing_dimensions_rejected_by_schema(client, auth_headers):
+    # dimensions is a required field now — no static map to infer it from.
     response = client.put(
         "/embedding-settings",
-        json={"provider": "voyage", "model": "voyage-3", "api_key": "secret"},
+        json={"provider": "ollama", "model": "nomic-embed-text"},
         headers=auth_headers("embedding_settings:write"),
     )
 
     assert response.status_code == 400
+
+
+def test_update_unsupported_provider_returns_structured_400(client, auth_headers):
+    # Real (unmocked) validate_embedding_choice rejects any provider not in the registry.
+    # get_enabled_providers is mocked purely to avoid a real DB call in this HTTP-layer test —
+    # the unsupported-provider check runs before it's even consulted.
+    with patch(
+        "app.infrastructure.repositories.embedding_provider_settings_repository."
+        "EmbeddingProviderSettingsRepository.get_enabled_providers",
+        return_value={"voyage", "ollama", "openai_compatible"},
+    ):
+        response = client.put(
+            "/embedding-settings",
+            json={"provider": "made-up-provider", "model": "text-embedding-3", "api_key": "secret", "dimensions": 1536},
+            headers=auth_headers("embedding_settings:write"),
+        )
+
+    assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "embedding_provider"
+
+
+def test_update_voyage_without_api_key_returns_structured_400(client, auth_headers):
+    # Real (unmocked) validate_embedding_choice: voyage requires an api_key.
+    with patch(
+        "app.infrastructure.repositories.embedding_provider_settings_repository."
+        "EmbeddingProviderSettingsRepository.get_enabled_providers",
+        return_value={"voyage", "ollama", "openai_compatible"},
+    ):
+        response = client.put(
+            "/embedding-settings",
+            json={"provider": "voyage", "model": "voyage-3", "dimensions": 1024},
+            headers=auth_headers("embedding_settings:write"),
+        )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["field"] == "api_key"
+
+
+def test_update_disabled_provider_returns_structured_400(client, auth_headers):
+    with patch(
+        "app.infrastructure.repositories.embedding_provider_settings_repository."
+        "EmbeddingProviderSettingsRepository.get_enabled_providers",
+        return_value={"ollama"},
+    ):
+        response = client.put(
+            "/embedding-settings",
+            json={"provider": "voyage", "model": "voyage-3", "api_key": "secret", "dimensions": 1024},
+            headers=auth_headers("embedding_settings:write"),
+        )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "embedding_provider_disabled"
 
 
 def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
@@ -87,6 +138,7 @@ def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
         model="nomic-embed-text",
         configured=True,
         base_url="http://ollama:11434",
+        dimensions=768,
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc),
@@ -97,7 +149,7 @@ def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
     ):
         response = client.put(
             "/embedding-settings",
-            json={"provider": "ollama", "model": "nomic-embed-text"},
+            json={"provider": "ollama", "model": "nomic-embed-text", "dimensions": 768},
             headers=auth_headers("embedding_settings:write"),
         )
 
@@ -107,19 +159,19 @@ def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
     assert body["base_url"] == "http://ollama:11434"
 
 
-def test_update_unsupported_model_returns_structured_400(client, auth_headers):
+def test_update_model_locked_returns_structured_400(client, auth_headers):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingSettingsService.update",
-        side_effect=ValidationError("unsupported_embedding_provider", "bad model", field="embedding_model"),
+        side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider"),
     ):
         response = client.put(
             "/embedding-settings",
-            json={"provider": "voyage", "model": "bogus", "api_key": "secret"},
+            json={"provider": "voyage", "model": "voyage-3", "api_key": "secret", "dimensions": 1024},
             headers=auth_headers("embedding_settings:write"),
         )
 
     assert response.status_code == 400
-    assert response.get_json()["error"]["code"] == "unsupported_embedding_provider"
+    assert response.get_json()["error"]["code"] == "embedding_model_locked"
 
 
 def test_update_bad_chunking_returns_structured_400(client, auth_headers):
@@ -129,7 +181,14 @@ def test_update_bad_chunking_returns_structured_400(client, auth_headers):
     ):
         response = client.put(
             "/embedding-settings",
-            json={"provider": "voyage", "model": "voyage-3", "api_key": "secret", "chunk_size": 10, "chunk_overlap": 20},
+            json={
+                "provider": "voyage",
+                "model": "voyage-3",
+                "api_key": "secret",
+                "dimensions": 1024,
+                "chunk_size": 10,
+                "chunk_overlap": 20,
+            },
             headers=auth_headers("embedding_settings:write"),
         )
 
@@ -143,6 +202,7 @@ def test_update_success_returns_configured_true(client, auth_headers):
         model="nomic-embed-text",
         configured=True,
         base_url="http://ollama:11434",
+        dimensions=768,
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc),
@@ -153,7 +213,7 @@ def test_update_success_returns_configured_true(client, auth_headers):
     ):
         response = client.put(
             "/embedding-settings",
-            json={"provider": "ollama", "model": "nomic-embed-text"},
+            json={"provider": "ollama", "model": "nomic-embed-text", "dimensions": 768},
             headers=auth_headers("embedding_settings:write"),
         )
 
@@ -172,6 +232,7 @@ def test_delete_clears_settings_and_returns_configured_false(client, auth_header
         model=None,
         configured=False,
         base_url=None,
+        dimensions=None,
         chunk_size=800,
         chunk_overlap=100,
         updated_at=None,

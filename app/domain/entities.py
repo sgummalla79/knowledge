@@ -50,9 +50,17 @@ class EmbeddingSettings:
     model: str
     api_key: str | None
     base_url: str | None
+    dimensions: int
     chunk_size: int
     chunk_overlap: int
     created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class EmbeddingProviderToggle:
+    provider: str
+    enabled: bool
     updated_at: datetime
 
 

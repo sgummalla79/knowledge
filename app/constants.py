@@ -1,29 +1,21 @@
-# pgvector requires a fixed vector dimension at table-creation time, so the embedding column
-# cannot be sized dynamically per library. v1 standardizes on a single embedding model/dimension;
-# supporting a different dimension later requires a migration (documented "start narrow" tradeoff).
+# The dimension used only to size the `chunks.embedding` pgvector column at initial table-creation
+# time (migration 0001). Once `embedding_settings` exists, the column is resized dynamically to
+# match embedding_settings.dimensions whenever the model changes with no documents present (see
+# EmbeddingSettingsService.update() / ChunkRepository.resize_embedding_column) — this constant is
+# no longer consulted anywhere else.
 EMBEDDING_DIM = 768
 
 DEFAULT_EMBEDDING_PROVIDER = "ollama"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
 
-# Exposed via GET /embedding-options so clients (e.g. the desktop UI) populate choices from the
-# API instead of hardcoding provider/model names. EMBEDDING_DIM constrains this to models that
-# produce EMBEDDING_DIM-length vectors until per-library dimensions are supported. "voyage-3" is
-# intentionally absent: it produces 1024-dim vectors, incompatible with EMBEDDING_DIM=768. The
-# VoyageEmbeddingProvider class/registry entry stays in the codebase (may be re-enabled if a
-# 768-dim-capable Voyage model shows up) but is unreachable via this API until it's added back here.
-SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER = {
-    DEFAULT_EMBEDDING_PROVIDER: [DEFAULT_EMBEDDING_MODEL],
-}
-
-# Declares the vector dimension each (provider, model) pair natively produces, so
-# validate_embedding_choice can reject a dimension-mismatched selection with a clear 400 instead of
-# a cryptic pgvector error at ingest time. Includes entries not currently in
-# SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER (e.g. voyage-3) purely for documentation/future re-enable.
-EMBEDDING_MODEL_DIMENSIONS = {
-    ("ollama", "nomic-embed-text"): 768,
-    ("voyage", "voyage-3"): 1024,
-}
+# Purely informational suggestions surfaced via GET /embedding-options so a UI can offer common
+# provider/model/dimension combos as a starting point — never validated or enforced against; any
+# provider registered in EmbeddingProviderRegistry accepts any model/dimensions the caller supplies.
+EMBEDDING_MODEL_PRESETS = [
+    {"provider": "ollama", "model": "nomic-embed-text", "dimensions": 768},
+    {"provider": "voyage", "model": "voyage-3", "dimensions": 1024},
+    {"provider": "openai_compatible", "model": "text-embedding-3-small", "dimensions": 1536},
+]
 
 # Providers whose embedding_settings.api_key is required (non-empty) vs. optional (self-hosted).
 # Data-driven so validation never branches on a provider's name directly (Open/Closed).
@@ -31,7 +23,11 @@ EMBEDDING_PROVIDERS_REQUIRING_API_KEY = {"voyage"}
 
 # Providers that accept a connection override via embedding_settings.base_url (self-hosted
 # providers only). Drives whether GET /embedding-options advertises a base_url field.
-EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama"}
+EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
+
+# Providers with no sane default base_url to fall back to (unlike ollama's DEFAULT_OLLAMA_BASE_URL)
+# — base_url is mandatory for these, not just an optional override.
+EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
 # The one genuinely "inevitable" literal in this file: the compile-time-known network address of
 # the bundled Ollama sidecar (docker-compose service key "ollama", Ollama's default port). Used
@@ -58,9 +54,8 @@ DEFAULT_RERANK_ENABLED = False
 DEFAULT_RERANK_PROVIDER = "voyage"
 DEFAULT_RERANK_MODEL = "rerank-2"
 
-# Exposed via GET /rerank-options, same rationale as SUPPORTED_EMBEDDING_MODELS_BY_PROVIDER above.
-# Intentionally empty: Voyage was the only rerank provider, and (like voyage-3 for embeddings)
-# it's now inactive now that the default embedding provider is keyless local Ollama — reranking
+# Exposed via GET /rerank-options. Intentionally empty: Voyage was the only rerank provider, and
+# it's inactive now that the default embedding provider is keyless local Ollama — reranking
 # would otherwise be the one remaining feature still requiring an external API key. The
 # VoyageRerankProvider class/registry entry stays in the codebase (may be re-enabled if a keyless
 # or otherwise-supported rerank provider shows up) but is unreachable via this API: with no

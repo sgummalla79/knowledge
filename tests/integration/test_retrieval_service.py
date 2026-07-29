@@ -52,7 +52,9 @@ def test_query_returns_nearest_chunks_ranked_by_hybrid_fusion(db_session):
     chunk_repo = ChunkRepository(db_session)
     embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     library = _make_library(library_repo)
-    embedding_settings_repo.upsert("voyage", "voyage-3", "test-key", chunk_size=800, chunk_overlap=100)
+    embedding_settings_repo.upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    )
     db_session.commit()
 
     near = [1.0] + [0.0] * (EMBEDDING_DIM - 1)
@@ -84,7 +86,9 @@ def test_hybrid_fusion_promotes_sparse_match_over_pure_dense_order(db_session):
     chunk_repo = ChunkRepository(db_session)
     embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     library = _make_library(library_repo, name="hybrid-fusion-test")
-    embedding_settings_repo.upsert("voyage", "voyage-3", "test-key", chunk_size=800, chunk_overlap=100)
+    embedding_settings_repo.upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    )
     db_session.commit()
 
     query_vector = [1.0] + [0.0] * (EMBEDDING_DIM - 1)
@@ -121,7 +125,9 @@ def test_rerank_disabled_never_calls_rerank_provider(db_session):
     chunk_repo = ChunkRepository(db_session)
     embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     library = _make_library(library_repo, name="rerank-disabled-test")
-    embedding_settings_repo.upsert("voyage", "voyage-3", "test-key", chunk_size=800, chunk_overlap=100)
+    embedding_settings_repo.upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    )
     db_session.commit()
 
     near = [1.0] + [0.0] * (EMBEDDING_DIM - 1)
@@ -148,7 +154,9 @@ def test_rerank_enabled_reorders_using_rerank_scores(db_session):
     embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     search_settings_repo = SearchSettingsRepository(db_session)
     library = _make_library(library_repo, name="rerank-enabled-test")
-    embedding_settings_repo.upsert("voyage", "voyage-3", "test-key", chunk_size=800, chunk_overlap=100)
+    embedding_settings_repo.upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    )
     search_settings_repo.upsert(
         rerank_enabled=True,
         rerank_provider="voyage",

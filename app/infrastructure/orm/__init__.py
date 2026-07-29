@@ -2,6 +2,7 @@ from app.infrastructure.orm.application import Application
 from app.infrastructure.orm.base import Base, SessionLocal, engine
 from app.infrastructure.orm.chunk import Chunk
 from app.infrastructure.orm.document import Document
+from app.infrastructure.orm.embedding_provider_setting import EmbeddingProviderSetting
 from app.infrastructure.orm.embedding_settings import EmbeddingSettings
 from app.infrastructure.orm.library import Library
 from app.infrastructure.orm.refresh_token import RefreshToken
@@ -15,6 +16,7 @@ __all__ = [
     "Application",
     "Chunk",
     "Document",
+    "EmbeddingProviderSetting",
     "EmbeddingSettings",
     "Library",
     "RefreshToken",

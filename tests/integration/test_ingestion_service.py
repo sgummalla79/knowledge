@@ -36,7 +36,9 @@ def _make_service(db_session):
 def test_successful_ingest_is_atomic(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo)
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     service = _make_service(db_session)
@@ -55,10 +57,38 @@ def test_successful_ingest_is_atomic(db_session):
     assert updated_library.chunk_count > 0
 
 
+def test_ingest_with_dimension_mismatch_fails_document_and_leaves_counts_unchanged(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-dimension-mismatch-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    wrong_dimension_provider = MagicMock()
+    wrong_dimension_provider.embed_documents.side_effect = lambda texts: [[0.0] * (EMBEDDING_DIM // 2) for _ in texts]
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=wrong_dimension_provider,
+    ):
+        with pytest.raises(ValidationError) as exc_info:
+            service.ingest(library, "notes.txt", b"hello world")
+    db_session.commit()
+    assert exc_info.value.code == error_codes.EMBEDDING_DIMENSION_MISMATCH
+
+    updated_library = library_repo.get(library.id)
+    assert updated_library.document_count == 0
+    assert updated_library.chunk_count == 0
+
+
 def test_failed_embedding_leaves_document_failed_and_counts_unchanged(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-fail-test")
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     service = _make_service(db_session)
@@ -97,7 +127,9 @@ def test_ingest_without_configured_embeddings_raises(db_session):
 def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-clears-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
@@ -120,7 +152,9 @@ def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
 def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-keeps-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
@@ -145,7 +179,9 @@ def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
 def test_retry_after_failure_succeeds_without_double_counting(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="retry-success-test")
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
@@ -185,7 +221,9 @@ def test_retry_after_failure_succeeds_without_double_counting(db_session):
 def test_retry_without_stored_bytes_raises_document_not_retryable(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="retry-no-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert("voyage", "voyage-3", "test-key", chunk_size=20, chunk_overlap=5)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
     db_session.commit()
 
     # Simulates a document that predates raw-bytes storage (or whose bytes were already cleared) —
@@ -231,7 +269,7 @@ def test_retry_without_configured_embeddings_raises(db_session):
 
 def test_embedding_settings_clear_removes_the_row(db_session):
     repo = EmbeddingSettingsRepository(db_session)
-    repo.upsert("voyage", "voyage-3", "secret", chunk_size=800, chunk_overlap=100)
+    repo.upsert("voyage", "voyage-3", "secret", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100)
     db_session.commit()
     assert repo.get() is not None
 

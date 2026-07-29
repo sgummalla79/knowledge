@@ -9,6 +9,7 @@ def _to_entity(model: EmbeddingSettingsModel) -> EmbeddingSettingsEntity:
         model=model.model,
         api_key=model.api_key,
         base_url=model.base_url,
+        dimensions=model.dimensions,
         chunk_size=model.chunk_size,
         chunk_overlap=model.chunk_overlap,
         created_at=model.created_at,
@@ -31,6 +32,7 @@ class EmbeddingSettingsRepository:
         provider: str,
         model: str,
         api_key: str | None,
+        dimensions: int,
         chunk_size: int,
         chunk_overlap: int,
         base_url: str | None = None,
@@ -42,6 +44,7 @@ class EmbeddingSettingsRepository:
                 model=model,
                 api_key=api_key,
                 base_url=base_url,
+                dimensions=dimensions,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
             )
@@ -51,6 +54,7 @@ class EmbeddingSettingsRepository:
             existing.model = model
             existing.api_key = api_key
             existing.base_url = base_url
+            existing.dimensions = dimensions
             existing.chunk_size = chunk_size
             existing.chunk_overlap = chunk_overlap
         self._session.flush()
