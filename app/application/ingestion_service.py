@@ -107,7 +107,11 @@ class IngestionService:
     def _process(self, document: Document, library: Library, file_bytes: bytes, settings) -> Document:
         try:
             parser = self._resolve_parser(document)
-            text = parser.parse(file_bytes)
+            # Postgres text columns reject NUL bytes outright ("A string literal cannot contain
+            # NUL (0x00) characters") — some PDFs' extracted text contains them (seen in
+            # production). Stripped here, at the boundary where arbitrary file content enters the
+            # pipeline, so it can never reach chunks.content regardless of which parser produced it.
+            text = parser.parse(file_bytes).replace("\x00", "")
 
             chunker = TextChunker(chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap)
             pieces = chunker.split(text)

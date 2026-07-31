@@ -42,8 +42,19 @@ class ChunkRepository:
             )
             for chunk_index, content, embedding in chunks
         ]
-        self._session.add_all(models)
-        self._session.flush()
+        # A SAVEPOINT, not the outer transaction directly. A flush failure here (e.g. content
+        # Postgres rejects outright, like an embedded NUL byte) otherwise poisons the *entire*
+        # session — every later statement on it raises PendingRollbackError until an explicit
+        # rollback(), including IngestionService._process()'s own except block trying to mark the
+        # document "failed". That's a real incident this fixed: the document row (already flushed
+        # earlier in the same uncommitted transaction) got silently wiped by the eventual rollback,
+        # and the ingestion job never reached completed *or* failed — it just hung forever from the
+        # client's point of view. Scoping the insert to a nested transaction means a failure here
+        # only rolls back this savepoint, leaving the rest of the job's work intact and the session
+        # perfectly usable for the "mark failed" write that follows.
+        with self._session.begin_nested():
+            self._session.add_all(models)
+            self._session.flush()
 
     def similarity_search(self, library_id, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         distance = Chunk.embedding.cosine_distance(query_embedding)

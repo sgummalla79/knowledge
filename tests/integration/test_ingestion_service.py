@@ -60,6 +60,34 @@ def test_successful_ingest_is_atomic(db_session):
     assert updated_library.chunk_count > 0
 
 
+def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_session):
+    """Regression test for a real incident: a PDF's extracted text contained a NUL byte, which
+    Postgres rejects outright when inserting into chunks.content ("A string literal cannot
+    contain NUL (0x00) characters") -- and that DB-level failure cascaded into the document never
+    being markable "failed" either (see test_chunk_repository.py). Stripping NUL bytes right after
+    parsing means this content class no longer reaches the DB at all.
+    """
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-nul-byte-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    text_with_nul = "some real content \x00 with an embedded null byte " * 3
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        document = service.ingest(library, "notes.txt", text_with_nul.encode())
+    db_session.commit()
+
+    assert document.status == "completed"
+    assert document.chunk_count > 0
+
+
 def test_ingest_with_dimension_mismatch_fails_document_and_leaves_counts_unchanged(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-dimension-mismatch-test")
