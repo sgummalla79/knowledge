@@ -94,7 +94,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
     <div class="table-scroll" style="max-width: 480px;">
       <table class="params-table">
         <tr><td><code>libraries:read</code> / <code>libraries:write</code></td><td>Library CRUD</td></tr>
-        <tr><td><code>documents:read</code> / <code>documents:write</code></td><td>Document upload/list/delete/retry</td></tr>
+        <tr><td><code>documents:read</code> / <code>documents:write</code></td><td>Document upload/crawl/list/rename/delete/retry, job status/cancel</td></tr>
         <tr><td><code>query:execute</code></td><td>Run a retrieval query against a library</td></tr>
         <tr><td><code>embedding_settings:read</code> / <code>:write</code></td><td>Embedding config + provider enable/disable</td></tr>
         <tr><td><code>search_settings:read</code> / <code>:write</code></td><td>Hybrid search / rerank tuning</td></tr>
@@ -155,15 +155,104 @@ refresh_token=&lt;opaque token&gt;</code></pre>
       <pre class="code"><code>{ "job_id": "..." }</code></pre>
     </div>
 
+    <div class="endpoint" id="post-documents-crawl">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/documents/crawl</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc">
+        Ingests one or more web pages starting from a URL, instead of a file upload. Pages that
+        look like an unrendered JS shell on a plain fetch are transparently re-fetched with a
+        headless browser first — no flag needed. The outbound User-Agent is admin-configurable
+        from the Dashboard's Configuration page (some sites block the default).
+      </p>
+      <h4>Request body</h4>
+      <pre class="code"><code>{
+  "url": "https://developer.example.com/docs/intro.htm",
+  "max_pages": 1,
+  "scope_prefix": null
+}</code></pre>
+      <p class="endpoint-desc">
+        <code>max_pages</code> (default <code>1</code>, max <code>100</code>) — <code>1</code> just
+        ingests that one page; higher values crawl outward to same-host, in-scope linked pages
+        found on each page, breadth-first. <code>scope_prefix</code> (optional) overrides the
+        default scope, which is the seed URL's own directory — a crawl never leaves the seed's
+        host regardless. robots.txt is respected; a page it disallows is silently skipped.
+      </p>
+      <h4>Response — 202</h4>
+      <pre class="code"><code>{ "job_id": "..." }</code></pre>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>invalid_crawl_url</code></td><td>400 — malformed URL, unresolvable host, or resolves to a non-public address</td></tr>
+          <tr><td><code>rate_limited</code></td><td>429 — capped at 5 requests/minute (this endpoint makes outbound fetches on the caller's behalf)</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="endpoint" id="get-crawl-jobs">
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}/crawl-jobs/{job_id}</span><span class="scope-tag">documents:read</span></div>
+      <p class="endpoint-desc">Status for a crawl started via <code>POST .../documents/crawl</code> — separate from the single-document job endpoint below, since a crawl can produce many documents.</p>
+      <h4>Response — 200</h4>
+      <pre class="code"><code>{
+  "status": "pending | running | completed | failed",
+  "seed_url": "https://developer.example.com/docs/intro.htm",
+  "error": null,
+  "pages": {
+    "https://developer.example.com/docs/intro.htm": {
+      "status": "completed | failed",
+      "document_id": "uuid or null",
+      "error": "string or null"
+    }
+  }
+}</code></pre>
+      <p class="endpoint-desc">
+        <code>pages</code> grows as the crawl discovers and processes pages — poll until the
+        top-level <code>status</code> settles. One page failing doesn't fail the whole job; each
+        failed page can be retried individually via the document retry endpoint below once its
+        <code>document_id</code> is known (a page that fails before a document is ever created has
+        <code>document_id: null</code> and nothing to retry — re-run the crawl instead).
+      </p>
+    </div>
+
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}/jobs/{job_id}</span><span class="scope-tag">documents:read</span></div>
       <h4>Response — 200</h4>
-      <pre class="code"><code>{ "status": "pending | running | completed | failed", "error": null, "document_id": "uuid or null" }</code></pre>
+      <pre class="code"><code>{
+  "status": "pending | running | completed | failed | cancelled",
+  "error": null,
+  "document_id": "uuid or null",
+  "cancel_requested": false
+}</code></pre>
+      <p class="endpoint-desc">
+        <code>cancel_requested</code> is <code>true</code> from the moment
+        <code>POST .../jobs/{job_id}/cancel</code> is called until the job actually settles on
+        <code>cancelled</code> — cancellation is best-effort (checked between embedding-provider
+        batches, not instant), so a client can show "cancelling…" during that window.
+      </p>
+    </div>
+
+    <div class="endpoint" id="post-jobs-cancel">
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/jobs/{job_id}/cancel</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc">
+        Requests cancellation of an in-progress upload or retry. Returns immediately — poll
+        <code>GET .../jobs/{job_id}</code> for the job to actually reach <code>cancelled</code>. The
+        resulting document is kept (not deleted) with <code>status: "cancelled"</code> and can be
+        retried later exactly like a failed one.
+      </p>
+      <h4>Response — 202</h4>
+      <p class="endpoint-desc">Empty body.</p>
     </div>
 
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}/documents</span><span class="scope-tag">documents:read</span></div>
-      <p class="endpoint-desc">Paginated. Each item: <code>id, library_id, source_filename, file_type, status, error_message, ingested_at, created_at</code>.</p>
+      <p class="endpoint-desc">Paginated. Each item: <code>id, library_id, source_filename, file_type, status, error_message, size_bytes, chunk_count, ingested_at, created_at</code>. <code>size_bytes</code>/<code>chunk_count</code> are <code>null</code> (not <code>0</code>) until known — <code>size_bytes</code> is set immediately, <code>chunk_count</code> only once ingestion completes.</p>
+    </div>
+
+    <div class="endpoint" id="patch-document">
+      <div class="endpoint-head"><span class="method method-patch">PATCH</span><span class="endpoint-path">/libraries/{library_id}/documents/{document_id}</span><span class="scope-tag">documents:write</span></div>
+      <p class="endpoint-desc">Renames a document — a pure display-label edit, safe at any status (including mid-ingestion) and has no effect on its chunks/embeddings or on future retries.</p>
+      <h4>Request body</h4>
+      <pre class="code"><code>{ "source_filename": "New Name.pdf" }</code></pre>
+      <h4>Response — 200</h4>
+      <p class="endpoint-desc">The updated document, same shape as the list endpoint above.</p>
     </div>
 
     <div class="endpoint">
@@ -173,7 +262,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
 
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/documents/{document_id}/retry</span><span class="scope-tag">documents:write</span></div>
-      <p class="endpoint-desc">Re-runs ingestion for a <code>failed</code> document using its originally-stored bytes. Returns <code>202</code> with a new <code>job_id</code>.</p>
+      <p class="endpoint-desc">Re-runs ingestion for a <code>failed</code> or <code>cancelled</code> document using its originally-stored bytes. Returns <code>202</code> with a new <code>job_id</code>.</p>
     </div>
 
     <h2 id="query">Query</h2>
