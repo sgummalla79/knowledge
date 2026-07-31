@@ -41,7 +41,12 @@ class DocumentRepositoryPort(Protocol):
     def count_for_library(self, library_id: UUID) -> int: ...
 
     def update_status(
-        self, document_id: UUID, status: str, ingested_at=None, error_message: str | None = None
+        self,
+        document_id: UUID,
+        status: str,
+        ingested_at=None,
+        error_message: str | None = None,
+        chunk_count: int | None = None,
     ) -> Document: ...
 
     def get_raw_bytes(self, document_id: UUID) -> bytes | None: ...

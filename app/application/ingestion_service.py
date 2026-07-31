@@ -40,6 +40,7 @@ class IngestionService:
             # DocumentRepository.update_status — so a failed ingestion can be retried without
             # the client re-sending the file.
             raw_file_bytes=file_bytes,
+            size_bytes=len(file_bytes),
         )
         return self._process(document, library, file_bytes, settings)
 
@@ -101,7 +102,7 @@ class IngestionService:
             self._chunks.bulk_create(document.id, library.id, chunks)
 
             document = self._documents.update_status(
-                document.id, "completed", ingested_at=datetime.now(timezone.utc)
+                document.id, "completed", ingested_at=datetime.now(timezone.utc), chunk_count=len(chunks)
             )
             self._libraries.increment_counts(library.id, document_delta=1, chunk_delta=len(chunks))
             logger.info(

@@ -27,6 +27,8 @@ class Document:
     file_type: str
     status: str
     error_message: str | None
+    size_bytes: int | None
+    chunk_count: int | None
     ingested_at: datetime | None
     created_at: datetime
 

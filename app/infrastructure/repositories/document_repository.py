@@ -15,6 +15,8 @@ def _to_entity(model: DocumentModel) -> DocumentEntity:
         file_type=model.file_type,
         status=model.status,
         error_message=model.error_message,
+        size_bytes=model.size_bytes,
+        chunk_count=model.chunk_count,
         ingested_at=model.ingested_at,
         created_at=model.created_at,
     )
@@ -50,12 +52,16 @@ class DocumentRepository:
     def count_for_library(self, library_id) -> int:
         return self._session.query(DocumentModel).filter(DocumentModel.library_id == library_id).count()
 
-    def update_status(self, document_id, status: str, ingested_at=None, error_message=None) -> DocumentEntity:
+    def update_status(
+        self, document_id, status: str, ingested_at=None, error_message=None, chunk_count=None
+    ) -> DocumentEntity:
         model = self._session.get(DocumentModel, document_id)
         model.status = status
         if ingested_at is not None:
             model.ingested_at = ingested_at
         model.error_message = error_message
+        if chunk_count is not None:
+            model.chunk_count = chunk_count
         if status == "completed":
             # The original file is only ever needed to retry a failed ingestion — once a document
             # is fully ingested, its content lives in `chunks` and the raw upload is dead weight.

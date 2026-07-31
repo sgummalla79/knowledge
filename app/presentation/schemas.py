@@ -58,6 +58,8 @@ class DocumentResponse(BaseModel):
     file_type: str
     status: str
     error_message: str | None
+    size_bytes: int | None
+    chunk_count: int | None
     ingested_at: datetime | None
     created_at: datetime
 
@@ -70,6 +72,8 @@ class DocumentResponse(BaseModel):
             file_type=document.file_type,
             status=document.status,
             error_message=document.error_message,
+            size_bytes=document.size_bytes,
+            chunk_count=document.chunk_count,
             ingested_at=document.ingested_at,
             created_at=document.created_at,
         )

@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, LargeBinary, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, LargeBinary, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import deferred
 
@@ -21,6 +21,13 @@ class Document(Base):
     # to MAX_UPLOAD_MB per row, so loading it unconditionally on every list call would be wasteful.
     raw_file_bytes = deferred(Column(LargeBinary, nullable=True))
     error_message = Column(String, nullable=True)
+    # Set once at upload time (IngestionService.ingest) — the byte count is already in hand then,
+    # no extra work needed.
+    size_bytes = Column(Integer, nullable=True)
+    # Set once ingestion actually completes (IngestionService._process) — stays NULL for
+    # pending/processing/failed documents, so API consumers can tell "not available yet" apart
+    # from "genuinely zero chunks" instead of just seeing 0.
+    chunk_count = Column(Integer, nullable=True)
     ingested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

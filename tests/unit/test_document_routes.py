@@ -28,6 +28,8 @@ def _document(**overrides):
         file_type="md",
         status="completed",
         error_message=None,
+        size_bytes=1024,
+        chunk_count=3,
         ingested_at=now,
         created_at=now,
     )
@@ -80,7 +82,10 @@ def test_list_documents_sets_total_count_header(client, auth_headers):
 
     assert response.status_code == 200
     assert response.headers["X-Total-Count"] == "2"
-    assert len(response.get_json()) == 2
+    body = response.get_json()
+    assert len(body) == 2
+    assert body[0]["size_bytes"] == 1024
+    assert body[0]["chunk_count"] == 3
 
 
 def test_get_job_status_returns_structured_404_when_missing(client, auth_headers):

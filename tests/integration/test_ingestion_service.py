@@ -53,6 +53,9 @@ def test_successful_ingest_is_atomic(db_session):
 
     updated_library = library_repo.get(library.id)
     assert document.status == "completed"
+    assert document.size_bytes == len(text.encode())
+    assert document.chunk_count > 0
+    assert document.chunk_count == updated_library.chunk_count
     assert updated_library.document_count == 1
     assert updated_library.chunk_count > 0
 
@@ -174,6 +177,10 @@ def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
     assert failed_document.status == "failed"
     assert "embedding API unavailable" in failed_document.error_message
     assert document_repo.get_raw_bytes(failed_document.id) == b"hello world"
+    # size_bytes is set at upload time regardless of outcome; chunk_count stays unset ("not
+    # available yet") since ingestion never reached completion.
+    assert failed_document.size_bytes == len(b"hello world")
+    assert failed_document.chunk_count is None
 
 
 def test_retry_after_failure_succeeds_without_double_counting(db_session):
@@ -211,6 +218,7 @@ def test_retry_after_failure_succeeds_without_double_counting(db_session):
 
     assert retried_document.status == "completed"
     assert retried_document.error_message is None
+    assert retried_document.chunk_count > 0
     assert document_repo.get_raw_bytes(retried_document.id) is None
 
     final_library = library_repo.get(library.id)
