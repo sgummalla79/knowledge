@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from app.domain.errors import IngestionCancelled
 from app.infrastructure.embeddings.openai_compatible_provider import OpenAICompatibleEmbeddingProvider
 
 
@@ -107,6 +108,19 @@ def test_embed_documents_splits_large_inputs_into_multiple_batched_requests():
     assert mock_post.call_count == 3  # 100 + 100 + 20
     batch_sizes = [len(call.kwargs["json"]["input"]) for call in mock_post.call_args_list]
     assert batch_sizes == [100, 100, 20]
+
+
+def test_embed_documents_stops_before_batch_when_cancelled():
+    provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:8000", api_key=None, model="local-model")
+    texts = [f"chunk-{i}" for i in range(220)]  # > 2x the 100-per-batch size
+
+    with patch("app.infrastructure.embeddings.openai_compatible_provider.requests.post") as mock_post:
+        mock_post.return_value = _mock_response([[0.1]] * 100)
+        should_cancel = MagicMock(side_effect=[False, True])
+        with pytest.raises(IngestionCancelled):
+            provider.embed_documents(texts, should_cancel=should_cancel)
+
+    assert mock_post.call_count == 1
 
 
 def test_list_models_returns_model_ids():

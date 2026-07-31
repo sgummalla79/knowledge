@@ -1,7 +1,9 @@
 import logging
+from typing import Callable
 
 import voyageai
 
+from app.domain.errors import IngestionCancelled
 from app.infrastructure.embeddings.base import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
@@ -21,13 +23,17 @@ class VoyageEmbeddingProvider(EmbeddingProvider):
         self._client = voyageai.Client(api_key=api_key)
         self._model = model
 
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+    def embed_documents(
+        self, texts: list[str], should_cancel: Callable[[], bool] | None = None
+    ) -> list[list[float]]:
         embeddings: list[list[float]] = []
         batches = [
             texts[start : start + _DOCUMENT_BATCH_SIZE]
             for start in range(0, len(texts), _DOCUMENT_BATCH_SIZE)
         ]
         for batch_number, batch in enumerate(batches, start=1):
+            if should_cancel and should_cancel():
+                raise IngestionCancelled("Cancelled by user.")
             logger.debug(
                 "Embedding batch",
                 extra={

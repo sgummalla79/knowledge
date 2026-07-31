@@ -75,6 +75,12 @@ class DocumentRepository:
         model = self._session.get(DocumentModel, document_id)
         return model.raw_file_bytes if model is not None else None
 
+    def rename(self, document_id, new_name: str) -> DocumentEntity:
+        model = self._session.get(DocumentModel, document_id)
+        model.source_filename = new_name
+        self._session.flush()
+        return _to_entity(model)
+
     def delete(self, document_id) -> None:
         model = self._session.get(DocumentModel, document_id)
         if model is not None:

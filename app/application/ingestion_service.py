@@ -1,10 +1,11 @@
 import hashlib
 import logging
 from datetime import datetime, timezone
+from typing import Callable
 
 from app.domain import error_codes
 from app.domain.entities import Document, Library
-from app.domain.errors import ValidationError
+from app.domain.errors import IngestionCancelled, ValidationError
 from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, EmbeddingSettingsRepositoryPort, LibraryRepositoryPort
 from app.infrastructure.chunking.chunker import TextChunker
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
@@ -34,7 +35,9 @@ class IngestionService:
         self._chunks = chunk_repo
         self._embedding_settings = embedding_settings_repo
 
-    def ingest(self, library: Library, filename: str, file_bytes: bytes) -> Document:
+    def ingest(
+        self, library: Library, filename: str, file_bytes: bytes, should_cancel: Callable[[], bool] | None = None
+    ) -> Document:
         settings = self._require_embedding_settings()
 
         content_hash = hashlib.sha256(file_bytes).hexdigest()
@@ -50,9 +53,11 @@ class IngestionService:
             raw_file_bytes=file_bytes,
             size_bytes=len(file_bytes),
         )
-        return self._process(document, library, file_bytes, settings)
+        return self._process(document, library, file_bytes, settings, should_cancel)
 
-    def ingest_html(self, library: Library, url: str, html_bytes: bytes) -> Document:
+    def ingest_html(
+        self, library: Library, url: str, html_bytes: bytes, should_cancel: Callable[[], bool] | None = None
+    ) -> Document:
         """Same pipeline as ingest(), for a page fetched from the web (WebCrawlService) instead of
         uploaded. source_filename is the page's URL itself (for display/linking, not extension
         sniffing) and file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something
@@ -69,9 +74,11 @@ class IngestionService:
             raw_file_bytes=html_bytes,
             size_bytes=len(html_bytes),
         )
-        return self._process(document, library, html_bytes, settings)
+        return self._process(document, library, html_bytes, settings, should_cancel)
 
-    def retry(self, document: Document, library: Library) -> Document:
+    def retry(
+        self, document: Document, library: Library, should_cancel: Callable[[], bool] | None = None
+    ) -> Document:
         """Re-runs the exact same pipeline as ingest(), against an existing document row instead
         of creating a new one, using the raw bytes stored at the original upload. A failed
         ingestion never gets far enough to call ChunkRepository.bulk_create (see _process below —
@@ -88,7 +95,7 @@ class IngestionService:
                 field="document_id",
             )
         document = self._documents.update_status(document.id, "processing")
-        return self._process(document, library, file_bytes, settings)
+        return self._process(document, library, file_bytes, settings, should_cancel)
 
     def _require_embedding_settings(self):
         settings = self._embedding_settings.get()
@@ -102,10 +109,20 @@ class IngestionService:
     def _resolve_parser(self, document: Document):
         if document.file_type == HTML_SOURCE_FILE_TYPE:
             return _html_parser
-        return ParserRegistry.resolve(document.source_filename)
+        return ParserRegistry.resolve_by_file_type(document.file_type)
 
-    def _process(self, document: Document, library: Library, file_bytes: bytes, settings) -> Document:
+    def _process(
+        self,
+        document: Document,
+        library: Library,
+        file_bytes: bytes,
+        settings,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> Document:
         try:
+            if should_cancel and should_cancel():
+                raise IngestionCancelled("Cancelled by user.")
+
             parser = self._resolve_parser(document)
             # Postgres text columns reject NUL bytes outright ("A string literal cannot contain
             # NUL (0x00) characters") — some PDFs' extracted text contains them (seen in
@@ -126,7 +143,7 @@ class IngestionService:
                 "Embedding chunks",
                 extra={"provider": settings.provider, "model": settings.model, "chunk_count": len(pieces)},
             )
-            vectors = provider.embed_documents(pieces)
+            vectors = provider.embed_documents(pieces, should_cancel=should_cancel)
             if vectors and len(vectors[0]) != settings.dimensions:
                 raise ValidationError(
                     error_codes.EMBEDDING_DIMENSION_MISMATCH,
@@ -144,6 +161,11 @@ class IngestionService:
             logger.info(
                 "Ingestion persisted", extra={"document_id": str(document.id), "chunk_count": len(chunks)}
             )
+        except IngestionCancelled as error:
+            # Distinct from "failed" — this document didn't error out, a user stopped it. Kept
+            # (not deleted) and retryable later exactly like a failed document.
+            self._documents.update_status(document.id, "cancelled", error_message=str(error))
+            raise
         except Exception as error:
             # No exception logging here — document_service._run_ingestion_job's outer catch is
             # the single place this failure gets logged (with full traceback), to avoid logging

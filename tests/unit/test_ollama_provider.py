@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from app.domain.errors import IngestionCancelled
 from app.infrastructure.embeddings.ollama_provider import OllamaEmbeddingProvider
 
 
@@ -107,6 +108,29 @@ def test_embed_documents_failure_in_later_batch_raises_runtime_error():
             provider.embed_documents(texts)
 
     assert mock_post.call_count == 2
+
+
+def test_embed_documents_stops_before_batch_when_cancelled():
+    provider = OllamaEmbeddingProvider(base_url="http://ollama:11434", model="nomic-embed-text")
+    texts = [f"chunk-{i}" for i in range(40)]  # 2 batches: 32 + 8
+
+    with patch("app.infrastructure.embeddings.ollama_provider.requests.post") as mock_post:
+        mock_post.return_value = _mock_response([[0.1]] * 32)
+        should_cancel = MagicMock(side_effect=[False, True])
+        with pytest.raises(IngestionCancelled):
+            provider.embed_documents(texts, should_cancel=should_cancel)
+
+    # First batch already went out before cancellation was noticed; the second never did.
+    assert mock_post.call_count == 1
+
+
+def test_embed_documents_without_should_cancel_runs_normally():
+    provider = OllamaEmbeddingProvider(base_url="http://ollama:11434", model="nomic-embed-text")
+    with patch("app.infrastructure.embeddings.ollama_provider.requests.post") as mock_post:
+        mock_post.return_value = _mock_response([[0.1], [0.2]])
+        result = provider.embed_documents(["a", "b"])
+
+    assert result == [[0.1], [0.2]]
 
 
 def test_list_models_returns_model_names():

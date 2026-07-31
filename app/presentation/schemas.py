@@ -84,6 +84,13 @@ class JobStatusResponse(BaseModel):
     status: str
     error: str | None
     document_id: str | None
+    cancel_requested: bool = False
+
+
+class DocumentRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_filename: str = Field(min_length=1)
 
 
 class CrawlRequest(BaseModel):

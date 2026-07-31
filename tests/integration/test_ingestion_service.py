@@ -5,7 +5,7 @@ import pytest
 from app.application.ingestion_service import IngestionService
 from app.constants import EMBEDDING_DIM
 from app.domain import error_codes
-from app.domain.errors import ValidationError
+from app.domain.errors import IngestionCancelled, ValidationError
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
@@ -14,7 +14,7 @@ from app.infrastructure.repositories.library_repository import LibraryRepository
 
 def _fake_provider():
     provider = MagicMock()
-    provider.embed_documents.side_effect = lambda texts: [[0.0] * EMBEDDING_DIM for _ in texts]
+    provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * EMBEDDING_DIM for _ in texts]
     return provider
 
 
@@ -98,7 +98,7 @@ def test_ingest_with_dimension_mismatch_fails_document_and_leaves_counts_unchang
 
     service = _make_service(db_session)
     wrong_dimension_provider = MagicMock()
-    wrong_dimension_provider.embed_documents.side_effect = lambda texts: [[0.0] * (EMBEDDING_DIM // 2) for _ in texts]
+    wrong_dimension_provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * (EMBEDDING_DIM // 2) for _ in texts]
 
     with patch(
         "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
@@ -365,6 +365,78 @@ def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
 
     assert retried_document.status == "completed"
     assert retried_document.chunk_count > 0
+
+
+def test_rename_does_not_break_retry_parser_resolution(db_session):
+    """Regression test: parser selection on retry used to re-derive the extension from
+    source_filename on every call, so renaming a document to something without a matching
+    extension would silently break retry. _resolve_parser now keys off the stored, immutable
+    file_type column instead (see ParserRegistry.resolve_by_file_type), so a rename is safe.
+    """
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="rename-retry-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    service = _make_service(db_session)
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        side_effect=RuntimeError("embedding API unavailable"),
+    ):
+        with pytest.raises(RuntimeError):
+            service.ingest(library, "notes.txt", b"hello world")
+    db_session.commit()
+
+    failed_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    assert failed_document.status == "failed"
+    assert failed_document.file_type == "txt"
+
+    # Renamed to something with no matching extension at all — parser resolution must still work
+    # on retry, since it now keys off file_type ("txt"), not this new name.
+    renamed = document_repo.rename(failed_document.id, "completely-different-name")
+    assert renamed.source_filename == "completely-different-name"
+    db_session.commit()
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        retried_document = service.retry(renamed, library)
+    db_session.commit()
+
+    assert retried_document.status == "completed"
+    assert retried_document.chunk_count > 0
+
+
+def test_ingest_cancelled_immediately_marks_document_cancelled_not_failed(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-cancel-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        with pytest.raises(IngestionCancelled):
+            service.ingest(library, "notes.txt", b"hello world", should_cancel=lambda: True)
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    cancelled_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    assert cancelled_document.status == "cancelled"
+
+    updated_library = library_repo.get(library.id)
+    assert updated_library.document_count == 0
+    assert updated_library.chunk_count == 0
 
 
 def test_embedding_settings_clear_removes_the_row(db_session):

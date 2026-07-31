@@ -14,6 +14,7 @@ from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.presentation.schemas import (
     CrawlJobStatusResponse,
     CrawlRequest,
+    DocumentRenameRequest,
     DocumentResponse,
     JobStatusResponse,
     PaginationQuery,
@@ -75,11 +76,29 @@ def get_job(library_id: UUID, job_id: str):
     return jsonify(JobStatusResponse(**status).model_dump())
 
 
+@documents_bp.post("/jobs/<job_id>/cancel")
+@require_scope("documents:write")
+def cancel_job(library_id: UUID, job_id: str):
+    """Best-effort: cancellation is checked between embedding-provider batches, not instant — the
+    job's status stays "running" (with cancel_requested now true, see JobStatusResponse) until it
+    actually settles on "cancelled"."""
+    _service().cancel_job(job_id)
+    return "", 202
+
+
 @documents_bp.delete("/documents/<uuid:document_id>")
 @require_scope("documents:write")
 def delete_document(library_id: UUID, document_id: UUID):
     _service().delete_document(library_id, document_id)
     return "", 204
+
+
+@documents_bp.patch("/documents/<uuid:document_id>")
+@require_scope("documents:write")
+def rename_document(library_id: UUID, document_id: UUID):
+    dto = DocumentRenameRequest.model_validate(request.get_json(silent=True) or {})
+    document = _service().rename_document(library_id, document_id, dto.source_filename)
+    return jsonify(DocumentResponse.from_entity(document).model_dump(mode="json"))
 
 
 @documents_bp.post("/documents/<uuid:document_id>/retry")

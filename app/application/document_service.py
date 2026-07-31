@@ -9,7 +9,7 @@ from app.application.web_crawl_service import WebCrawlService
 from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.domain import error_codes
 from app.domain.entities import Document
-from app.domain.errors import NotFoundError, ValidationError
+from app.domain.errors import IngestionCancelled, NotFoundError, ValidationError
 from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, LibraryRepositoryPort
 from app.infrastructure.orm import SessionLocal
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
@@ -57,9 +57,23 @@ class DocumentService:
             extra={"library_id": str(library_id), "document_id": str(document_id), "chunk_count": chunk_count},
         )
 
+    def rename_document(self, library_id: UUID, document_id: UUID, new_name: str) -> Document:
+        if self._libraries.get(library_id) is None:
+            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+        document = self._documents.get(document_id)
+        if document is None or document.library_id != library_id:
+            raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
+        return self._documents.rename(document_id, new_name)
+
     def get_job_status(self, job_id: str) -> dict:
         try:
             return JobStore.get(job_id)
+        except JobNotFoundError as error:
+            raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.") from error
+
+    def cancel_job(self, job_id: str) -> None:
+        try:
+            JobStore.request_cancellation(job_id)
         except JobNotFoundError as error:
             raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.") from error
 
@@ -89,10 +103,10 @@ class DocumentService:
         document = self._documents.get(document_id)
         if document is None or document.library_id != library_id:
             raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
-        if document.status != "failed":
+        if document.status not in ("failed", "cancelled"):
             raise ValidationError(
                 error_codes.DOCUMENT_NOT_RETRYABLE,
-                f"Only failed documents can be retried (current status: '{document.status}').",
+                f"Only failed or cancelled documents can be retried (current status: '{document.status}').",
                 field="document_id",
             )
 
@@ -156,10 +170,18 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
             ChunkRepository(session),
             EmbeddingSettingsRepository(session),
         )
-        document = ingestion_service.ingest(library, filename, file_bytes)
+        document = ingestion_service.ingest(
+            library, filename, file_bytes, should_cancel=lambda: JobStore.is_cancellation_requested(job_id)
+        )
         session.commit()
         JobStore.mark_completed(job_id, document.id)
         logger.info("Ingestion job completed", extra={"document_id": str(document.id)})
+    except IngestionCancelled:
+        session.commit()
+        JobStore.mark_cancelled(job_id)
+        logger.info(
+            "Ingestion job cancelled", extra={"library_id": str(library_id), "source_filename": filename}
+        )
     except Exception as error:
         session.commit()
         JobStore.mark_failed(job_id, error)
@@ -192,10 +214,18 @@ def _run_retry_job(job_id: str, library_id: UUID, document_id: UUID):
         ingestion_service = IngestionService(
             library_repo, document_repo, ChunkRepository(session), EmbeddingSettingsRepository(session)
         )
-        document = ingestion_service.retry(document, library)
+        document = ingestion_service.retry(
+            document, library, should_cancel=lambda: JobStore.is_cancellation_requested(job_id)
+        )
         session.commit()
         JobStore.mark_completed(job_id, document.id)
         logger.info("Retry job completed", extra={"document_id": str(document.id)})
+    except IngestionCancelled:
+        session.commit()
+        JobStore.mark_cancelled(job_id)
+        logger.info(
+            "Retry job cancelled", extra={"library_id": str(library_id), "document_id": str(document_id)}
+        )
     except Exception as error:
         session.commit()
         JobStore.mark_failed(job_id, error)

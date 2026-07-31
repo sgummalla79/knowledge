@@ -63,3 +63,10 @@ class InvalidGrantError(DomainError):
 
     def __init__(self, message: str = "Invalid, expired, or revoked refresh token."):
         super().__init__(error_codes.INVALID_GRANT, message)
+
+
+class IngestionCancelled(Exception):
+    """Raised by an EmbeddingProvider's batching loop (see embed_documents' should_cancel param)
+    when a user has requested cancellation of an in-progress ingestion job. Not a DomainError —
+    cancellation is only ever observed asynchronously via job-status polling
+    (GET /libraries/{id}/jobs/{job_id}), never surfaced as a direct HTTP response."""

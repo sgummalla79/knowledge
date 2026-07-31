@@ -319,3 +319,85 @@ def test_get_crawl_job_status_returns_body(client, auth_headers):
     body = response.get_json()
     assert body["status"] == "completed"
     assert body["pages"]["https://example.com/docs/intro.htm"]["document_id"] == document_id
+
+
+def test_rename_document_returns_updated_document(client, auth_headers):
+    renamed = _document(source_filename="new-name.md")
+    with patch(
+        "app.presentation.routes.documents.DocumentService.rename_document",
+        return_value=renamed,
+    ) as mock_rename:
+        response = client.patch(
+            f"/libraries/{uuid4()}/documents/{uuid4()}",
+            json={"source_filename": "new-name.md"},
+            headers=auth_headers("documents:write"),
+        )
+
+    assert response.status_code == 200
+    assert response.get_json()["source_filename"] == "new-name.md"
+    assert mock_rename.call_args[0][2] == "new-name.md"
+
+
+def test_rename_document_blank_name_returns_structured_400(client, auth_headers):
+    response = client.patch(
+        f"/libraries/{uuid4()}/documents/{uuid4()}",
+        json={"source_filename": ""},
+        headers=auth_headers("documents:write"),
+    )
+    assert response.status_code == 400
+
+
+def test_rename_document_missing_document_returns_structured_404(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.rename_document",
+        side_effect=NotFoundError("document_not_found", "Document not found."),
+    ):
+        response = client.patch(
+            f"/libraries/{uuid4()}/documents/{uuid4()}",
+            json={"source_filename": "new-name.md"},
+            headers=auth_headers("documents:write"),
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "document_not_found"
+
+
+def test_rename_document_requires_write_scope(client, auth_headers):
+    response = client.patch(
+        f"/libraries/{uuid4()}/documents/{uuid4()}",
+        json={"source_filename": "new-name.md"},
+        headers=auth_headers("documents:read"),
+    )
+    assert response.status_code == 403
+
+
+def test_cancel_job_returns_202(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.cancel_job", return_value=None
+    ) as mock_cancel:
+        response = client.post(
+            f"/libraries/{uuid4()}/jobs/job-123/cancel", headers=auth_headers("documents:write")
+        )
+
+    assert response.status_code == 202
+    mock_cancel.assert_called_once_with("job-123")
+
+
+def test_cancel_job_missing_job_returns_structured_404(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.cancel_job",
+        side_effect=NotFoundError("job_not_found", "Job not found."),
+    ):
+        response = client.post(
+            f"/libraries/{uuid4()}/jobs/missing-job/cancel", headers=auth_headers("documents:write")
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "job_not_found"
+
+
+def test_cancel_job_requires_write_scope(client, auth_headers):
+    response = client.post(
+        f"/libraries/{uuid4()}/jobs/job-123/cancel", headers=auth_headers("documents:read")
+    )
+    assert response.status_code == 403

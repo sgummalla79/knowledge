@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.domain.errors import IngestionCancelled
 from app.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvider
 
 
@@ -66,3 +67,16 @@ def test_embed_documents_failure_in_later_batch_propagates():
             provider.embed_documents(texts)
 
     assert mock_embed.call_count == 2
+
+
+def test_embed_documents_stops_before_batch_when_cancelled():
+    provider = VoyageEmbeddingProvider(api_key="test-key", model="voyage-3")
+    texts = [f"chunk-{i}" for i in range(150)]  # 2 batches: 128 + 22
+
+    with patch.object(provider._client, "embed") as mock_embed:
+        mock_embed.return_value = _mock_result([[0.1]] * 128)
+        should_cancel = MagicMock(side_effect=[False, True])
+        with pytest.raises(IngestionCancelled):
+            provider.embed_documents(texts, should_cancel=should_cancel)
+
+    assert mock_embed.call_count == 1

@@ -33,3 +33,20 @@ def test_supported_extensions_is_sorted():
     extensions = ParserRegistry.supported_extensions()
     assert extensions == sorted(extensions)
     assert ".md" in extensions and ".pdf" in extensions
+
+
+@pytest.mark.parametrize(
+    "file_type,expected_type",
+    [
+        ("md", MarkdownParser),
+        ("txt", TextParser),
+        ("pdf", PdfParser),
+    ],
+)
+def test_resolve_by_file_type_returns_expected_parser(file_type, expected_type):
+    assert isinstance(ParserRegistry.resolve_by_file_type(file_type), expected_type)
+
+
+def test_resolve_by_file_type_unknown_raises():
+    with pytest.raises(UnsupportedFileTypeError):
+        ParserRegistry.resolve_by_file_type("docx")

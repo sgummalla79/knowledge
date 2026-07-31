@@ -106,7 +106,7 @@ def _fake_provider():
     from app.constants import EMBEDDING_DIM
 
     provider = MagicMock()
-    provider.embed_documents.side_effect = lambda texts: [[0.0] * EMBEDDING_DIM for _ in texts]
+    provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * EMBEDDING_DIM for _ in texts]
     return provider
 
 
@@ -283,3 +283,140 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
     final_library = library_repo.get(library.id)
     assert final_library.document_count == 1
     assert final_library.chunk_count > 0
+
+
+def test_rename_document_updates_source_filename(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    library = library_repo.create(name="rename-doc-test", description=None)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library)
+
+    renamed = DocumentService(document_repo, library_repo, chunk_repo).rename_document(
+        library.id, document.id, "renamed.txt"
+    )
+    db_session.commit()
+
+    assert renamed.source_filename == "renamed.txt"
+    assert document_repo.get(document.id).source_filename == "renamed.txt"
+
+
+def test_rename_document_from_wrong_library_raises_document_not_found(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    library_a = library_repo.create(name="rename-lib-a", description=None)
+    library_b = library_repo.create(name="rename-lib-b", description=None)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library_a)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        DocumentService(document_repo, library_repo, chunk_repo).rename_document(
+            library_b.id, document.id, "renamed.txt"
+        )
+    assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
+    assert document_repo.get(document.id).source_filename != "renamed.txt"
+
+
+def test_rename_document_missing_library_raises_library_not_found(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        DocumentService(document_repo, library_repo, chunk_repo).rename_document(uuid4(), uuid4(), "x.txt")
+    assert exc_info.value.code == error_codes.LIBRARY_NOT_FOUND
+
+
+def test_rename_document_missing_document_raises_document_not_found(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    library = library_repo.create(name="rename-missing-doc-test", description=None)
+    db_session.commit()
+
+    with pytest.raises(NotFoundError) as exc_info:
+        DocumentService(document_repo, library_repo, chunk_repo).rename_document(library.id, uuid4(), "x.txt")
+    assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
+
+
+def test_cancel_job_missing_job_raises_job_not_found(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        DocumentService(document_repo, library_repo, chunk_repo).cancel_job("does-not-exist")
+    assert exc_info.value.code == error_codes.JOB_NOT_FOUND
+
+
+def test_start_retry_allows_cancelled_document(db_session):
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    library = library_repo.create(name="retry-cancelled-test", description=None)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    ingestion_service = IngestionService(
+        library_repo, document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+    )
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        with pytest.raises(Exception):
+            ingestion_service.ingest(library, "notes.txt", b"hello world", should_cancel=lambda: True)
+    db_session.commit()
+
+    cancelled_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    assert cancelled_document.status == "cancelled"
+
+    # Doesn't raise DOCUMENT_NOT_RETRYABLE — a cancelled document is retryable just like a failed one.
+    job_id = DocumentService(document_repo, library_repo, chunk_repo).start_retry(
+        library.id, cancelled_document.id
+    )
+    assert job_id is not None
+
+
+def test_ingestion_job_cancelled_before_start_marks_job_and_document_cancelled(
+    db_session, session_factory, caplog
+):
+    configure_logging("INFO")
+
+    library_repo = LibraryRepository(db_session)
+    document_repo = DocumentRepository(db_session)
+    library = library_repo.create(name="cancel-job-test", description=None)
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    job_id = JobStore.create()
+    JobStore.request_cancellation(job_id)
+
+    with caplog.at_level(logging.INFO):
+        with patch("app.application.document_service.SessionLocal", session_factory):
+            with patch(
+                "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+                return_value=_fake_provider(),
+            ):
+                _run_ingestion_job(job_id, library.id, "notes.txt", b"hello world")
+
+    status = JobStore.get(job_id)
+    assert status["status"] == "cancelled"
+
+    documents = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")
+    assert len(documents) == 1
+    assert documents[0].status == "cancelled"
