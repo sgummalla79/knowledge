@@ -275,6 +275,70 @@ def test_retry_without_configured_embeddings_raises(db_session):
     assert exc_info.value.code == error_codes.EMBEDDINGS_NOT_CONFIGURED
 
 
+def test_ingest_html_creates_html_typed_document_and_completes(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="ingest-html-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        document = service.ingest_html(library, "https://example.com/docs/page.htm", html)
+    db_session.commit()
+
+    assert document.status == "completed"
+    assert document.file_type == "html"
+    assert document.source_filename == "https://example.com/docs/page.htm"
+    assert document.size_bytes == len(html)
+    assert document.chunk_count > 0
+
+    updated_library = library_repo.get(library.id)
+    assert updated_library.document_count == 1
+    assert updated_library.chunk_count == document.chunk_count
+
+
+def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
+    library_repo = LibraryRepository(db_session)
+    library = _make_library(library_repo, name="retry-crawled-page-test")
+    EmbeddingSettingsRepository(db_session).upsert(
+        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    service = _make_service(db_session)
+    html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        side_effect=RuntimeError("embedding API unavailable"),
+    ):
+        with pytest.raises(RuntimeError):
+            service.ingest_html(library, "https://example.com/docs/page.htm", html)
+    db_session.commit()
+
+    failed_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    assert failed_document.status == "failed"
+    assert failed_document.file_type == "html"
+
+    with patch(
+        "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        retried_document = service.retry(failed_document, library)
+    db_session.commit()
+
+    assert retried_document.status == "completed"
+    assert retried_document.chunk_count > 0
+
+
 def test_embedding_settings_clear_removes_the_row(db_session):
     repo = EmbeddingSettingsRepository(db_session)
     repo.upsert("voyage", "voyage-3", "secret", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100)

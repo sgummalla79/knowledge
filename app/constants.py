@@ -86,6 +86,43 @@ RATE_LIMIT_DEFAULT = "200 per minute"
 # because a UI populating a dropdown has no legitimate reason to call this dozens of times a minute.
 EMBEDDING_MODEL_LISTING_RATE_LIMIT = "10 per minute"
 
+# POST /libraries/{id}/documents/crawl fetches (and possibly headless-renders) pages on the
+# caller's behalf from a URL they supply — bounding this the same way as
+# EMBEDDING_MODEL_LISTING_RATE_LIMIT, and tighter than the global default, since a single call can
+# already fan out into many outbound page fetches via max_pages.
+WEB_CRAWL_RATE_LIMIT = "5 per minute"
+
+# Hard ceiling on how many pages a single crawl job can pull in, regardless of what the caller
+# requests — bounds the blast radius of a request against a huge site (CrawlRequest.max_pages is
+# validated against this).
+WEB_CRAWL_MAX_PAGES_LIMIT = 100
+
+# Per-page static HTTP fetch timeout (app/infrastructure/web/fetcher.py).
+WEB_CRAWL_REQUEST_TIMEOUT_SECONDS = 30
+
+# Headless-browser (Playwright) render timeout for the JS-shell fallback path — real page loads on
+# JS-heavy doc sites can take a few seconds longer than a plain HTTP fetch.
+WEB_CRAWL_RENDER_TIMEOUT_SECONDS = 30
+
+# Below this many characters of visible text, a statically-fetched page is treated as an empty JS
+# shell (content only appears after client-side rendering) and re-fetched via headless Chromium
+# instead. Picked well above typical loading-spinner/empty-shell boilerplate text, well below any
+# real article.
+WEB_CRAWL_JS_SHELL_TEXT_THRESHOLD_CHARS = 200
+
+# Delay between sequential page fetches during a crawl — keeps the crawler polite to the target
+# site instead of hammering it as fast as the network allows.
+WEB_CRAWL_PAGE_DELAY_SECONDS = 0.5
+
+# Default outbound User-Agent for WebPageFetcher's static fetch, used until an admin overrides it
+# via the Configuration page (see WebCrawlSettingsService/web_crawl_settings table). Some sites
+# (e.g. developer.salesforce.com) return 403 for a UA that honestly identifies this as an
+# automated tool but allow the exact string a plain `requests` call sends with no override at
+# all — this default matches that (our pinned `requests` version), a deliberate tradeoff to avoid
+# being blocked by sites that specifically pattern-match on non-browser-looking UAs, made
+# per-deployment-overridable rather than baked in as the only option.
+DEFAULT_WEB_CRAWL_USER_AGENT = "python-requests/2.32.3"
+
 # OAuth2-style scopes for registered Applications (client_credentials clients). Resource-group
 # granularity, one pair per route module; "offline_access" is a control flag (governs refresh-token
 # issuance), not a resource itself. Options routes (embedding-options/rerank-options) require no

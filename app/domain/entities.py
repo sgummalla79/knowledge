@@ -80,6 +80,12 @@ class SearchSettings:
 
 
 @dataclass(frozen=True)
+class WebCrawlSettings:
+    user_agent: str
+    updated_at: datetime | None
+
+
+@dataclass(frozen=True)
 class User:
     id: UUID
     username: str

@@ -6,6 +6,7 @@ from flask import Blueprint, redirect, render_template, request, session, url_fo
 from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
 from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
+from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.constants import SUPPORTED_SCOPES
 from app.container import get_session
 from app.domain.entities import EmbeddingProviderToggle
@@ -16,6 +17,7 @@ from app.infrastructure.repositories.embedding_provider_settings_repository impo
 )
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
+from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
 from app.presentation.web.csrf import csrf_token, validate_csrf
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
@@ -37,6 +39,10 @@ def _embedding_provider_settings_service() -> EmbeddingProviderSettingsService:
 
 def _embedding_providers() -> list[EmbeddingProviderToggle]:
     return _embedding_provider_settings_service().list_providers()
+
+
+def _web_crawl_settings_service() -> WebCrawlSettingsService:
+    return WebCrawlSettingsService(WebCrawlSettingsRepository(get_session()))
 
 
 def login_required(view):
@@ -149,7 +155,11 @@ def configuration():
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
-    return render_template("configuration.html", embedding_providers=_embedding_providers())
+    return render_template(
+        "configuration.html",
+        embedding_providers=_embedding_providers(),
+        web_crawl_settings=_web_crawl_settings_service().get_status(),
+    )
 
 
 @auth_ui_bp.get("/api-docs")
@@ -213,4 +223,14 @@ def toggle_embedding_provider(provider: str):
     if _csrf_valid():
         enabled = request.form.get("enabled") == "true"
         _embedding_provider_settings_service().set_enabled(provider, enabled)
+    return redirect(url_for("auth_ui.configuration"))
+
+
+@auth_ui_bp.post("/dashboard/web-crawl-settings")
+@login_required
+def update_web_crawl_settings():
+    if _csrf_valid():
+        user_agent = request.form.get("user_agent", "").strip()
+        if user_agent:
+            _web_crawl_settings_service().update(user_agent)
     return redirect(url_for("auth_ui.configuration"))

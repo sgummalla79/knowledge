@@ -5,10 +5,10 @@ from uuid import uuid4
 import pytest
 
 from app import create_app
-from app.domain.entities import EmbeddingProviderToggle
+from app.domain.entities import EmbeddingProviderToggle, WebCrawlSettings
 
-# HTTP-layer only — EmbeddingProviderSettingsService is mocked. Real enable/disable behavior is
-# covered by tests/unit/test_embedding_provider_settings_service.py.
+# HTTP-layer only — EmbeddingProviderSettingsService/WebCrawlSettingsService are mocked. Real
+# enable/disable and settings-update behavior are covered by their own service-level tests.
 
 
 @pytest.fixture()
@@ -28,8 +28,13 @@ def _toggle(provider, enabled):
     return EmbeddingProviderToggle(id=uuid4(), provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc))
 
 
+def _crawl_settings(user_agent="python-requests/2.32.3"):
+    return WebCrawlSettings(user_agent=user_agent, updated_at=datetime.now(timezone.utc))
+
+
 @patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
-def test_configuration_renders_provider_status(_get_user, client):
+@patch("app.presentation.routes.auth_ui.WebCrawlSettingsService.get_status", return_value=_crawl_settings())
+def test_configuration_renders_provider_status(_get_status, _get_user, client):
     _logged_in(client)
     with patch(
         "app.presentation.routes.auth_ui.EmbeddingProviderSettingsService.list_providers",
@@ -42,6 +47,59 @@ def test_configuration_renders_provider_status(_get_user, client):
     assert b"voyage" in response.data
     assert b"enabled" in response.data
     assert b"disabled" in response.data
+
+
+@patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
+@patch("app.presentation.routes.auth_ui.EmbeddingProviderSettingsService.list_providers", return_value=[])
+def test_configuration_renders_web_crawl_user_agent(_list_providers, _get_user, client):
+    _logged_in(client)
+    with patch(
+        "app.presentation.routes.auth_ui.WebCrawlSettingsService.get_status",
+        return_value=_crawl_settings("custom-agent/1.0"),
+    ):
+        response = client.get("/dashboard/configuration")
+
+    assert response.status_code == 200
+    assert b"custom-agent/1.0" in response.data
+
+
+def test_update_web_crawl_settings_calls_service(client):
+    csrf = _logged_in(client)
+    with patch("app.presentation.routes.auth_ui.WebCrawlSettingsService.update") as update:
+        response = client.post(
+            "/dashboard/web-crawl-settings",
+            data={"csrf_token": csrf, "user_agent": "python-requests/2.32.3"},
+        )
+    assert response.status_code == 302
+    update.assert_called_once_with("python-requests/2.32.3")
+
+
+def test_update_web_crawl_settings_missing_csrf_does_not_call_service(client):
+    _logged_in(client)
+    with patch("app.presentation.routes.auth_ui.WebCrawlSettingsService.update") as update:
+        response = client.post(
+            "/dashboard/web-crawl-settings",
+            data={"csrf_token": "wrong", "user_agent": "python-requests/2.32.3"},
+        )
+    assert response.status_code == 302
+    update.assert_not_called()
+
+
+def test_update_web_crawl_settings_blank_value_does_not_call_service(client):
+    csrf = _logged_in(client)
+    with patch("app.presentation.routes.auth_ui.WebCrawlSettingsService.update") as update:
+        response = client.post(
+            "/dashboard/web-crawl-settings",
+            data={"csrf_token": csrf, "user_agent": "   "},
+        )
+    assert response.status_code == 302
+    update.assert_not_called()
+
+
+def test_update_web_crawl_settings_requires_login(client):
+    response = client.post("/dashboard/web-crawl-settings", data={"user_agent": "x"})
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
 
 
 def test_configuration_requires_login(client):

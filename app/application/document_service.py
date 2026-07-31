@@ -2,8 +2,11 @@ import logging
 import threading
 from uuid import UUID
 
+from app.application.crawl_job_store import CrawlJobNotFoundError, CrawlJobStore
 from app.application.ingestion_service import IngestionService
 from app.application.job_store import JobNotFoundError, JobStore
+from app.application.web_crawl_service import WebCrawlService
+from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.domain import error_codes
 from app.domain.entities import Document
 from app.domain.errors import NotFoundError, ValidationError
@@ -13,6 +16,8 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
+from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
+from app.infrastructure.web.fetcher import WebPageFetcher
 from app.logging_config import clear_job_id, set_job_id
 
 logger = logging.getLogger(__name__)
@@ -104,6 +109,29 @@ class DocumentService:
         thread.start()
         return job_id
 
+    def start_crawl(self, library_id: UUID, url: str, max_pages: int, scope_prefix: str | None) -> str:
+        if self._libraries.get(library_id) is None:
+            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+
+        job_id = CrawlJobStore.create(url)
+        logger.info(
+            "Crawl job created",
+            extra={"job_id": job_id, "library_id": str(library_id), "seed_url": url, "max_pages": max_pages},
+        )
+        thread = threading.Thread(
+            target=_run_crawl_job,
+            args=(job_id, library_id, url, max_pages, scope_prefix),
+            daemon=True,
+        )
+        thread.start()
+        return job_id
+
+    def get_crawl_job_status(self, job_id: str) -> dict:
+        try:
+            return CrawlJobStore.get(job_id)
+        except CrawlJobNotFoundError as error:
+            raise NotFoundError(error_codes.CRAWL_JOB_NOT_FOUND, "Crawl job not found.") from error
+
 
 def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes: bytes):
     # contextvars set on the request thread do not propagate into a new threading.Thread — this
@@ -174,6 +202,46 @@ def _run_retry_job(job_id: str, library_id: UUID, document_id: UUID):
         logger.exception(
             "Retry job failed", extra={"library_id": str(library_id), "document_id": str(document_id)}
         )
+    finally:
+        session.close()
+        clear_job_id()
+
+
+def _run_crawl_job(job_id: str, library_id: UUID, url: str, max_pages: int, scope_prefix: str | None):
+    # Mirrors _run_ingestion_job's structure — fresh session, job_id set here not inherited, etc.
+    # Unlike a single-document job, this one commits after every page (in on_page_result below) so
+    # a page that ingests successfully is durably saved even if a later page in the same crawl
+    # fails, and so CrawlJobStore's per-page status reflects data that's actually persisted.
+    set_job_id(job_id)
+    logger.info("Crawl job started", extra={"library_id": str(library_id), "seed_url": url, "max_pages": max_pages})
+
+    session = SessionLocal()
+    try:
+        CrawlJobStore.mark_running(job_id)
+        library_repo = LibraryRepository(session)
+        library = library_repo.get(library_id)
+        ingestion_service = IngestionService(
+            library_repo, DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
+        )
+        web_crawl_settings = WebCrawlSettingsService(WebCrawlSettingsRepository(session)).get_status()
+        crawl_service = WebCrawlService(ingestion_service, WebPageFetcher(user_agent=web_crawl_settings.user_agent))
+
+        def on_page_result(page_url, document, error):
+            session.commit()
+            if document is not None:
+                CrawlJobStore.mark_page_completed(job_id, page_url, document.id)
+                logger.info("Crawl page completed", extra={"url": page_url, "document_id": str(document.id)})
+            else:
+                CrawlJobStore.mark_page_failed(job_id, page_url, error)
+                logger.warning("Crawl page failed", extra={"url": page_url, "error": str(error)})
+
+        crawl_service.crawl(library, url, max_pages, scope_prefix, on_page_result=on_page_result)
+        CrawlJobStore.mark_completed(job_id)
+        logger.info("Crawl job completed", extra={"seed_url": url})
+    except Exception as error:
+        session.commit()
+        CrawlJobStore.mark_failed(job_id, error)
+        logger.exception("Crawl job failed", extra={"library_id": str(library_id), "seed_url": url})
     finally:
         session.close()
         clear_job_id()

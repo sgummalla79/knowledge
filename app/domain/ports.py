@@ -11,6 +11,7 @@ from app.domain.entities import (
     ScoredChunk,
     SearchSettings,
     User,
+    WebCrawlSettings,
 )
 
 # Protocol (structural typing), not ABC — infra classes satisfy these by shape alone, no
@@ -106,6 +107,12 @@ class SearchSettingsRepositoryPort(Protocol):
         rerank_candidates: int,
         rrf_k: int,
     ) -> SearchSettings: ...
+
+
+class WebCrawlSettingsRepositoryPort(Protocol):
+    def get(self) -> WebCrawlSettings | None: ...
+
+    def upsert(self, user_agent: str) -> WebCrawlSettings: ...
 
 
 class RerankProviderPort(Protocol):

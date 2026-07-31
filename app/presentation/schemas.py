@@ -7,6 +7,7 @@ from app.constants import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TOP_K,
+    WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from app.application.embedding_settings_service import EmbeddingSettingsStatus
 from app.domain.entities import Document, EmbeddingProviderToggle, Library, ScoredChunk, SearchSettings
@@ -83,6 +84,27 @@ class JobStatusResponse(BaseModel):
     status: str
     error: str | None
     document_id: str | None
+
+
+class CrawlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1)
+    max_pages: int = Field(default=1, gt=0, le=WEB_CRAWL_MAX_PAGES_LIMIT)
+    scope_prefix: str | None = Field(default=None, min_length=1)
+
+
+class CrawlPageStatus(BaseModel):
+    status: str
+    document_id: str | None
+    error: str | None
+
+
+class CrawlJobStatusResponse(BaseModel):
+    status: str
+    seed_url: str
+    error: str | None
+    pages: dict[str, CrawlPageStatus]
 
 
 class QueryRequest(BaseModel):

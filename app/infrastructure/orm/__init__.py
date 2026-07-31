@@ -8,6 +8,7 @@ from app.infrastructure.orm.library import Library
 from app.infrastructure.orm.refresh_token import RefreshToken
 from app.infrastructure.orm.search_settings import SearchSettings
 from app.infrastructure.orm.user import User
+from app.infrastructure.orm.web_crawl_settings import WebCrawlSettings
 
 __all__ = [
     "Base",
@@ -22,4 +23,5 @@ __all__ = [
     "RefreshToken",
     "SearchSettings",
     "User",
+    "WebCrawlSettings",
 ]

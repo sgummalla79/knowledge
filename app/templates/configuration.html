@@ -32,4 +32,18 @@
   {% endfor %}
   </tbody>
 </table>
+
+<h2>Web Crawler</h2>
+<p class="subtitle">
+  User-Agent sent when fetching pages for "Add from URL". Some sites block requests that
+  identify themselves as automated tools — changing this to something less pattern-matched
+  (e.g. mimicking a plain HTTP client) is a deliberate tradeoff: it can get past that blocking,
+  but works around the target site's stated preference not to be scraped, and isn't guaranteed
+  to work on every site.
+</p>
+<form method="post" action="{{ url_for('auth_ui.update_web_crawl_settings') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="text" name="user_agent" value="{{ web_crawl_settings.user_agent }}" size="40" required>
+  <button type="submit">Save</button>
+</form>
 {% endblock %}

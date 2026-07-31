@@ -214,3 +214,108 @@ def test_retry_document_requires_write_scope(client, auth_headers):
     )
 
     assert response.status_code == 403
+
+
+def test_crawl_without_url_returns_structured_400(client, auth_headers):
+    response = client.post(
+        f"/libraries/{uuid4()}/documents/crawl",
+        json={},
+        headers=auth_headers("documents:write"),
+    )
+    assert response.status_code == 400
+    assert response.get_json()["error"]["field"] == "url"
+
+
+def test_crawl_returns_202_with_job_id(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.start_crawl",
+        return_value="crawl-job-123",
+    ) as mock_start_crawl:
+        response = client.post(
+            f"/libraries/{uuid4()}/documents/crawl",
+            json={"url": "https://example.com/docs/intro.htm", "max_pages": 10},
+            headers=auth_headers("documents:write"),
+        )
+
+    assert response.status_code == 202
+    assert response.get_json()["job_id"] == "crawl-job-123"
+    args = mock_start_crawl.call_args[0]
+    assert args[1] == "https://example.com/docs/intro.htm"
+    assert args[2] == 10
+
+
+def test_crawl_defaults_max_pages_to_one(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.start_crawl",
+        return_value="crawl-job-123",
+    ) as mock_start_crawl:
+        client.post(
+            f"/libraries/{uuid4()}/documents/crawl",
+            json={"url": "https://example.com/docs/intro.htm"},
+            headers=auth_headers("documents:write"),
+        )
+
+    assert mock_start_crawl.call_args[0][2] == 1
+
+
+def test_crawl_missing_library_returns_structured_404(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.start_crawl",
+        side_effect=NotFoundError("library_not_found", "Library not found."),
+    ):
+        response = client.post(
+            f"/libraries/{uuid4()}/documents/crawl",
+            json={"url": "https://example.com/docs/intro.htm"},
+            headers=auth_headers("documents:write"),
+        )
+
+    assert response.status_code == 404
+
+
+def test_crawl_requires_write_scope(client, auth_headers):
+    response = client.post(
+        f"/libraries/{uuid4()}/documents/crawl",
+        json={"url": "https://example.com/docs/intro.htm"},
+        headers=auth_headers("documents:read"),
+    )
+    assert response.status_code == 403
+
+
+def test_get_crawl_job_status_returns_structured_404_when_missing(client, auth_headers):
+    with patch(
+        "app.presentation.routes.documents.DocumentService.get_crawl_job_status",
+        side_effect=NotFoundError("crawl_job_not_found", "Crawl job not found."),
+    ):
+        response = client.get(
+            f"/libraries/{uuid4()}/crawl-jobs/missing-job", headers=auth_headers("documents:read")
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "crawl_job_not_found"
+
+
+def test_get_crawl_job_status_returns_body(client, auth_headers):
+    document_id = str(uuid4())
+    with patch(
+        "app.presentation.routes.documents.DocumentService.get_crawl_job_status",
+        return_value={
+            "status": "completed",
+            "seed_url": "https://example.com/docs/intro.htm",
+            "error": None,
+            "pages": {
+                "https://example.com/docs/intro.htm": {
+                    "status": "completed",
+                    "document_id": document_id,
+                    "error": None,
+                }
+            },
+        },
+    ):
+        response = client.get(
+            f"/libraries/{uuid4()}/crawl-jobs/crawl-job-123", headers=auth_headers("documents:read")
+        )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "completed"
+    assert body["pages"]["https://example.com/docs/intro.htm"]["document_id"] == document_id

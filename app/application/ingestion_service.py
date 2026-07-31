@@ -8,9 +8,17 @@ from app.domain.errors import ValidationError
 from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, EmbeddingSettingsRepositoryPort, LibraryRepositoryPort
 from app.infrastructure.chunking.chunker import TextChunker
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
+from app.infrastructure.parsing.html_parser import HtmlParser
 from app.infrastructure.parsing.registry import ParserRegistry
 
+# Documents created via ingest_html() carry this as their file_type — a fixed marker (not derived
+# from the source URL, which often has no real file extension, e.g. "/s/articleView?id=...") that
+# _resolve_parser uses to route to HtmlParser instead of ParserRegistry's extension lookup.
+HTML_SOURCE_FILE_TYPE = "html"
+
 logger = logging.getLogger(__name__)
+
+_html_parser = HtmlParser()
 
 
 class IngestionService:
@@ -44,6 +52,25 @@ class IngestionService:
         )
         return self._process(document, library, file_bytes, settings)
 
+    def ingest_html(self, library: Library, url: str, html_bytes: bytes) -> Document:
+        """Same pipeline as ingest(), for a page fetched from the web (WebCrawlService) instead of
+        uploaded. source_filename is the page's URL itself (for display/linking, not extension
+        sniffing) and file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something
+        derived from the URL, which frequently has no real file extension."""
+        settings = self._require_embedding_settings()
+
+        content_hash = hashlib.sha256(html_bytes).hexdigest()
+        document = self._documents.create(
+            library_id=library.id,
+            source_filename=url,
+            file_type=HTML_SOURCE_FILE_TYPE,
+            content_hash=content_hash,
+            status="processing",
+            raw_file_bytes=html_bytes,
+            size_bytes=len(html_bytes),
+        )
+        return self._process(document, library, html_bytes, settings)
+
     def retry(self, document: Document, library: Library) -> Document:
         """Re-runs the exact same pipeline as ingest(), against an existing document row instead
         of creating a new one, using the raw bytes stored at the original upload. A failed
@@ -72,9 +99,14 @@ class IngestionService:
             )
         return settings
 
+    def _resolve_parser(self, document: Document):
+        if document.file_type == HTML_SOURCE_FILE_TYPE:
+            return _html_parser
+        return ParserRegistry.resolve(document.source_filename)
+
     def _process(self, document: Document, library: Library, file_bytes: bytes, settings) -> Document:
         try:
-            parser = ParserRegistry.resolve(document.source_filename)
+            parser = self._resolve_parser(document)
             text = parser.parse(file_bytes)
 
             chunker = TextChunker(chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap)
