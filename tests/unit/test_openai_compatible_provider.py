@@ -107,3 +107,42 @@ def test_embed_documents_splits_large_inputs_into_multiple_batched_requests():
     assert mock_post.call_count == 3  # 100 + 100 + 20
     batch_sizes = [len(call.kwargs["json"]["input"]) for call in mock_post.call_args_list]
     assert batch_sizes == [100, 100, 20]
+
+
+def test_list_models_returns_model_ids():
+    provider = OpenAICompatibleEmbeddingProvider(
+        base_url="https://api.openai.com/v1", api_key="test-key", model="unused"
+    )
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "data": [{"id": "text-embedding-3-small"}, {"id": "text-embedding-3-large"}]
+    }
+    with patch("app.infrastructure.embeddings.openai_compatible_provider.requests.get") as mock_get:
+        mock_get.return_value = response
+        result = provider.list_models()
+
+    assert result == ["text-embedding-3-small", "text-embedding-3-large"]
+    args, kwargs = mock_get.call_args
+    assert args[0] == "https://api.openai.com/v1/models"
+    assert kwargs["headers"] == {"Authorization": "Bearer test-key"}
+
+
+def test_list_models_without_api_key_sends_no_authorization_header():
+    provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:8000", api_key=None, model="unused")
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {"data": []}
+    with patch("app.infrastructure.embeddings.openai_compatible_provider.requests.get") as mock_get:
+        mock_get.return_value = response
+        provider.list_models()
+
+    assert mock_get.call_args.kwargs["headers"] == {}
+
+
+def test_list_models_request_failure_wrapped_in_runtime_error():
+    provider = OpenAICompatibleEmbeddingProvider(base_url="http://localhost:8000", api_key=None, model="unused")
+    with patch("app.infrastructure.embeddings.openai_compatible_provider.requests.get") as mock_get:
+        mock_get.side_effect = requests.ConnectionError("connection refused")
+        with pytest.raises(RuntimeError):
+            provider.list_models()

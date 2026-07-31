@@ -7,7 +7,9 @@ from app.infrastructure.embeddings.base import EmbeddingProvider
 logger = logging.getLogger(__name__)
 
 _EMBED_PATH = "/embeddings"
+_MODELS_PATH = "/models"
 _REQUEST_TIMEOUT_SECONDS = 120
+_LIST_MODELS_TIMEOUT_SECONDS = 10
 # Mirrors OllamaEmbeddingProvider's rationale: bound each request's duration regardless of total
 # document size, so a transient failure only loses one batch's progress.
 _DOCUMENT_BATCH_SIZE = 100
@@ -45,13 +47,30 @@ class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
     def embed_query(self, text: str) -> list[float]:
         return self._embed([text])[0]
 
+    def list_models(self) -> list[str]:
+        try:
+            response = requests.get(
+                f"{self._base_url}{_MODELS_PATH}",
+                headers=self._headers(),
+                timeout=_LIST_MODELS_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+        except requests.RequestException as error:
+            logger.warning(
+                "OpenAI-compatible model listing request failed", extra={"base_url": self._base_url}
+            )
+            raise RuntimeError(f"OpenAI-compatible model listing request failed: {error}") from error
+        return [item["id"] for item in response.json().get("data", []) if "id" in item]
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
+
     def _embed(self, inputs: list[str]) -> list[list[float]]:
-        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         try:
             response = requests.post(
                 f"{self._base_url}{_EMBED_PATH}",
                 json={"model": self._model, "input": inputs},
-                headers=headers,
+                headers=self._headers(),
                 timeout=_REQUEST_TIMEOUT_SECONDS,
             )
             response.raise_for_status()

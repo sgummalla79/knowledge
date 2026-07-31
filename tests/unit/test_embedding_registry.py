@@ -40,3 +40,18 @@ def test_resolve_openai_compatible_returns_openai_compatible_provider():
 
 def test_known_providers_includes_all_registered_adapters():
     assert EmbeddingProviderRegistry.known_providers() == {"voyage", "ollama", "openai_compatible"}
+
+
+def test_supports_model_listing_true_for_ollama_and_openai_compatible():
+    assert EmbeddingProviderRegistry.supports_model_listing("ollama") is True
+    assert EmbeddingProviderRegistry.supports_model_listing("openai_compatible") is True
+
+
+def test_supports_model_listing_false_for_voyage():
+    # Voyage's SDK has no model-listing endpoint (voyageai==0.2.3 only exposes embed/rerank/
+    # tokenizer/tokenize/count_tokens) — confirmed by inspecting the installed package.
+    assert EmbeddingProviderRegistry.supports_model_listing("voyage") is False
+
+
+def test_supports_model_listing_false_for_unknown_provider():
+    assert EmbeddingProviderRegistry.supports_model_listing("made-up-provider") is False

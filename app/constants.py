@@ -80,6 +80,12 @@ MAX_UPLOAD_MB = 50
 # value that varies by environment for this local, single-user tool.
 RATE_LIMIT_DEFAULT = "200 per minute"
 
+# POST /embedding-options/models makes a live outbound call to whatever provider/base_url the
+# caller supplies, using credentials that haven't even been saved yet — a much tighter limit than
+# the global default, both to bound the blast radius of a misbehaving/malicious base_url and
+# because a UI populating a dropdown has no legitimate reason to call this dozens of times a minute.
+EMBEDDING_MODEL_LISTING_RATE_LIMIT = "10 per minute"
+
 # OAuth2-style scopes for registered Applications (client_credentials clients). Resource-group
 # granularity, one pair per route module; "offline_access" is a control flag (governs refresh-token
 # issuance), not a resource itself. Options routes (embedding-options/rerank-options) require no

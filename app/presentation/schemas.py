@@ -106,6 +106,14 @@ class ScoredChunkResponse(BaseModel):
         )
 
 
+class EmbeddingModelListRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(min_length=1)
+    api_key: str | None = Field(default=None, min_length=1)
+    base_url: str | None = Field(default=None, min_length=1)
+
+
 class EmbeddingSettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

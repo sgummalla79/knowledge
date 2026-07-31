@@ -4,21 +4,15 @@ from app.domain.errors import ValidationError
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 
 
-def validate_embedding_choice(
-    provider: str,
-    model: str,
-    api_key: str | None,
-    base_url: str | None,
-    dimensions: int,
-    enabled_providers: set[str],
+def validate_provider_connection(
+    provider: str, api_key: str | None, base_url: str | None, enabled_providers: set[str]
 ) -> None:
-    """Validation home for EmbeddingSettingsService's global embeddings key's provider/model.
-
-    Any provider registered in EmbeddingProviderRegistry is accepted with any model name/dimension
-    the caller supplies — a new vendor is added by writing a provider class + registry entry, not
-    by editing this whitelist. `enabled_providers` is a separate, admin-controlled toggle (see
-    EmbeddingProviderSettingsService) — a provider can have working code and still be rejected
-    here if an admin has switched it off."""
+    """The structural checks shared by every flow that needs to talk to a provider before a model
+    has even been chosen (saving embedding_settings, or listing that provider's live models):
+    is it a real registered provider, has an admin enabled it, and does the caller have whatever
+    credentials that provider needs. `enabled_providers` is a separate, admin-controlled toggle
+    (see EmbeddingProviderSettingsService) — a provider can have working code and still be
+    rejected here if an admin has switched it off."""
     if provider not in EmbeddingProviderRegistry.known_providers():
         raise ValidationError(
             error_codes.UNSUPPORTED_EMBEDDING_PROVIDER,
@@ -43,3 +37,19 @@ def validate_embedding_choice(
             f"Provider '{provider}' requires a base_url.",
             field="base_url",
         )
+
+
+def validate_embedding_choice(
+    provider: str,
+    model: str,
+    api_key: str | None,
+    base_url: str | None,
+    dimensions: int,
+    enabled_providers: set[str],
+) -> None:
+    """Validation home for EmbeddingSettingsService's global embeddings key's provider/model.
+
+    Any provider registered in EmbeddingProviderRegistry is accepted with any model name/dimension
+    the caller supplies — a new vendor is added by writing a provider class + registry entry, not
+    by editing this whitelist."""
+    validate_provider_connection(provider, api_key, base_url, enabled_providers)

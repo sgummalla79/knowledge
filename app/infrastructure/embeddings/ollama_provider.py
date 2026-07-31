@@ -7,6 +7,8 @@ from app.infrastructure.embeddings.base import EmbeddingProvider
 logger = logging.getLogger(__name__)
 
 _EMBED_PATH = "/api/embed"
+_TAGS_PATH = "/api/tags"
+_LIST_MODELS_TIMEOUT_SECONDS = 10
 # nomic-embed-text was trained with task-instruction prefixes; omitting them measurably hurts
 # retrieval quality. Mirrors VoyageEmbeddingProvider's embed_documents/embed_query split
 # (input_type "document" vs "query") one level down, at the text level instead of an API parameter.
@@ -47,6 +49,17 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
     def embed_query(self, text: str) -> list[float]:
         return self._embed([_QUERY_PREFIX + text])[0]
+
+    def list_models(self) -> list[str]:
+        """Ollama's real model-list endpoint — distinct from /api/embed, and lists whatever the
+        user has locally pulled, not a fixed catalog like a hosted provider's /models."""
+        try:
+            response = requests.get(f"{self._base_url}{_TAGS_PATH}", timeout=_LIST_MODELS_TIMEOUT_SECONDS)
+            response.raise_for_status()
+        except requests.RequestException as error:
+            logger.warning("Ollama model listing request failed", extra={"base_url": self._base_url})
+            raise RuntimeError(f"Ollama model listing request failed: {error}") from error
+        return [item["name"] for item in response.json().get("models", []) if "name" in item]
 
     def _embed(self, inputs: list[str]) -> list[list[float]]:
         try:

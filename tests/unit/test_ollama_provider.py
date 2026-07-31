@@ -107,3 +107,26 @@ def test_embed_documents_failure_in_later_batch_raises_runtime_error():
             provider.embed_documents(texts)
 
     assert mock_post.call_count == 2
+
+
+def test_list_models_returns_model_names():
+    provider = OllamaEmbeddingProvider(base_url="http://ollama:11434", model="unused")
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "models": [{"name": "nomic-embed-text:latest"}, {"name": "mxbai-embed-large:latest"}]
+    }
+    with patch("app.infrastructure.embeddings.ollama_provider.requests.get") as mock_get:
+        mock_get.return_value = response
+        result = provider.list_models()
+
+    assert result == ["nomic-embed-text:latest", "mxbai-embed-large:latest"]
+    assert mock_get.call_args[0][0] == "http://ollama:11434/api/tags"
+
+
+def test_list_models_request_failure_wrapped_in_runtime_error():
+    provider = OllamaEmbeddingProvider(base_url="http://ollama:11434", model="unused")
+    with patch("app.infrastructure.embeddings.ollama_provider.requests.get") as mock_get:
+        mock_get.side_effect = requests.ConnectionError("connection refused")
+        with pytest.raises(RuntimeError):
+            provider.list_models()

@@ -51,6 +51,10 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
     openai_compatible = providers_by_name["openai_compatible"]
     assert openai_compatible["base_url_required"] is True
 
+    assert ollama["supports_model_listing"] is True
+    assert openai_compatible["supports_model_listing"] is True
+    assert voyage["supports_model_listing"] is False
+
 
 def test_embedding_options_excludes_disabled_providers(client, auth_headers):
     with patch(

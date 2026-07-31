@@ -1,11 +1,13 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
+from app.application.embedding_model_listing_service import EmbeddingModelListingService
 from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
 from app.auth import require_scope
 from app.constants import (
     DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_RERANK_MODEL,
     DEFAULT_RERANK_PROVIDER,
+    EMBEDDING_MODEL_LISTING_RATE_LIMIT,
     EMBEDDING_MODEL_PRESETS,
     EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
     EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
@@ -13,9 +15,12 @@ from app.constants import (
     SUPPORTED_RERANK_MODELS_BY_PROVIDER,
 )
 from app.container import get_session
+from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
+from app.presentation.schemas import EmbeddingModelListRequest
+from app.rate_limit import limiter
 
 options_bp = Blueprint("options", __name__)
 
@@ -38,6 +43,10 @@ def get_embedding_options():
                     "base_url_required": provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
                     "base_url_supported": provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
                     "default_base_url": DEFAULT_OLLAMA_BASE_URL if provider == "ollama" else None,
+                    # Tells a UI whether it's worth calling POST /embedding-options/models for
+                    # this provider at all, before the user has typed any credentials — Voyage's
+                    # SDK has no model-listing endpoint, so it's always false there.
+                    "supports_model_listing": EmbeddingProviderRegistry.supports_model_listing(provider),
                 }
                 for provider in enabled_providers
             ],
@@ -51,6 +60,21 @@ def get_embedding_options():
             "suggested_models": EMBEDDING_MODEL_PRESETS,
         }
     )
+
+
+@options_bp.post("/embedding-options/models")
+@require_scope("embedding_settings:write")
+@limiter.limit(EMBEDDING_MODEL_LISTING_RATE_LIMIT)
+def list_embedding_models():
+    """Lists a provider's live model catalog using credentials the caller just typed (not yet
+    saved) — lets a UI populate a model dropdown before the user commits to PUT
+    /embedding-settings. Gated behind the write scope (not the bare auth embedding-options uses)
+    since, unlike that endpoint, this one makes a real outbound call on the caller's behalf using
+    whatever base_url/api_key they supply."""
+    dto = EmbeddingModelListRequest.model_validate(request.get_json(silent=True) or {})
+    service = EmbeddingModelListingService(EmbeddingProviderSettingsRepository(get_session()))
+    models = service.list_models(dto.provider, dto.api_key, dto.base_url)
+    return jsonify({"models": models})
 
 
 @options_bp.get("/rerank-options")

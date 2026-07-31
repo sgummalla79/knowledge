@@ -1,6 +1,6 @@
 import pytest
 
-from app.application.embedding_choice_validation import validate_embedding_choice
+from app.application.embedding_choice_validation import validate_embedding_choice, validate_provider_connection
 from app.domain import error_codes
 from app.domain.errors import ValidationError
 
@@ -66,3 +66,13 @@ def test_unsupported_provider_checked_before_disabled_status():
     with pytest.raises(ValidationError) as exc_info:
         validate_embedding_choice("made-up-provider", "model", "key", None, 768, set())
     assert exc_info.value.code == error_codes.UNSUPPORTED_EMBEDDING_PROVIDER
+
+
+def test_validate_provider_connection_is_the_shared_implementation():
+    # validate_embedding_choice delegates entirely to validate_provider_connection (it has no
+    # model/dimensions-specific checks of its own) — this is the function POST
+    # /embedding-options/models validates through too, via EmbeddingModelListingService.
+    validate_provider_connection("ollama", None, "http://ollama:11434", _ALL_ENABLED)
+    with pytest.raises(ValidationError) as exc_info:
+        validate_provider_connection("voyage", None, None, _ALL_ENABLED)
+    assert exc_info.value.field == "api_key"
