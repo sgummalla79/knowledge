@@ -39,6 +39,14 @@
         </svg>
         API Documentation
       </a>
+      <a href="{{ url_for('auth_ui.schema') }}" class="{{ 'active' if request.endpoint == 'auth_ui.schema' }}">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+          <rect x="1.75" y="1.75" width="12.5" height="3.5" rx="0.75"/>
+          <rect x="1.75" y="6.25" width="12.5" height="3.5" rx="0.75"/>
+          <rect x="1.75" y="10.75" width="12.5" height="3.5" rx="0.75"/>
+        </svg>
+        Data Model
+      </a>
     </nav>
     <div class="sidebar-footer">
       <form method="post" action="{{ url_for('auth_ui.logout') }}">

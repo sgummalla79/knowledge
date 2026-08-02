@@ -193,6 +193,15 @@ def api_docs():
     return render_template("api_docs.html")
 
 
+@auth_ui_bp.get("/dashboard/schema")
+@login_required
+def schema():
+    user = UserRepository(get_session()).get()
+    if user is not None and user.must_change_password:
+        return redirect(url_for("auth_ui.change_password"))
+    return render_template("schema.html")
+
+
 @auth_ui_bp.post("/dashboard/applications")
 @login_required
 def register_application():

@@ -34,9 +34,11 @@
       Requests are rate-limited to 200 per minute by default.
     </p>
     <p class="lede">
-      This app also bundles a stdio MCP server (<code>list_libraries</code> /
-      <code>query_library</code> tools) for MCP clients — a separate interface from the HTTP API
-      documented here.
+      This app also bundles an MCP server (<code>list_libraries</code> / <code>query_library</code>
+      tools) over streamable-HTTP at <code>/mcp</code> on its own port, secured by the same OAuth2
+      stack via an <code>authorization_code</code> + PKCE flow — a separate interface from the
+      REST API documented here. See <a href="{{ url_for('auth_ui.schema') }}">Data Model</a> for
+      the underlying schema.
     </p>
 
     <h2 id="auth">Authentication</h2>

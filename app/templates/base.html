@@ -217,6 +217,43 @@
     .copy-btn:hover { opacity: 0.85; }
     .copy-btn.copied { background: oklch(0.2200 0.0700 155); color: oklch(0.8600 0.1400 155); }
     .copy-btn svg { width: 13px; height: 13px; display: block; }
+
+    /* ---- Data model page ---- */
+    .col-badge {
+      display: inline-block; font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+      letter-spacing: 0.03em; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle;
+    }
+    .col-badge.pk { background: var(--primary); color: var(--primary-foreground); }
+    .col-badge.fk, .col-badge.uk, .col-badge.gen {
+      background: transparent; border: 1px solid var(--border); color: var(--muted-foreground);
+    }
+    .table-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--muted-foreground); }
+    .diagram-toolbar {
+      display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; background: var(--secondary);
+    }
+    .diagram-toolbar button {
+      font-family: var(--font-mono); font-size: 14px; width: 26px; height: 26px; padding: 0;
+      border-radius: 5px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); cursor: pointer;
+    }
+    .diagram-toolbar button:hover { border-color: var(--primary); color: var(--primary); }
+    .diagram-toolbar .reset { font-size: 11px; width: auto; padding: 0 10px; }
+    .diagram-toolbar #diagramZoomLevel {
+      font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted-foreground); width: 40px; text-align: center;
+    }
+    .diagram-toolbar .hint { margin-left: auto; font-size: 11px; color: var(--muted-foreground); }
+    @media (max-width: 640px) { .diagram-toolbar .hint { display: none; } }
+    .diagram-viewport {
+      overflow: auto; max-height: 60vh; min-height: 320px;
+      border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+      background: var(--background); cursor: grab; touch-action: none;
+    }
+    .diagram-viewport.grabbing { cursor: grabbing; }
+    .diagram-zoomable { transform-origin: 0 0; display: inline-block; padding: 24px; }
+    /* Mermaid sets its <svg> to width:100% with no explicit height — schema.html's inline script
+       overwrites both with the SVG's own viewBox dimensions right after rendering, so this just
+       needs to not fight that with a stale max-width. */
+    .diagram-zoomable svg { max-width: none; display: block; }
   </style>
 </head>
 <body>
