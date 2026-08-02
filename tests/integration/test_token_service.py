@@ -8,13 +8,18 @@ from app.domain.errors import InvalidClientError, InvalidGrantError, ValidationE
 from app.infrastructure.auth.jwt_tokens import decode_access_token
 from app.infrastructure.auth.secrets import hash_secret
 from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.authorization_code_repository import AuthorizationCodeRepository
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 
 
 def _services(db_session):
     applications = ApplicationRepository(db_session)
     refresh_tokens = RefreshTokenRepository(db_session)
-    return ApplicationService(applications, refresh_tokens), TokenService(applications, refresh_tokens)
+    authorization_codes = AuthorizationCodeRepository(db_session)
+    return (
+        ApplicationService(applications, refresh_tokens),
+        TokenService(applications, refresh_tokens, authorization_codes),
+    )
 
 
 def test_client_credentials_grant_issues_a_working_access_token(app_context, db_session):

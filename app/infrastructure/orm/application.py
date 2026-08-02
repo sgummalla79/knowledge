@@ -15,3 +15,6 @@ class Application(Base):
     # Space-separated scope string (mirrors OAuth2's own convention for the `scope` parameter).
     allowed_scopes = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Space-separated allowlist for the authorization_code grant's redirect_uri, same delimiter
+    # convention as allowed_scopes. Null/empty for client_credentials-only applications.
+    redirect_uris = Column(String, nullable=True)

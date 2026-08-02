@@ -14,8 +14,9 @@ Structured as hexagonal/clean architecture:
 `app/application` (services — one per feature area, no framework imports) →
 `app/infrastructure` (SQLAlchemy ORM/repositories, embeddings/rerank provider registries, auth
 helpers) → `app/presentation` (Flask blueprints/routes, pydantic schemas, Jinja2 admin dashboard
-templates). Bundles a stdio MCP server (`mcp_server/`) exposing `list_libraries`/`query_library`
-tools, run via `docker exec` from the same container.
+templates). Bundles an MCP server (`mcp_server/`) exposing `list_libraries`/`query_library` tools
+over streamable-HTTP, published loopback-only via docker-compose (never reachable off this
+machine) and secured by the same OAuth2 stack as the rest of the API — see session history item 8.
 
 ## Session history — what's been built (in build order)
 
@@ -53,9 +54,9 @@ tools, run via `docker exec` from the same container.
      change, hand-rolled CSRF protection for the session-cookie surface (everything else is
      bearer-token JSON, inherently CSRF-immune).
 5. **Static `API_KEY` removed entirely** — every route requires a scoped bearer token now; there
-   is no unrestricted-access credential anymore. `mcp_server/client.py` is OAuth2-only
-   (`MCP_CLIENT_ID`/`MCP_CLIENT_SECRET` env vars, requests `libraries:read query:execute
-   offline_access`, refreshes proactively before expiry).
+   is no unrestricted-access credential anymore. `mcp_server/client.py` is OAuth2-only (requests
+   `libraries:read query:execute offline_access`, refreshes proactively before expiry) — see item 9
+   for how it gets its credential.
 6. **Chunking/embedding-model selection made global** (migration `0005`): `chunk_size`/
    `chunk_overlap`/`embedding_provider`/`embedding_model` moved off the `libraries` table entirely
    and onto the global `embedding_settings` row — there's no per-library override anymore.
@@ -63,15 +64,48 @@ tools, run via `docker exec` from the same container.
 7. **Renamed `rag-api` → `knowledge-api`** (container/image names, and the repo directory itself)
    to match the desktop app's rebrand to "Knowledge Store." Also renamed
    `app/domain`/templates branding from "rag-api admin" to "Knowledge" in the dashboard UI.
+8. **MCP server moved from stdio to streamable-HTTP, with a full OAuth2 `authorization_code` +
+   PKCE flow** (migration `0013`), for Claude Code (same machine) to connect over
+   `http://127.0.0.1:13103/mcp` instead of being spawned via `docker exec`:
+   - `applications.redirect_uris` + `authorization_codes` table (single-use, short-lived,
+     hash-only, mirrors `refresh_tokens`' storage pattern).
+   - `POST /oauth/register` — unauthenticated RFC 7591 Dynamic Client Registration, capped to
+     `DCR_DEFAULT_SCOPES`; deliberately not dashboard-only like normal Application registration,
+     since this endpoint (like everything else here) is only ever reachable on localhost.
+   - `GET/POST /oauth/authorize` — reuses the dashboard's session login as the consent step
+     (`app/templates/authorize.html`); `/login` now honors a `next` param so this doesn't dead-end
+     an unauthenticated visitor.
+   - `POST /oauth/token` gained an `authorization_code` branch (PKCE `S256` verification via
+     `app/infrastructure/auth/pkce.py`); redirect_uri matching
+     (`app/infrastructure/auth/redirect_uri.py`) ignores port for loopback hosts, since a CLI
+     client's local callback listener uses a different ephemeral port every run (RFC 8252 §7.3).
+   - `GET /.well-known/oauth-authorization-server` for client discovery.
+   - `mcp_server/server.py` verifies bearer tokens itself (`KnowledgeApiTokenVerifier`, decoding
+     the same JWTs `/oauth/token` issues) via the `mcp` SDK's `TokenVerifier` hook — this required
+     bumping `mcp` `1.2.0` → `1.27.0` (the old pin had no HTTP transport or auth support at all),
+     which cascaded into bumping `pydantic` and `PyJWT` too.
+   - Both gunicorn and the MCP HTTP server now start automatically at container boot
+     (`docker/entrypoint.sh`), instead of the MCP server being exec'd on demand per connection.
+9. **`mcp_server/client.py`'s outbound credential (MCP process → this app's own REST API) is now
+   fully automatic** — no dashboard registration, no `MCP_CLIENT_ID`/`MCP_CLIENT_SECRET` env vars,
+   no rebuild-after-editing-`.env` step. `bootstrap_default_mcp_application()`
+   (`app/infrastructure/auth/bootstrap.py`, called from `create_app()` next to
+   `bootstrap_default_admin`) creates a built-in service-account `Application` at a fixed,
+   non-secret id (`DEFAULT_MCP_APPLICATION_ID`, `app/constants.py`) the first time the app starts.
+   Its secret is never stored, generated randomly, or handed off between processes — both the
+   bootstrap step and `mcp_server/client.py` independently derive the same value from `SECRET_KEY`
+   via `derive_default_mcp_client_secret` (`app/infrastructure/auth/secrets.py`, HMAC-SHA256), so
+   it's unique per deployment without being a literal secret sitting in source control. This
+   Application is hidden from the dashboard's Applications list and its delete/revoke-token routes
+   (`app/presentation/routes/auth_ui.py`) — it's internal plumbing, not something an admin should
+   be able to accidentally delete. Also bumped gunicorn from its implicit 1-worker default to 3
+   (`docker/entrypoint.sh`) — streamable-http's persistent MCP sessions could otherwise hold the
+   single worker's only connection slot and 503 every other request for up to 30s at a time.
 
-Current test suite: **120 tests passing** (`.venv/bin/python -m pytest tests/`).
+Current test suite: **361 tests passing** (`python -m pytest tests/`).
 
 ## Not yet done / next steps
 
-- **MCP isn't actually connected yet** — `.env`'s `MCP_CLIENT_ID`/`MCP_CLIENT_SECRET` are still
-  empty. To make the MCP server work: log into `/dashboard`, register an application (e.g. named
-  "mcp") with scopes `libraries:read query:execute offline_access`, copy its client_id/secret into
-  `.env`, then `docker compose up -d --build api` to pick them up.
 - knowledge-store (the desktop app) needs its own separate registered Application (broader scope
   — see that repo's CLAUDE.md) to connect; there's no shared/default credential between clients.
 
@@ -90,8 +124,9 @@ Instead:
    `knowledge-db-test` (`docker-compose.test.yml`), fully isolated on port 13199 with a throwaway
    tmpfs database, under its own compose project (`knowledge-api-test`) so it's never confused with
    the prod stack. Confirms the built image actually boots (migrations run, gunicorn serves
-   `/health`) before it goes anywhere near prod. Tears the isolated stack down automatically on
-   exit, success or failure.
+   `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port) before it
+   goes anywhere near prod. Tears the isolated stack down automatically on exit, success or
+   failure.
 2. Only once that passes, run `./scripts/promote-image.sh` — this rebuilds and restarts the prod
    `api` container (`knowledge-api:prod`, via `docker compose up -d --build api`). This is the only
    command allowed to touch the prod container.

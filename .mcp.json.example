@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "rag-knowledge": {
-      "command": "docker",
-      "args": ["exec", "-i", "knowledge-api", "python", "-m", "mcp_server.server"]
+      "type": "http",
+      "url": "http://127.0.0.1:13103/mcp"
     }
   }
 }

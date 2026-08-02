@@ -5,7 +5,7 @@ from flask import Flask, g, jsonify, request
 from app.config import config
 from app.constants import MAX_UPLOAD_MB, RATE_LIMIT_DEFAULT
 from app.container import teardown_session
-from app.infrastructure.auth.bootstrap import bootstrap_default_admin
+from app.infrastructure.auth.bootstrap import bootstrap_default_admin, bootstrap_default_mcp_application
 from app.infrastructure.embeddings.bootstrap import bootstrap_embedding_provider_settings
 from app.infrastructure.orm import SessionLocal
 from app.logging_config import configure_logging, reset_request_id, set_request_id
@@ -68,6 +68,7 @@ def create_app(
         session = SessionLocal()
         try:
             bootstrap_default_admin(session)
+            bootstrap_default_mcp_application(session)
         finally:
             session.close()
 

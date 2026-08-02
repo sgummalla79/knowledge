@@ -1,8 +1,11 @@
 from typing import Protocol
 from uuid import UUID
 
+from datetime import datetime
+
 from app.domain.entities import (
     Application,
+    AuthorizationCode,
     Document,
     EmbeddingProviderToggle,
     EmbeddingSettings,
@@ -130,7 +133,14 @@ class UserRepositoryPort(Protocol):
 
 
 class ApplicationRepositoryPort(Protocol):
-    def create(self, name: str, client_secret_hash: str, allowed_scopes: list[str]) -> Application: ...
+    def create(
+        self,
+        name: str,
+        client_secret_hash: str,
+        allowed_scopes: list[str],
+        redirect_uris: list[str] | None = None,
+        id: UUID | None = None,
+    ) -> Application: ...
 
     def list(self) -> list[Application]: ...
 
@@ -159,3 +169,20 @@ class RefreshTokenRepositoryPort(Protocol):
     def revoke(self, token_id: UUID) -> None: ...
 
     def touch_last_used(self, token_id: UUID) -> None: ...
+
+
+class AuthorizationCodeRepositoryPort(Protocol):
+    def create(
+        self,
+        application_id: UUID,
+        code_hash: str,
+        redirect_uri: str,
+        code_challenge: str,
+        code_challenge_method: str,
+        scope: list[str],
+        expires_at: datetime,
+    ) -> AuthorizationCode: ...
+
+    def find_valid_by_hash(self, code_hash: str) -> AuthorizationCode | None: ...
+
+    def mark_used(self, code_id: UUID) -> None: ...

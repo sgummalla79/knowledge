@@ -1,4 +1,5 @@
 from app.infrastructure.orm.application import Application
+from app.infrastructure.orm.authorization_code import AuthorizationCode
 from app.infrastructure.orm.base import Base, SessionLocal, engine
 from app.infrastructure.orm.chunk import Chunk
 from app.infrastructure.orm.document import Document
@@ -15,6 +16,7 @@ __all__ = [
     "SessionLocal",
     "engine",
     "Application",
+    "AuthorizationCode",
     "Chunk",
     "Document",
     "EmbeddingProviderSetting",

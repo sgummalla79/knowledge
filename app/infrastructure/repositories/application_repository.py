@@ -10,6 +10,7 @@ def _to_entity(model: ApplicationModel) -> ApplicationEntity:
         name=model.name,
         allowed_scopes=model.allowed_scopes.split(),
         created_at=model.created_at,
+        redirect_uris=model.redirect_uris.split() if model.redirect_uris else [],
     )
 
 
@@ -17,12 +18,22 @@ class ApplicationRepository:
     def __init__(self, session):
         self._session = session
 
-    def create(self, name: str, client_secret_hash: str, allowed_scopes: list[str]) -> ApplicationEntity:
+    def create(
+        self,
+        name: str,
+        client_secret_hash: str,
+        allowed_scopes: list[str],
+        redirect_uris: list[str] | None = None,
+        id: UUID | None = None,
+    ) -> ApplicationEntity:
         model = ApplicationModel(
             name=name,
             client_secret_hash=client_secret_hash,
             allowed_scopes=" ".join(allowed_scopes),
+            redirect_uris=" ".join(redirect_uris) if redirect_uris else None,
         )
+        if id is not None:
+            model.id = id
         self._session.add(model)
         self._session.flush()
         return _to_entity(model)

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 # The dimension used only to size the `chunks.embedding` pgvector column at initial table-creation
 # time (migration 0001). Once `embedding_settings` exists, the column is resized dynamically to
 # match embedding_settings.dimensions whenever the model changes with no documents present (see
@@ -155,5 +157,24 @@ SUPPORTED_SCOPES = [
 # access token's exposure window small; long-term access is the refresh token's job instead.
 ACCESS_TOKEN_TTL_SECONDS = 3600
 
+# Authorization codes (RFC 6749 §4.1.2) are meant to be exchanged for a token within the same
+# browser round-trip, not held onto — 10 minutes is generous slack, not a usable session length.
+AUTHORIZATION_CODE_TTL_SECONDS = 600
+
+# Scopes granted to clients that self-register via POST /oauth/register (RFC 7591 Dynamic Client
+# Registration) — capped to what the bundled MCP tools actually need, not attacker-choosable,
+# since that endpoint (like the rest of this app) is reachable only on localhost.
+DCR_DEFAULT_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_ACCESS]
+
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin"
+
+# Built-in service-account Application mcp_server/server.py's outbound RagApiClient authenticates
+# as, to call this same app's own REST API — bootstrapped automatically (bootstrap.py), never
+# registered by hand. The id is a fixed, non-secret identifier (both the bootstrap step and
+# mcp_server/client.py need to agree on it without any handoff); the secret itself is never stored
+# or transmitted anywhere — see derive_default_mcp_client_secret in
+# app/infrastructure/auth/secrets.py for why a literal constant here would be a real weakness.
+DEFAULT_MCP_APPLICATION_ID = UUID("0d1a2b3c-4d5e-4f60-8a1b-2c3d4e5f6071")
+DEFAULT_MCP_APPLICATION_NAME = "mcp-server (built-in)"
+DEFAULT_MCP_APPLICATION_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_ACCESS]

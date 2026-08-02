@@ -13,7 +13,9 @@ class ApplicationService:
         self._repository = repository
         self._refresh_tokens = refresh_tokens
 
-    def register(self, name: str, allowed_scopes: list[str]) -> tuple[str, Application]:
+    def register(
+        self, name: str, allowed_scopes: list[str], redirect_uris: list[str] | None = None
+    ) -> tuple[str, Application]:
         validate_scopes_supported(allowed_scopes)
         if self._repository.get_by_name(name) is not None:
             raise ValidationError(
@@ -22,7 +24,7 @@ class ApplicationService:
                 field="name",
             )
         raw_secret = generate_secret()
-        application = self._repository.create(name, hash_secret(raw_secret), allowed_scopes)
+        application = self._repository.create(name, hash_secret(raw_secret), allowed_scopes, redirect_uris)
         return raw_secret, application
 
     def regenerate_secret(self, application_id: UUID) -> str:

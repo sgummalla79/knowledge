@@ -1,10 +1,11 @@
 import logging
-import os
 import time
 
 import requests
 
 from app.config import config
+from app.constants import DEFAULT_MCP_APPLICATION_ID
+from app.infrastructure.auth.secrets import derive_default_mcp_client_secret
 
 logger = logging.getLogger(__name__)
 
@@ -24,20 +25,18 @@ class RagApiError(Exception):
 class RagApiClient:
     """Calls the Flask API over loopback HTTP from inside the same container.
 
-    Authenticates as a registered Application (via /dashboard) using OAuth2 client_credentials +
-    refresh_token — a scoped credential (libraries:read + query:execute only), never the app's own
-    admin session.
+    Authenticates as the built-in MCP service-account Application (bootstrapped automatically —
+    see app/infrastructure/auth/bootstrap.py — not a dashboard-registered one) using OAuth2
+    client_credentials + refresh_token — a scoped credential (libraries:read + query:execute
+    only), never the app's own admin session. Its secret needs no env var or other handoff: it's
+    derived deterministically from SECRET_KEY, the same way bootstrap.py derived it when creating
+    the Application row in the first place.
     """
 
     def __init__(self):
         self._base_url = f"http://localhost:{config.port}"
-        self._client_id = os.environ.get("MCP_CLIENT_ID")
-        self._client_secret = os.environ.get("MCP_CLIENT_SECRET")
-        if not self._client_id or not self._client_secret:
-            raise RagApiError(
-                "MCP_CLIENT_ID/MCP_CLIENT_SECRET are not set. Register an application in the "
-                "/dashboard and set both env vars to its client_id/client_secret."
-            )
+        self._client_id = str(DEFAULT_MCP_APPLICATION_ID)
+        self._client_secret = derive_default_mcp_client_secret(config.secret_key)
         self._access_token: str | None = None
         self._access_token_expires_at: float = 0.0
         self._refresh_token: str | None = None

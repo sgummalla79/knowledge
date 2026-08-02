@@ -101,6 +101,7 @@ class Application:
     name: str
     allowed_scopes: list[str]
     created_at: datetime
+    redirect_uris: list[str]
 
 
 @dataclass(frozen=True)
@@ -112,3 +113,16 @@ class RefreshToken:
     expires_at: datetime | None
     last_used_at: datetime | None
     revoked_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AuthorizationCode:
+    id: UUID
+    application_id: UUID
+    redirect_uri: str
+    code_challenge: str
+    code_challenge_method: str
+    scope: list[str]
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None

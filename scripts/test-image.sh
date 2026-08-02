@@ -46,6 +46,24 @@ if [ "$healthy" != true ]; then
 fi
 echo "==> knowledge-api-test is up"
 
+echo "==> Checking the MCP HTTP server came up alongside gunicorn (docker/entrypoint.sh)"
+# streamable-http rejects a bare GET (it isn't a full MCP protocol handshake), so "connection
+# accepted at all" is the actual signal here — curl exits 0 once it gets any HTTP response, even
+# a 4xx one. -o /dev/null keeps that response body out of the script's own output.
+mcp_up=false
+for _ in $(seq 1 30); do
+  if curl -s -o /dev/null http://127.0.0.1:13198/mcp; then
+    mcp_up=true
+    break
+  fi
+  sleep 1
+done
+if [ "$mcp_up" != true ]; then
+  echo "!! MCP HTTP server on :13198 never accepted a connection — check: docker compose -f docker-compose.test.yml logs api-test"
+  exit 1
+fi
+echo "==> MCP HTTP server is up"
+
 echo "==> Running end-to-end smoke check (dashboard login, app registration, library CRUD — proves auth/scopes/DB work, not just that migrations applied)"
 "$PYTHON" scripts/smoke_test.py
 

@@ -7,7 +7,7 @@ from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
 from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
 from app.application.web_crawl_settings_service import WebCrawlSettingsService
-from app.constants import SUPPORTED_SCOPES
+from app.constants import DEFAULT_MCP_APPLICATION_ID, SUPPORTED_SCOPES
 from app.container import get_session
 from app.domain.entities import EmbeddingProviderToggle
 from app.domain.errors import DomainError
@@ -49,7 +49,10 @@ def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("user_id"):
-            return redirect(url_for("auth_ui.login"))
+            # Only GET requests get a `next` — redirecting a blocked POST back to itself would
+            # just re-GET that URL after login, not resubmit the form.
+            next_url = request.full_path if request.method == "GET" else None
+            return redirect(url_for("auth_ui.login", next=next_url))
         return view(*args, **kwargs)
 
     return wrapped
@@ -59,10 +62,24 @@ def _csrf_valid() -> bool:
     return validate_csrf(request.form.get("csrf_token"))
 
 
+def _is_safe_redirect(url: str) -> bool:
+    # Relative path only — rules out "//evil.com/..." (scheme-relative) and absolute URLs, both of
+    # which would send a post-login redirect off this host.
+    return url.startswith("/") and not url.startswith("//")
+
+
+def _consume_post_login_redirect() -> str:
+    next_url = session.pop("post_login_redirect", None)
+    return next_url if next_url and _is_safe_redirect(next_url) else url_for("auth_ui.dashboard")
+
+
 @auth_ui_bp.get("/login")
 def login():
+    next_url = request.args.get("next")
+    if next_url and _is_safe_redirect(next_url):
+        session["post_login_redirect"] = next_url
     if session.get("user_id"):
-        return redirect(url_for("auth_ui.dashboard"))
+        return redirect(_consume_post_login_redirect())
     return render_template("login.html")
 
 
@@ -79,7 +96,7 @@ def login_submit():
     session["user_id"] = str(user.id)
     if user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
-    return redirect(url_for("auth_ui.dashboard"))
+    return redirect(_consume_post_login_redirect())
 
 
 @auth_ui_bp.get("/change-password")
@@ -100,7 +117,7 @@ def change_password_submit():
     if new_password != confirm_password:
         return render_template("change_password.html", error="Passwords do not match."), 400
     _auth_service().change_password(UUID(session["user_id"]), new_password)
-    return redirect(url_for("auth_ui.dashboard"))
+    return redirect(_consume_post_login_redirect())
 
 
 @auth_ui_bp.post("/logout")
@@ -112,6 +129,11 @@ def logout():
 def _applications_with_status(service: ApplicationService, refresh_tokens: RefreshTokenRepository) -> list[dict]:
     rows = []
     for application in service.list_applications():
+        # The built-in MCP service-account Application (app/infrastructure/auth/bootstrap.py) is
+        # internal plumbing, not something an admin registered or should manage here — deleting or
+        # regenerating it would silently break the bundled MCP server's connection to this API.
+        if application.id == DEFAULT_MCP_APPLICATION_ID:
+            continue
         current = refresh_tokens.find_current_for_application(application.id)
         if current is None:
             status = "none"
@@ -203,7 +225,9 @@ def register_application():
 @login_required
 def revoke_token(application_id: UUID):
     service = _application_service()
-    if _csrf_valid():
+    # Not reachable through the dashboard UI (filtered out of _applications_with_status) — this
+    # guard is defense in depth against a direct POST to this URL.
+    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
         service.revoke_application_token(application_id)
     return redirect(url_for("auth_ui.dashboard"))
 
@@ -212,7 +236,7 @@ def revoke_token(application_id: UUID):
 @login_required
 def delete_application(application_id: UUID):
     service = _application_service()
-    if _csrf_valid():
+    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
         service.delete_application(application_id)
     return redirect(url_for("auth_ui.dashboard"))
 

@@ -105,7 +105,7 @@ def test_update_web_crawl_settings_requires_login(client):
 def test_configuration_requires_login(client):
     response = client.get("/dashboard/configuration")
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/login")
+    assert response.headers["Location"].startswith("/login")
 
 
 def test_toggle_disable_calls_service_with_false(client):

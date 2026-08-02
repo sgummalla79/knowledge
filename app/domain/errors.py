@@ -65,6 +65,35 @@ class InvalidGrantError(DomainError):
         super().__init__(error_codes.INVALID_GRANT, message)
 
 
+class InvalidRedirectUriError(DomainError):
+    """OAuth2 authorize-endpoint failure where redirecting back to the caller isn't safe — the
+    client_id is unknown or redirect_uri isn't one of the application's registered URIs. Per OAuth
+    security guidance, this must be shown as an error page, never used as a redirect target."""
+
+    http_status = 400
+
+    def __init__(self, message: str = "Unknown client_id or unregistered redirect_uri."):
+        super().__init__(error_codes.INVALID_REDIRECT_URI, message)
+
+
+class UnsupportedResponseTypeError(DomainError):
+    """OAuth2 `unsupported_response_type` — only `response_type=code` is supported."""
+
+    http_status = 400
+
+    def __init__(self, message: str = "Only response_type=code is supported."):
+        super().__init__(error_codes.UNSUPPORTED_RESPONSE_TYPE, message)
+
+
+class AccessDeniedError(DomainError):
+    """OAuth2 `access_denied` — the user declined the consent screen."""
+
+    http_status = 400
+
+    def __init__(self, message: str = "The user denied the authorization request."):
+        super().__init__(error_codes.ACCESS_DENIED, message)
+
+
 class IngestionCancelled(Exception):
     """Raised by an EmbeddingProvider's batching loop (see embed_documents' should_cancel param)
     when a user has requested cancellation of an in-progress ingestion job. Not a DomainError —

@@ -16,5 +16,7 @@ COPY app app
 COPY mcp_server mcp_server
 COPY migrations migrations
 COPY alembic.ini wsgi.py ./
+COPY docker/entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
-CMD ["sh", "-c", "alembic upgrade head && gunicorn -b 0.0.0.0:${PORT:-13102} --access-logfile - --error-logfile - --log-level ${LOG_LEVEL:-info} wsgi:app"]
+CMD ["./entrypoint.sh"]

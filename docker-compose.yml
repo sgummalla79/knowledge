@@ -33,15 +33,15 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD}@knowledge-db:5432/${POSTGRES_DB:-rag}
       SECRET_KEY: ${SECRET_KEY}
       PORT: ${PORT:-13102}
-      # mcp_server authenticates as a registered Application via OAuth2 client_credentials —
-      # register it from the /dashboard and set its client_id/secret here.
-      MCP_CLIENT_ID: ${MCP_CLIENT_ID}
-      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET}
+      MCP_HTTP_PORT: ${MCP_HTTP_PORT:-13103}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       # 13102: same 13100 series as rag-desktop's dev ports (13100 vite, 13101 HMR) —
       # keeps every port this project touches in one clearly-distinct block.
       - "${PORT:-13102}:${PORT:-13102}"
+      # MCP HTTP server — explicitly loopback-bound (unlike the API port above), since it's meant
+      # to be reachable only from this machine, never off it.
+      - "127.0.0.1:${MCP_HTTP_PORT:-13103}:${MCP_HTTP_PORT:-13103}"
     logging:
       driver: json-file
       options:

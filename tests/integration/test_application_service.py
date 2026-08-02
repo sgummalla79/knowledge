@@ -8,6 +8,7 @@ from app.domain.errors import AuthenticationError, InvalidGrantError, NotFoundEr
 from app.infrastructure.auth.bootstrap import bootstrap_default_admin
 from app.infrastructure.auth.passwords import verify_password
 from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.authorization_code_repository import AuthorizationCodeRepository
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 
@@ -110,7 +111,9 @@ def test_revoke_application_token_revokes_current_token(app_context, db_session)
     raw_secret, application = service.register("mcp-server", ["libraries:read", "offline_access"])
     db_session.commit()
 
-    token_service = TokenService(ApplicationRepository(db_session), RefreshTokenRepository(db_session))
+    token_service = TokenService(
+        ApplicationRepository(db_session), RefreshTokenRepository(db_session), AuthorizationCodeRepository(db_session)
+    )
     result = token_service.client_credentials_grant(application.id, raw_secret, ["libraries:read", "offline_access"])
     db_session.commit()
     assert "refresh_token" in result
@@ -131,7 +134,7 @@ def test_delete_application_removes_it_and_cascades_its_refresh_token(app_contex
     raw_secret, application = service.register("mcp-server", ["libraries:read", "offline_access"])
     db_session.commit()
 
-    token_service = TokenService(application_repo, refresh_token_repo)
+    token_service = TokenService(application_repo, refresh_token_repo, AuthorizationCodeRepository(db_session))
     result = token_service.client_credentials_grant(application.id, raw_secret, ["libraries:read", "offline_access"])
     db_session.commit()
 

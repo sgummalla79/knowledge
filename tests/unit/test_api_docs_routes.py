@@ -41,7 +41,7 @@ def _user(**overrides):
 def test_api_docs_requires_login(client):
     response = client.get("/api-docs")
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/login")
+    assert response.headers["Location"].startswith("/login")
 
 
 def test_api_docs_renders_for_logged_in_user(client):
