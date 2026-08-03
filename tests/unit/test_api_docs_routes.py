@@ -77,7 +77,7 @@ def test_dashboard_links_to_api_docs_and_configuration(_list_apps, _find_token, 
     assert response.status_code == 200
     assert b'href="/api-docs"' in response.data
     assert b'href="/dashboard/configuration"' in response.data
-    assert b"Registered Applications" in response.data
+    assert b"Credentials" in response.data
     assert b"Configuration" in response.data
 
 

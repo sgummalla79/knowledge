@@ -43,7 +43,7 @@
 
     <h2 id="auth">Authentication</h2>
     <p class="lede">
-      OAuth2. Register an application from the <a href="{{ url_for('auth_ui.dashboard') }}">Dashboard</a>
+      OAuth2. Register an application from <a href="{{ url_for('auth_ui.register_application_page') }}">Clients &rsaquo; Register</a>
       to get a <code>client_id</code> / <code>client_secret</code> and a set of allowed scopes,
       then exchange them for a short-lived access token. Send it as
       <code>Authorization: Bearer &lt;token&gt;</code> on every resource request.
@@ -350,7 +350,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
     <h2 id="embedding-providers">Embedding Providers</h2>
     <p class="lede">
       Per-provider enable/disable, independent of whichever provider is currently configured
-      above — also manageable from the <a href="{{ url_for('auth_ui.dashboard') }}">Dashboard</a>.
+      above — also manageable from <a href="{{ url_for('auth_ui.configuration') }}">Configuration</a>.
       Disabling a provider only blocks it from future selection in
       <code>PUT /embedding-settings</code>; it never affects an already-configured, in-use provider.
     </p>

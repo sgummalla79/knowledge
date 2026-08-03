@@ -175,11 +175,7 @@ def dashboard():
         return redirect(url_for("auth_ui.change_password"))
     service = _application_service()
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
-    return render_template(
-        "dashboard.html",
-        applications=applications,
-        scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
-    )
+    return render_template("dashboard.html", applications=applications)
 
 
 @auth_ui_bp.get("/dashboard/configuration")
@@ -213,29 +209,36 @@ def schema():
     return render_template("schema.html")
 
 
+@auth_ui_bp.get("/dashboard/clients/register")
+@login_required
+def register_application_page():
+    user = UserRepository(get_session()).get()
+    if user is not None and user.must_change_password:
+        return redirect(url_for("auth_ui.change_password"))
+    return render_template("register_application.html", scope_groups=_grouped_scopes(SUPPORTED_SCOPES))
+
+
 @auth_ui_bp.post("/dashboard/applications")
 @login_required
 def register_application():
-    service = _application_service()
-    applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
     if not _csrf_valid():
         return render_template(
-            "dashboard.html", applications=applications, scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
+            "register_application.html",
+            scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
             error="Session expired — please try again.",
         ), 400
     name = request.form.get("name", "").strip()
     scopes = request.form.getlist("scopes")
     try:
-        raw_secret, application = service.register(name, scopes)
+        raw_secret, application = _application_service().register(name, scopes)
     except DomainError as error:
         return render_template(
-            "dashboard.html", applications=applications, scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
+            "register_application.html",
+            scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
             error=error.message,
         ), 400
-    applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
     return render_template(
-        "dashboard.html",
-        applications=applications,
+        "register_application.html",
         scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
         new_credential={"name": application.name, "client_id": application.id, "client_secret": raw_secret},
     )

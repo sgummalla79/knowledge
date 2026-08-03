@@ -6,7 +6,7 @@ import pytest
 
 from app import create_app
 from app.constants import DEFAULT_MCP_APPLICATION_ID
-from app.domain.entities import Application
+from app.domain.entities import Application, User
 from app.domain.errors import ValidationError
 
 # HTTP-layer only — ApplicationService is mocked. Real register/regenerate/revoke behavior is
@@ -26,6 +26,19 @@ def _logged_in(client):
     return "test-csrf-token"
 
 
+def _user_requiring_password_change(**overrides):
+    fields = dict(
+        id=uuid4(),
+        username="admin",
+        password_hash="hashed",
+        must_change_password=True,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    fields.update(overrides)
+    return User(**fields)
+
+
 def _application(**overrides):
     fields = dict(
         id=uuid4(),
@@ -36,6 +49,24 @@ def _application(**overrides):
     )
     fields.update(overrides)
     return Application(**fields)
+
+
+@patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
+def test_register_application_page_shows_grouped_scopes(_get_user, client):
+    _logged_in(client)
+    response = client.get("/dashboard/clients/register")
+    assert response.status_code == 200
+    assert b"Libraries" in response.data
+    assert b"libraries:read" in response.data
+
+
+def test_register_application_page_redirects_when_password_change_required(client):
+    _logged_in(client)
+    user = _user_requiring_password_change()
+    with patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=user):
+        response = client.get("/dashboard/clients/register")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/change-password")
 
 
 @patch("app.presentation.routes.auth_ui.RefreshTokenRepository.find_current_for_application", return_value=None)
