@@ -168,6 +168,12 @@ The repo root `VERSION` file (plain text, single line, e.g. `1.0.0`) is the sing
 for the app's release version, following semver (`MAJOR.MINOR.PATCH`). The first release is
 `1.0.0`, cut from a long-lived `releases/v1` branch (branched off `master`).
 
+**`master` and `releases/v1` are protected — never commit directly to either, from any machine.**
+All work (bug fixes and, later, features) happens on a short-lived branch cut from `releases/v1`,
+then merged back via the workflow below. `master` only ever receives commits via cherry-pick from
+`releases/v1`, never direct commits. If a task would require committing straight to `master` or
+`releases/v1`, stop and cut a branch first instead.
+
 **Bug fix workflow — follow exactly, from any machine:**
 
 1. Branch off `releases/v1` for the fix (e.g. `releases/v1-fix-<short-description>`).
