@@ -6,7 +6,7 @@ import pytest
 
 from app import create_app
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
-from app.domain.entities import WebCrawlSettings
+from app.domain.entities import EmbeddingProviderConfig, WebCrawlSettings
 from app.domain.errors import ValidationError
 
 # HTTP-layer only — EmbeddingProviderConfigService/WebCrawlSettingsService are mocked. Real
@@ -26,12 +26,16 @@ def _logged_in(client):
     return "test-csrf-token"
 
 
-def _status(provider="voyage", enabled=False, configured=False, locked=False, chunk_count=0):
+def _status(
+    provider="voyage", enabled=False, configured=False, locked=False, chunk_count=0,
+    locked_by_other=False, active_provider=None,
+):
     return EmbeddingProviderConfigStatus(
         provider=provider,
         enabled=enabled,
         configured=configured,
         locked=locked,
+        locked_by_other=locked_by_other,
         chunk_count=chunk_count,
         model="voyage-3" if configured else None,
         base_url=None,
@@ -39,6 +43,7 @@ def _status(provider="voyage", enabled=False, configured=False, locked=False, ch
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc) if configured else None,
+        active_provider=active_provider if active_provider is not None else (provider if enabled else None),
     )
 
 
@@ -63,6 +68,39 @@ def test_configuration_requires_login(client):
 
 
 @patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
+@patch("app.presentation.routes.auth_ui.WebCrawlSettingsService.get_status", return_value=_crawl_settings())
+def test_sidebar_shows_all_providers_with_active_one_highlighted(_get_status, _get_user, client):
+    _logged_in(client)
+    enabled_config = EmbeddingProviderConfig(
+        id=uuid4(),
+        provider="ollama",
+        enabled=True,
+        model="nomic-embed-text",
+        api_key=None,
+        base_url="http://ollama:11434",
+        dimensions=768,
+        chunk_size=800,
+        chunk_overlap=100,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    with patch(
+        "app.presentation.routes.auth_ui.EmbeddingProviderSettingsRepository.list",
+        return_value=[enabled_config],
+    ):
+        response = client.get("/dashboard/configuration")
+
+    assert response.status_code == 200
+    html = response.data.decode()
+    strip_start = html.index('class="provider-status-strip"')
+    strip = html[strip_start : strip_start + 600]
+    # All three providers appear in the strip regardless of configuration state...
+    assert "Voyage" in strip and "Ollama" in strip and "OpenAI" in strip
+    # ...but only the active one is visually highlighted.
+    assert "badge active" in strip
+
+
+@patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
 def test_embedding_provider_page_renders_status(_get_user, client):
     _logged_in(client)
     with patch(
@@ -74,6 +112,39 @@ def test_embedding_provider_page_renders_status(_get_user, client):
     assert response.status_code == 200
     assert b"Voyage" in response.data
     assert b"enabled" in response.data
+
+
+@patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
+def test_embedding_provider_page_disables_form_when_locked_by_other(_get_user, client):
+    _logged_in(client)
+    with patch(
+        "app.presentation.routes.auth_ui.EmbeddingProviderConfigService.get_status",
+        return_value=_status("voyage", locked_by_other=True, active_provider="ollama"),
+    ):
+        response = client.get("/dashboard/configuration/embeddings/voyage")
+
+    assert response.status_code == 200
+    assert b"disabled" in response.data
+    assert b"Ollama" in response.data  # names the active provider that's blocking this one
+    # Every field and both action buttons must be non-interactive while another provider is active.
+    for field_id in (b'id="api_key"', b'id="model"', b'id="dimensions"', b'id="chunk_size"', b'id="chunk_overlap"'):
+        start = response.data.index(field_id)
+        tag_end = response.data.index(b">", start)
+        assert b"disabled" in response.data[start:tag_end]
+
+
+@patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
+def test_embedding_provider_page_badge_says_disabled_when_unconfigured(_get_user, client):
+    _logged_in(client)
+    with patch(
+        "app.presentation.routes.auth_ui.EmbeddingProviderConfigService.get_status",
+        return_value=_status("ollama", configured=False),
+    ):
+        response = client.get("/dashboard/configuration/embeddings/ollama")
+
+    assert response.status_code == 200
+    assert b"not configured" not in response.data
+    assert b"disabled" in response.data
 
 
 @patch("app.presentation.routes.auth_ui.UserRepository.get", return_value=None)
