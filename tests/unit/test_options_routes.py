@@ -66,12 +66,3 @@ def test_embedding_options_excludes_disabled_providers(client, auth_headers):
     body = response.get_json()
     provider_names = {provider["name"] for provider in body["providers"]}
     assert provider_names == {"ollama"}
-
-
-def test_rerank_options_has_no_supported_providers(client, auth_headers):
-    # Voyage was the only rerank provider and is now inactive (same reasoning as embeddings) —
-    # an empty providers list is the signal to clients that reranking isn't offered right now.
-    response = client.get("/rerank-options", headers=auth_headers())
-
-    assert response.status_code == 200
-    assert response.get_json()["providers"] == []

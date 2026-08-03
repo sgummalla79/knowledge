@@ -14,7 +14,6 @@ from app.domain.ports import (
     SearchSettingsRepositoryPort,
 )
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
-from app.infrastructure.rerank.registry import RerankProviderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +53,8 @@ class RetrievalService:
         )
         query_embedding = provider.embed_query(query_text)
 
-        # Hybrid retrieval is always on (dense + sparse, fused by RRF) — cheap, same Postgres,
-        # no extra external calls. Reranking is the opt-in, external-API-call step on top.
+        # Hybrid retrieval is always on: dense + sparse, fused by RRF — cheap, same Postgres, no
+        # extra external calls.
         dense = self._chunks.similarity_search(library.id, query_embedding, search_settings.dense_k)
         sparse = self._chunks.sparse_search(library.id, query_text, search_settings.sparse_k)
         logger.debug(
@@ -68,16 +67,7 @@ class RetrievalService:
             k=search_settings.rrf_k,
         )
 
-        limit = search_settings.rerank_candidates if search_settings.rerank_enabled else top_k
         candidates = [
-            replace(chunks_by_id[chunk_id], score=fused_score) for chunk_id, fused_score in fused[:limit]
+            replace(chunks_by_id[chunk_id], score=fused_score) for chunk_id, fused_score in fused[:top_k]
         ]
-
-        if search_settings.rerank_enabled:
-            rerank_provider = RerankProviderRegistry.resolve(
-                search_settings.rerank_provider, search_settings.rerank_model, embedding_settings.api_key
-            )
-            reranked = rerank_provider.rerank(query_text, [c.content for c in candidates], top_k)
-            candidates = [replace(candidates[index], score=score) for index, score in reranked]
-
-        return candidates[:top_k]
+        return candidates

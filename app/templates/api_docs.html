@@ -99,7 +99,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
         <tr><td><code>documents:read</code> / <code>documents:write</code></td><td>Document upload/crawl/list/rename/delete/retry, job status/cancel</td></tr>
         <tr><td><code>query:execute</code></td><td>Run a retrieval query against a library</td></tr>
         <tr><td><code>embedding_settings:read</code> / <code>:write</code></td><td>Embedding config + provider enable/disable</td></tr>
-        <tr><td><code>search_settings:read</code> / <code>:write</code></td><td>Hybrid search / rerank tuning</td></tr>
+        <tr><td><code>search_settings:read</code> / <code>:write</code></td><td>Hybrid search tuning</td></tr>
         <tr><td><code>offline_access</code></td><td>Controls whether <code>/oauth/token</code> also issues a refresh token</td></tr>
       </table>
     </div>
@@ -272,7 +272,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
       <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/libraries/{library_id}/query</span><span class="scope-tag">query:execute</span></div>
       <h4>Request body</h4>
       <pre class="code"><code>{ "query": "how do I reset a password?", "top_k": 5 }</code></pre>
-      <p class="endpoint-desc">Hybrid retrieval: dense (pgvector) + sparse (keyword) candidates fused via reciprocal rank fusion, with optional reranking — all tuned via Search Settings.</p>
+      <p class="endpoint-desc">Hybrid retrieval: dense (pgvector) + sparse (keyword) candidates fused via reciprocal rank fusion — tuned via Search Settings.</p>
       <h4>Response — 200</h4>
       <pre class="code"><code>{
   "chunks": [
@@ -359,7 +359,7 @@ refresh_token=&lt;opaque token&gt;</code></pre>
     </div>
 
     <h2 id="search-settings">Search Settings</h2>
-    <p class="lede">Single global configuration for hybrid retrieval and optional reranking. Absent is not an error — defaults apply.</p>
+    <p class="lede">Single global configuration for hybrid retrieval tuning. Absent is not an error — defaults apply.</p>
 
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/search-settings</span><span class="scope-tag">search_settings:read</span></div>
@@ -368,15 +368,10 @@ refresh_token=&lt;opaque token&gt;</code></pre>
       <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/search-settings</span><span class="scope-tag">search_settings:write</span></div>
       <h4>Request body</h4>
       <pre class="code"><code>{
-  "rerank_enabled": false,
-  "rerank_provider": "voyage",
-  "rerank_model": "rerank-2",
   "dense_k": 20,
   "sparse_k": 20,
-  "rerank_candidates": 20,
   "rrf_k": 60
 }</code></pre>
-      <p class="endpoint-desc"><code>rerank_provider</code>/<code>rerank_model</code> are only validated when <code>rerank_enabled</code> is true.</p>
     </div>
 
     <h2 id="options">Reference Options</h2>
@@ -395,11 +390,6 @@ refresh_token=&lt;opaque token&gt;</code></pre>
   "suggested_models": [ { "provider": "ollama", "model": "nomic-embed-text", "dimensions": 768 } ]
 }</code></pre>
       <p class="endpoint-desc">Only <em>enabled</em> providers are listed (see Embedding Providers). <code>suggested_models</code> are convenience hints only — never enforced.</p>
-    </div>
-
-    <div class="endpoint">
-      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/rerank-options</span><span class="scope-tag none">any authenticated token</span></div>
-      <pre class="code"><code>{ "providers": [], "default_provider": "voyage", "default_model": "rerank-2" }</code></pre>
     </div>
 
   </div>

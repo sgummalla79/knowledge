@@ -102,26 +102,13 @@ class EmbeddingProviderSettingsRepositoryPort(Protocol):
 class SearchSettingsRepositoryPort(Protocol):
     def get(self) -> SearchSettings | None: ...
 
-    def upsert(
-        self,
-        rerank_enabled: bool,
-        rerank_provider: str,
-        rerank_model: str,
-        dense_k: int,
-        sparse_k: int,
-        rerank_candidates: int,
-        rrf_k: int,
-    ) -> SearchSettings: ...
+    def upsert(self, dense_k: int, sparse_k: int, rrf_k: int) -> SearchSettings: ...
 
 
 class WebCrawlSettingsRepositoryPort(Protocol):
     def get(self) -> WebCrawlSettings | None: ...
 
     def upsert(self, user_agent: str) -> WebCrawlSettings: ...
-
-
-class RerankProviderPort(Protocol):
-    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]]: ...
 
 
 class UserRepositoryPort(Protocol):

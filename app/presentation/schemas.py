@@ -202,34 +202,22 @@ class EmbeddingProviderToggleUpdateRequest(BaseModel):
 class SearchSettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    rerank_enabled: bool
-    rerank_provider: str = Field(min_length=1)
-    rerank_model: str = Field(min_length=1)
     dense_k: int = Field(gt=0, le=100)
     sparse_k: int = Field(gt=0, le=100)
-    rerank_candidates: int = Field(gt=0, le=100)
     rrf_k: int = Field(gt=0, le=1000)
 
 
 class SearchSettingsResponse(BaseModel):
-    rerank_enabled: bool
-    rerank_provider: str
-    rerank_model: str
     dense_k: int
     sparse_k: int
-    rerank_candidates: int
     rrf_k: int
     updated_at: datetime | None
 
     @classmethod
     def from_entity(cls, settings: SearchSettings) -> "SearchSettingsResponse":
         return cls(
-            rerank_enabled=settings.rerank_enabled,
-            rerank_provider=settings.rerank_provider,
-            rerank_model=settings.rerank_model,
             dense_k=settings.dense_k,
             sparse_k=settings.sparse_k,
-            rerank_candidates=settings.rerank_candidates,
             rrf_k=settings.rrf_k,
             updated_at=settings.updated_at,
         )

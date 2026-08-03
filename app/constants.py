@@ -56,25 +56,10 @@ DEFAULT_CHUNK_OVERLAP = 100
 DEFAULT_TOP_K = 5
 
 # Hybrid retrieval defaults, used when no `search_settings` row exists yet (an absent row is not
-# an error — unlike embedding_settings — it just means "use these"). Reranking defaults to off:
-# it costs an extra Voyage API call per query, so it should be an explicit opt-in.
+# an error — unlike embedding_settings — it just means "use these").
 DEFAULT_DENSE_K = 20
 DEFAULT_SPARSE_K = 20
-DEFAULT_RERANK_CANDIDATES = 20
 DEFAULT_RRF_K = 60
-DEFAULT_RERANK_ENABLED = False
-DEFAULT_RERANK_PROVIDER = "voyage"
-DEFAULT_RERANK_MODEL = "rerank-2"
-
-# Exposed via GET /rerank-options. Intentionally empty: Voyage was the only rerank provider, and
-# it's inactive now that the default embedding provider is keyless local Ollama — reranking
-# would otherwise be the one remaining feature still requiring an external API key. The
-# VoyageRerankProvider class/registry entry stays in the codebase (may be re-enabled if a keyless
-# or otherwise-supported rerank provider shows up) but is unreachable via this API: with no
-# supported provider, rerank_enabled can never be validly turned on (see
-# SearchSettingsService.update, which only validates rerank_provider/model when actually enabling
-# it, so leaving rerank off still works normally).
-SUPPORTED_RERANK_MODELS_BY_PROVIDER = {}
 
 MAX_UPLOAD_MB = 50
 
@@ -127,8 +112,8 @@ DEFAULT_WEB_CRAWL_USER_AGENT = "python-requests/2.32.3"
 
 # OAuth2-style scopes for registered Applications (client_credentials clients). Resource-group
 # granularity, one pair per route module; "offline_access" is a control flag (governs refresh-token
-# issuance), not a resource itself. Options routes (embedding-options/rerank-options) require no
-# specific scope, so they aren't listed here.
+# issuance), not a resource itself. The embedding-options route requires no specific scope, so it
+# isn't listed here.
 SCOPE_LIBRARIES_READ = "libraries:read"
 SCOPE_LIBRARIES_WRITE = "libraries:write"
 SCOPE_DOCUMENTS_READ = "documents:read"

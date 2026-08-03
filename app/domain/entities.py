@@ -39,9 +39,9 @@ class ScoredChunk:
     document_id: UUID
     chunk_index: int
     content: str
-    # Higher is always better — whether this is a per-list similarity score, an RRF-fused score,
-    # or a rerank relevance score depends on which stage of the pipeline produced it. Never a
-    # lower-is-better distance, so callers never have to remember which convention applies.
+    # Higher is always better — whether this is a per-list similarity score or an RRF-fused score
+    # depends on which stage of the pipeline produced it. Never a lower-is-better distance, so
+    # callers never have to remember which convention applies.
     score: float
 
 
@@ -69,12 +69,8 @@ class EmbeddingProviderToggle:
 
 @dataclass(frozen=True)
 class SearchSettings:
-    rerank_enabled: bool
-    rerank_provider: str
-    rerank_model: str
     dense_k: int
     sparse_k: int
-    rerank_candidates: int
     rrf_k: int
     updated_at: datetime | None
 

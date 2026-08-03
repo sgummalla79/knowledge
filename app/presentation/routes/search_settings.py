@@ -24,13 +24,5 @@ def get_search_settings():
 @require_scope("search_settings:write")
 def update_search_settings():
     dto = SearchSettingsUpdateRequest.model_validate(request.get_json(silent=True) or {})
-    settings = _service().update(
-        dto.rerank_enabled,
-        dto.rerank_provider,
-        dto.rerank_model,
-        dto.dense_k,
-        dto.sparse_k,
-        dto.rerank_candidates,
-        dto.rrf_k,
-    )
+    settings = _service().update(dto.dense_k, dto.sparse_k, dto.rrf_k)
     return jsonify(SearchSettingsResponse.from_entity(settings).model_dump(mode="json"))

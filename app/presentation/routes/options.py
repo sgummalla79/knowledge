@@ -5,14 +5,11 @@ from app.application.embedding_provider_settings_service import EmbeddingProvide
 from app.auth import require_scope
 from app.constants import (
     DEFAULT_OLLAMA_BASE_URL,
-    DEFAULT_RERANK_MODEL,
-    DEFAULT_RERANK_PROVIDER,
     EMBEDDING_MODEL_LISTING_RATE_LIMIT,
     EMBEDDING_MODEL_PRESETS,
     EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
     EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
-    SUPPORTED_RERANK_MODELS_BY_PROVIDER,
 )
 from app.container import get_session
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
@@ -75,18 +72,3 @@ def list_embedding_models():
     service = EmbeddingModelListingService(EmbeddingProviderSettingsRepository(get_session()))
     models = service.list_models(dto.provider, dto.api_key, dto.base_url)
     return jsonify({"models": models})
-
-
-@options_bp.get("/rerank-options")
-@require_scope()
-def get_rerank_options():
-    return jsonify(
-        {
-            "providers": [
-                {"name": provider, "models": models}
-                for provider, models in SUPPORTED_RERANK_MODELS_BY_PROVIDER.items()
-            ],
-            "default_provider": DEFAULT_RERANK_PROVIDER,
-            "default_model": DEFAULT_RERANK_MODEL,
-        }
-    )

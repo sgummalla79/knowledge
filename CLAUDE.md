@@ -12,7 +12,7 @@ A Flask + Postgres/pgvector RAG backend: create knowledge libraries, ingest docu
 Structured as hexagonal/clean architecture:
 `app/domain` (entities, repository ports as `typing.Protocol`, errors) →
 `app/application` (services — one per feature area, no framework imports) →
-`app/infrastructure` (SQLAlchemy ORM/repositories, embeddings/rerank provider registries, auth
+`app/infrastructure` (SQLAlchemy ORM/repositories, embeddings provider registries, auth
 helpers) → `app/presentation` (Flask blueprints/routes, pydantic schemas, Jinja2 admin dashboard
 templates). Bundles an MCP server (`mcp_server/`) exposing `list_libraries`/`query_library` tools
 over streamable-HTTP, published loopback-only via docker-compose (never reachable off this
@@ -27,8 +27,10 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
    `app/application/embedding_settings_service.py` + `GET/PUT/DELETE /embedding-settings`.
    `GET /embedding-options` exposes the supported provider/model list for UI dropdowns.
 3. **Hybrid search** (migration `0003`): dense (pgvector) + sparse (keyword) retrieval fused via
-   reciprocal rank fusion (`app/application/rrf.py`), plus an optional Voyage reranking stage —
-   both tunable via a global `search_settings` row (`app/application/search_settings_service.py`).
+   reciprocal rank fusion (`app/application/rrf.py`), tunable via a global `search_settings` row
+   (`app/application/search_settings_service.py`). Originally also had an optional Voyage
+   reranking stage; removed entirely in migration `0014` (see item 10) — never mention it as
+   still existing.
 4. **OAuth2 application auth** (migration `0004`) — the big one:
    - `users` table: single default admin, bootstrapped on first `create_app()` call
      (`app/infrastructure/auth/bootstrap.py`) with username/password `admin`/`admin` and
@@ -101,8 +103,25 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
    be able to accidentally delete. Also bumped gunicorn from its implicit 1-worker default to 3
    (`docker/entrypoint.sh`) — streamable-http's persistent MCP sessions could otherwise hold the
    single worker's only connection slot and 503 every other request for up to 30s at a time.
+10. **Added a Data Model reference page** (`/dashboard/schema`, linked from the sidebar):
+    zoomable/pannable Mermaid ER diagram plus a column-level reference for every table, generated
+    from the live ORM models and `migrations/versions/` rather than hand-maintained prose.
+    `mermaid.min.js` is vendored into `app/static/` (no runtime CDN dependency).
+11. **Reranking removed entirely** (migration `0014`) — it had already been unreachable via the
+    API since `SUPPORTED_RERANK_MODELS_BY_PROVIDER` was emptied out (see item 3's note): with no
+    supported rerank provider, `rerank_enabled` could never be validly turned on, so the feature
+    was dead code with no path to re-enable it that didn't also risk a silent runtime failure
+    (Voyage reranking reused `embedding_settings.api_key`, with no check that the *embedding*
+    provider was actually Voyage — enabling it for, say, an Ollama-embeddings deployment would
+    have passed validation and then failed at query time). Rather than gate around that, the
+    whole feature was cut: `app/infrastructure/rerank/`, `rerank_choice_validation.py`, the
+    `RerankProviderPort`/`RerankProviderRegistry` machinery, `GET /rerank-options`, and the
+    `rerank_*` columns on `search_settings` are all gone. `search_settings` now only tunes hybrid
+    retrieval (`dense_k`/`sparse_k`/`rrf_k`) — no reranking stage exists anywhere in the pipeline.
+    May reconsider later with a cleaner design (e.g. deriving the rerank provider from the active
+    embedding provider instead of a separate field) rather than resurrecting this version.
 
-Current test suite: **361 tests passing** (`python -m pytest tests/`).
+Current test suite: **368 tests passing** (`python -m pytest tests/`).
 
 ## Not yet done / next steps
 

@@ -8,7 +8,7 @@ from app.infrastructure.auth.jwt_tokens import decode_access_token
 
 def require_scope(scope: str | None = None):
     """Every resource route declares the scope it needs (None for routes open to any authenticated
-    caller, e.g. the read-only /embedding-options and /rerank-options reference endpoints).
+    caller, e.g. the read-only /embedding-options reference endpoint).
 
     An Authorization: Bearer <jwt> is decoded; a valid, unexpired token must have the required
     scope in its `scope` claim, or the request is authenticated but not permitted (403, not 401 —

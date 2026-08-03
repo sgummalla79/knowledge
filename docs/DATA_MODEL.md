@@ -65,12 +65,8 @@ erDiagram
     }
     SEARCH_SETTINGS {
         uuid id PK
-        bool rerank_enabled
-        string rerank_provider
-        string rerank_model
         int dense_k
         int sparse_k
-        int rerank_candidates
         int rrf_k
         timestamptz created_at
         timestamptz updated_at
@@ -217,18 +213,16 @@ touch `embedding_settings` or block already-configured ingestion/retrieval from 
 ## `search_settings`
 
 **Single global row**, same singleton pattern as `embedding_settings`. Tunes hybrid
-(dense + sparse) retrieval and optional reranking. An absent row is not an error — unlike
-`embedding_settings`, retrieval falls back to defaults in `app/constants.py`.
+(dense + sparse) retrieval. An absent row is not an error — unlike `embedding_settings`,
+retrieval falls back to defaults in `app/constants.py`. Reranking (rerank_enabled/provider/model/
+candidates) was removed entirely in migration `0014` — it had no working, reachable configuration
+via this API even before that (see `CLAUDE.md`).
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
 | `id` | `uuid` | no | — | PK |
-| `rerank_enabled` | `boolean` | no | — | |
-| `rerank_provider` | `string` | no | — | only validated when `rerank_enabled=True` |
-| `rerank_model` | `string` | no | — | |
 | `dense_k` | `integer` | no | — | candidates pulled from pgvector similarity search |
 | `sparse_k` | `integer` | no | — | candidates pulled from keyword/tsvector search |
-| `rerank_candidates` | `integer` | no | — | how many RRF-fused results go to the reranker |
 | `rrf_k` | `integer` | no | — | reciprocal rank fusion constant |
 | `created_at` | `timestamptz` | no | `now()` | |
 | `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
