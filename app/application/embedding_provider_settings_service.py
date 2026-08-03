@@ -19,6 +19,10 @@ class EmbeddingProviderConfigStatus:
     # model identity changed) until every chunk is deleted, since embeddings from different
     # models aren't comparable.
     locked: bool
+    # True when a *different* provider is the active one — since exactly one provider is ever
+    # enabled at a time, this provider's config can't be touched at all (not even its api_key)
+    # until that other provider is disabled first.
+    locked_by_other: bool
     chunk_count: int
     model: str | None
     base_url: str | None
@@ -26,6 +30,9 @@ class EmbeddingProviderConfigStatus:
     chunk_size: int
     chunk_overlap: int
     updated_at: datetime | None
+    # The provider currently enabled system-wide, if any — surfaced on every status (including
+    # this provider's own) so a caller never needs a second lookup to know who's active.
+    active_provider: str | None
 
 
 class EmbeddingProviderConfigService:
@@ -33,7 +40,10 @@ class EmbeddingProviderConfigService:
     active one actually used for embedding. Exactly one provider may be enabled at a time — the
     app embeds with a single global model, not a per-library choice — so enabling a provider
     disables whichever other one was active, and disabling/switching away from a provider that
-    still has chunks is rejected until those chunks are deleted."""
+    still has chunks is rejected until those chunks are deleted. Only the active provider's config
+    can be edited; every other provider's config is fully locked until the active one is disabled,
+    so there's never a "half-configured, not currently active" provider sitting around confusing
+    which config will actually be used next."""
 
     def __init__(self, repository: EmbeddingProviderSettingsRepositoryPort, chunk_repo: ChunkRepositoryPort):
         self._repository = repository
@@ -42,14 +52,18 @@ class EmbeddingProviderConfigService:
     def list_status(self) -> list[EmbeddingProviderConfigStatus]:
         configs = {config.provider: config for config in self._repository.list()}
         chunk_count = self._chunks.count_all()
+        active_provider = self._active_provider(configs.values())
         return [
-            self._status(configs.get(provider), provider, chunk_count)
+            self._status(configs.get(provider), provider, chunk_count, active_provider)
             for provider in sorted(EmbeddingProviderRegistry.known_providers())
         ]
 
     def get_status(self, provider: str) -> EmbeddingProviderConfigStatus:
         self._require_known_provider(provider)
-        return self._status(self._repository.get(provider), provider, self._chunks.count_all())
+        configs = self._repository.list()
+        active_provider = self._active_provider(configs)
+        config = next((c for c in configs if c.provider == provider), None)
+        return self._status(config, provider, self._chunks.count_all(), active_provider)
 
     def update_config(
         self,
@@ -62,6 +76,17 @@ class EmbeddingProviderConfigService:
         chunk_overlap: int,
     ) -> EmbeddingProviderConfigStatus:
         validate_provider_connection(provider, api_key, base_url)
+
+        configs = self._repository.list()
+        active_provider = self._active_provider(configs)
+        if active_provider is not None and active_provider != provider:
+            raise ValidationError(
+                error_codes.EMBEDDING_MODEL_LOCKED,
+                f"Provider '{active_provider}' is currently active — disable it before "
+                f"configuring '{provider}'.",
+                field="provider",
+            )
+
         # Checked here, at save time, rather than only surfacing later as a failed ingestion job
         # when the first document is uploaded.
         if chunk_overlap >= chunk_size:
@@ -71,7 +96,7 @@ class EmbeddingProviderConfigService:
                 field="chunk_overlap",
             )
 
-        existing = self._repository.get(provider)
+        existing = next((c for c in configs if c.provider == provider), None)
         identity_changed = existing is not None and (
             existing.model != model or existing.base_url != base_url or existing.dimensions != dimensions
         )
@@ -110,7 +135,7 @@ class EmbeddingProviderConfigService:
         config = self._repository.upsert_config(
             provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap
         )
-        return self._status(config, provider, chunk_count)
+        return self._status(config, provider, chunk_count, active_provider)
 
     def enable(self, provider: str) -> EmbeddingProviderConfigStatus:
         config = self._repository.get(provider)
@@ -121,7 +146,7 @@ class EmbeddingProviderConfigService:
                 field="provider",
             )
         if config.enabled:
-            return self._status(config, provider, self._chunks.count_all())
+            return self._status(config, provider, self._chunks.count_all(), provider)
 
         currently_enabled = next((c for c in self._repository.list() if c.enabled), None)
         chunk_count = self._chunks.count_all()
@@ -140,13 +165,14 @@ class EmbeddingProviderConfigService:
         # so resizing the shared vector column here is always safe.
         self._chunks.resize_embedding_column(config.dimensions)
         updated = self._repository.set_enabled(provider, True)
-        return self._status(updated, provider, chunk_count)
+        return self._status(updated, provider, chunk_count, provider)
 
     def disable(self, provider: str) -> EmbeddingProviderConfigStatus:
         self._require_known_provider(provider)
         config = self._repository.get(provider)
         if config is None or not config.enabled:
-            return self._status(config, provider, self._chunks.count_all())
+            active_provider = self._active_provider(self._repository.list())
+            return self._status(config, provider, self._chunks.count_all(), active_provider)
 
         chunk_count = self._chunks.count_all()
         if chunk_count > 0:
@@ -157,7 +183,11 @@ class EmbeddingProviderConfigService:
                 field="provider",
             )
         updated = self._repository.set_enabled(provider, False)
-        return self._status(updated, provider, chunk_count)
+        return self._status(updated, provider, chunk_count, None)
+
+    def _active_provider(self, configs) -> str | None:
+        active = next((c for c in configs if c.enabled), None)
+        return active.provider if active is not None else None
 
     def _require_known_provider(self, provider: str) -> None:
         if provider not in EmbeddingProviderRegistry.known_providers():
@@ -168,14 +198,20 @@ class EmbeddingProviderConfigService:
             )
 
     def _status(
-        self, config: EmbeddingProviderConfig | None, provider: str, chunk_count: int
+        self,
+        config: EmbeddingProviderConfig | None,
+        provider: str,
+        chunk_count: int,
+        active_provider: str | None,
     ) -> EmbeddingProviderConfigStatus:
+        locked_by_other = active_provider is not None and active_provider != provider
         if config is None:
             return EmbeddingProviderConfigStatus(
                 provider=provider,
                 enabled=False,
                 configured=False,
                 locked=False,
+                locked_by_other=locked_by_other,
                 chunk_count=0,
                 model=None,
                 base_url=None,
@@ -183,12 +219,14 @@ class EmbeddingProviderConfigService:
                 chunk_size=DEFAULT_CHUNK_SIZE,
                 chunk_overlap=DEFAULT_CHUNK_OVERLAP,
                 updated_at=None,
+                active_provider=active_provider,
             )
         return EmbeddingProviderConfigStatus(
             provider=config.provider,
             enabled=config.enabled,
             configured=config.model is not None,
             locked=config.enabled and chunk_count > 0,
+            locked_by_other=locked_by_other,
             chunk_count=chunk_count if config.enabled else 0,
             model=config.model,
             base_url=config.base_url,
@@ -196,4 +234,5 @@ class EmbeddingProviderConfigService:
             chunk_size=config.chunk_size or DEFAULT_CHUNK_SIZE,
             chunk_overlap=config.chunk_overlap or DEFAULT_CHUNK_OVERLAP,
             updated_at=config.updated_at,
+            active_provider=active_provider,
         )

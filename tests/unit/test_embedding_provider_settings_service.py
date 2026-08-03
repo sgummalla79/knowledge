@@ -50,6 +50,35 @@ def test_list_status_covers_every_known_provider_even_when_unconfigured():
     assert statuses["voyage"].enabled is False
 
 
+def test_list_status_marks_non_active_providers_as_locked_by_other():
+    repository = MagicMock()
+    repository.list.return_value = [_config("ollama", enabled=True)]
+    chunk_repo = MagicMock()
+    chunk_repo.count_all.return_value = 0
+    service = EmbeddingProviderConfigService(repository, chunk_repo)
+
+    statuses = {status.provider: status for status in service.list_status()}
+
+    assert statuses["ollama"].locked_by_other is False
+    assert statuses["ollama"].active_provider == "ollama"
+    assert statuses["voyage"].locked_by_other is True
+    assert statuses["voyage"].active_provider == "ollama"
+    assert statuses["openai_compatible"].locked_by_other is True
+
+
+def test_list_status_nothing_locked_when_no_provider_is_active():
+    repository = MagicMock()
+    repository.list.return_value = []
+    chunk_repo = MagicMock()
+    chunk_repo.count_all.return_value = 0
+    service = EmbeddingProviderConfigService(repository, chunk_repo)
+
+    statuses = service.list_status()
+
+    assert all(status.locked_by_other is False for status in statuses)
+    assert all(status.active_provider is None for status in statuses)
+
+
 def test_get_status_unknown_provider_raises():
     service = EmbeddingProviderConfigService(MagicMock(), MagicMock())
     with pytest.raises(ValidationError) as exc_info:
@@ -59,7 +88,7 @@ def test_get_status_unknown_provider_raises():
 
 def test_update_config_first_time_verifies_and_persists():
     repository = MagicMock()
-    repository.get.return_value = None
+    repository.list.return_value = []
     repository.upsert_config.return_value = _config()
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
@@ -77,9 +106,24 @@ def test_update_config_first_time_verifies_and_persists():
     assert status.configured is True
 
 
+def test_update_config_blocked_when_a_different_provider_is_active():
+    repository = MagicMock()
+    repository.list.return_value = [_config("ollama", enabled=True)]
+    chunk_repo = MagicMock()
+    chunk_repo.count_all.return_value = 0
+    service = EmbeddingProviderConfigService(repository, chunk_repo)
+
+    with pytest.raises(ValidationError) as exc_info:
+        service.update_config("voyage", "voyage-3", "key", None, 1024, 800, 100)
+
+    assert exc_info.value.code == error_codes.EMBEDDING_MODEL_LOCKED
+    assert exc_info.value.field == "provider"
+    repository.upsert_config.assert_not_called()
+
+
 def test_update_config_locked_when_provider_is_active_and_chunks_exist():
     repository = MagicMock()
-    repository.get.return_value = _config("ollama", enabled=True, model="nomic-embed-text", dimensions=768)
+    repository.list.return_value = [_config("ollama", enabled=True, model="nomic-embed-text", dimensions=768)]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
     service = EmbeddingProviderConfigService(repository, chunk_repo)
@@ -91,11 +135,11 @@ def test_update_config_locked_when_provider_is_active_and_chunks_exist():
     repository.upsert_config.assert_not_called()
 
 
-def test_update_config_identity_change_allowed_when_not_the_active_provider():
-    # Chunks exist (from whichever provider IS active), but this provider isn't it — its own
-    # config was never used to embed anything, so changing it freely is safe.
+def test_update_config_identity_change_allowed_when_no_provider_is_active():
+    # Nothing is active yet, so this provider's own (never-embedded-with) config can change freely
+    # even though chunks happen to exist in the DB from a since-disabled provider.
     repository = MagicMock()
-    repository.get.return_value = _config("voyage", enabled=False, model="voyage-2", dimensions=1024, api_key="key")
+    repository.list.return_value = [_config("voyage", enabled=False, model="voyage-2", dimensions=1024, api_key="key")]
     repository.upsert_config.return_value = _config("voyage", model="voyage-3", dimensions=1024, api_key="key")
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
@@ -113,7 +157,7 @@ def test_update_config_identity_change_allowed_when_not_the_active_provider():
 
 def test_update_config_api_key_only_change_skips_reverify():
     repository = MagicMock()
-    repository.get.return_value = _config(api_key="old-key")
+    repository.list.return_value = [_config(api_key="old-key")]
     repository.upsert_config.return_value = _config(api_key="new-key")
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
@@ -130,7 +174,7 @@ def test_update_config_api_key_only_change_skips_reverify():
 
 def test_update_config_chunk_size_only_change_does_not_reverify():
     repository = MagicMock()
-    repository.get.return_value = _config(chunk_size=800, chunk_overlap=100)
+    repository.list.return_value = [_config(chunk_size=800, chunk_overlap=100)]
     repository.upsert_config.return_value = _config(chunk_size=500, chunk_overlap=50)
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
@@ -145,7 +189,7 @@ def test_update_config_chunk_size_only_change_does_not_reverify():
 
 def test_update_config_live_verification_failure_raises():
     repository = MagicMock()
-    repository.get.return_value = None
+    repository.list.return_value = []
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     service = EmbeddingProviderConfigService(repository, chunk_repo)
@@ -165,7 +209,7 @@ def test_update_config_live_verification_failure_raises():
 
 def test_update_config_declared_dimensions_mismatching_actual_vector_length_raises():
     repository = MagicMock()
-    repository.get.return_value = None
+    repository.list.return_value = []
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     service = EmbeddingProviderConfigService(repository, chunk_repo)
@@ -183,7 +227,7 @@ def test_update_config_declared_dimensions_mismatching_actual_vector_length_rais
 
 def test_update_config_chunk_overlap_must_be_smaller_than_chunk_size():
     repository = MagicMock()
-    repository.get.return_value = None
+    repository.list.return_value = []
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     service = EmbeddingProviderConfigService(repository, chunk_repo)
@@ -237,6 +281,7 @@ def test_enable_switches_active_provider_when_previous_has_no_chunks():
     repository.set_enabled.assert_any_call("voyage", True)
     chunk_repo.resize_embedding_column.assert_called_once_with(1024)
     assert status.enabled is True
+    assert status.active_provider == "voyage"
 
 
 def test_enable_blocked_when_other_active_provider_has_chunks():
@@ -260,6 +305,7 @@ def test_enable_blocked_when_other_active_provider_has_chunks():
 def test_disable_not_enabled_is_a_noop():
     repository = MagicMock()
     repository.get.return_value = _config("ollama", enabled=False)
+    repository.list.return_value = [_config("ollama", enabled=False)]
     chunk_repo = MagicMock()
     service = EmbeddingProviderConfigService(repository, chunk_repo)
 
@@ -294,3 +340,4 @@ def test_disable_succeeds_when_no_chunks_exist():
 
     repository.set_enabled.assert_called_once_with("ollama", False)
     assert status.enabled is False
+    assert status.active_provider is None

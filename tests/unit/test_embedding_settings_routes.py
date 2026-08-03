@@ -24,6 +24,7 @@ def _status(provider="ollama", enabled=False, configured=False, locked=False, ch
         enabled=enabled,
         configured=configured,
         locked=locked,
+        locked_by_other=False,
         chunk_count=chunk_count,
         model="nomic-embed-text" if configured else None,
         base_url="http://ollama:11434" if configured else None,
@@ -31,6 +32,7 @@ def _status(provider="ollama", enabled=False, configured=False, locked=False, ch
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc) if configured else None,
+        active_provider=provider if enabled else None,
     )
     defaults.update(overrides)
     return EmbeddingProviderConfigStatus(**defaults)

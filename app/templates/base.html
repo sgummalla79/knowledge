@@ -122,6 +122,10 @@
     }
     button.secondary { background: transparent; border: 1px solid var(--border); color: var(--secondary-foreground); }
     button.danger { background: var(--destructive); color: var(--destructive-foreground); }
+    .field-row { display: flex; gap: 16px; }
+    .field-row > div { flex: 1; min-width: 0; }
+    .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+    .provider-status-strip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
     .error {
       background: color-mix(in oklch, var(--destructive) 20%, var(--background));
       border: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--background));

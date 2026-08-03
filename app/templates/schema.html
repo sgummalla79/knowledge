@@ -22,7 +22,6 @@
     <a href="#authorization_codes">authorization_codes</a>
     <div class="docs-nav-group">Reference</div>
     <a href="#indexes">Indexes</a>
-    <a href="#migrations">Migration history</a>
   </nav>
 
   <div class="docs-main">
@@ -414,30 +413,6 @@ erDiagram
           <tr><td class="mono">ix_chunks_embedding_hnsw</td><td>chunks</td><td>embedding</td><td>HNSW, vector_cosine_ops (dense search)</td></tr>
           <tr><td class="mono">ix_refresh_tokens_application_id</td><td>refresh_tokens</td><td>application_id</td><td>btree</td></tr>
           <tr><td class="mono">ix_authorization_codes_application_id</td><td>authorization_codes</td><td>application_id</td><td>btree</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h2 id="migrations">Migration history</h2>
-    <div class="table-scroll">
-      <table class="params-table">
-        <thead><tr><th>Rev.</th><th>Date</th><th>Summary</th></tr></thead>
-        <tbody>
-          <tr><td class="mono">0001</td><td>2026-07-24</td><td>Initial schema: libraries, documents, chunks + pgvector</td></tr>
-          <tr><td class="mono">0002</td><td>2026-07-26</td><td>embedding_settings: single global row for the runtime-configurable embeddings key</td></tr>
-          <tr><td class="mono">0003</td><td>2026-07-26</td><td>Hybrid search: generated content_tsv column + GIN index on chunks, search_settings table</td></tr>
-          <tr><td class="mono">0004</td><td>2026-07-27</td><td>OAuth applications: admin users, registered client applications, refresh tokens</td></tr>
-          <tr><td class="mono">0005</td><td>2026-07-27</td><td>Move chunk_size/chunk_overlap to embedding_settings; drop per-library embedding overrides</td></tr>
-          <tr><td class="mono">0006</td><td>2026-07-27</td><td>Local embeddings: nullable chunks.embedding_new (768-dim), embedding_settings.api_key/base_url</td></tr>
-          <tr><td class="mono">0007</td><td>2026-07-27</td><td>Local embeddings: cut chunks.embedding over to 768-dim (drop old, promote embedding_new)</td></tr>
-          <tr><td class="mono">0008</td><td>2026-07-28</td><td>documents: raw_file_bytes + error_message, to support retrying a failed ingestion</td></tr>
-          <tr><td class="mono">0009</td><td>2026-07-28</td><td>embedding_settings.dimensions: data-driven vector dimension per configured model</td></tr>
-          <tr><td class="mono">0010</td><td>2026-07-28</td><td>embedding_provider_settings: per-provider enable/disable toggle</td></tr>
-          <tr><td class="mono">0011</td><td>2026-07-29</td><td>documents: size_bytes + chunk_count, for the document list/detail API response</td></tr>
-          <tr><td class="mono">0012</td><td>2026-07-30</td><td>web_crawl_settings: admin-configurable User-Agent for outbound page fetches</td></tr>
-          <tr><td class="mono">0013</td><td>2026-08-01</td><td>OAuth authorization_code grant: redirect_uris on applications, authorization_codes table</td></tr>
-          <tr><td class="mono">0014</td><td>2026-08-02</td><td>Remove reranking: drop rerank_* columns from search_settings</td></tr>
-          <tr><td class="mono">0015</td><td>2026-08-03</td><td>Per-provider embedding config: merge embedding_settings into embedding_provider_settings, one row per provider, "enabled" now means "active"</td></tr>
         </tbody>
       </table>
     </div>

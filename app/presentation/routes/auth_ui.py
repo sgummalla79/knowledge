@@ -60,6 +60,24 @@ def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
     return EmbeddingProviderConfigService(EmbeddingProviderSettingsRepository(session_), ChunkRepository(session_))
 
 
+@auth_ui_bp.context_processor
+def _inject_embedding_provider_nav_status():
+    """Every dashboard page's sidebar shows which embedding provider (if any) is currently
+    active, since it's a single global setting relevant no matter which page you're on — not
+    just something you'd notice by visiting Configuration. Skips the DB round-trip on
+    unauthenticated requests (login) this blueprint also serves."""
+    if not session.get("user_id"):
+        return {}
+    configs = EmbeddingProviderSettingsRepository(get_session()).list()
+    enabled_by_provider = {config.provider: config.enabled for config in configs}
+    return {
+        "sidebar_embedding_providers": [
+            {"provider": provider, "display_name": display_name, "enabled": enabled_by_provider.get(provider, False)}
+            for provider, display_name in EMBEDDING_PROVIDER_DISPLAY_NAMES.items()
+        ]
+    }
+
+
 def _web_crawl_settings_service() -> WebCrawlSettingsService:
     return WebCrawlSettingsService(WebCrawlSettingsRepository(get_session()))
 
@@ -280,11 +298,13 @@ def embedding_provider_settings(provider: str, error: str | None = None):
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
+    status = _embedding_provider_config_service().get_status(provider)
     return render_template(
         "embedding_provider_settings.html",
         provider=provider,
         display_name=EMBEDDING_PROVIDER_DISPLAY_NAMES.get(provider, provider),
-        status=_embedding_provider_config_service().get_status(provider),
+        status=status,
+        active_display_name=EMBEDDING_PROVIDER_DISPLAY_NAMES.get(status.active_provider, status.active_provider),
         api_key_required=provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
         base_url_required=provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
         base_url_supported=provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,

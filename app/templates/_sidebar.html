@@ -62,6 +62,13 @@
         Data Model
       </a>
     </nav>
+    {% if sidebar_embedding_providers %}
+    <div class="provider-status-strip">
+      {% for p in sidebar_embedding_providers %}
+      <span class="badge {{ 'active' if p.enabled else 'revoked' }}" title="{{ p.display_name }} embeddings — {{ 'enabled' if p.enabled else 'disabled' }}">{{ p.display_name }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="sidebar-footer">
       <form method="post" action="{{ url_for('auth_ui.logout') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
