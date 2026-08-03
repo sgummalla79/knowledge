@@ -6,7 +6,7 @@ from app.domain.errors import ValidationError
 def validate_scopes_supported(scopes: list[str]) -> None:
     """Shared by ApplicationService (registering an application's allowed scopes) and TokenService
     (validating a client_credentials request's requested scope) so the supported-scope check has
-    one home, mirroring validate_embedding_choice."""
+    one home, mirroring validate_provider_connection."""
     for scope in scopes:
         if scope not in SUPPORTED_SCOPES:
             raise ValidationError(error_codes.INVALID_SCOPE, f"Unsupported scope '{scope}'.", field="scope")

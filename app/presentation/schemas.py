@@ -9,8 +9,8 @@ from app.constants import (
     DEFAULT_TOP_K,
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
-from app.application.embedding_settings_service import EmbeddingSettingsStatus
-from app.domain.entities import Document, EmbeddingProviderToggle, Library, ScoredChunk, SearchSettings
+from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
+from app.domain.entities import Document, Library, ScoredChunk, SearchSettings
 
 
 class LibraryCreateRequest(BaseModel):
@@ -154,10 +154,9 @@ class EmbeddingModelListRequest(BaseModel):
     base_url: str | None = Field(default=None, min_length=1)
 
 
-class EmbeddingSettingsUpdateRequest(BaseModel):
+class EmbeddingProviderConfigUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key: str | None = Field(default=None, min_length=1)
     base_url: str | None = Field(default=None, min_length=1)
@@ -166,10 +165,13 @@ class EmbeddingSettingsUpdateRequest(BaseModel):
     chunk_overlap: int = Field(default=DEFAULT_CHUNK_OVERLAP, ge=0)
 
 
-class EmbeddingSettingsResponse(BaseModel):
-    provider: str | None
-    model: str | None
+class EmbeddingProviderConfigResponse(BaseModel):
+    provider: str
+    enabled: bool
     configured: bool
+    locked: bool
+    chunk_count: int
+    model: str | None
     base_url: str | None
     dimensions: int | None
     chunk_size: int
@@ -177,33 +179,20 @@ class EmbeddingSettingsResponse(BaseModel):
     updated_at: datetime | None
 
     @classmethod
-    def from_status(cls, status: EmbeddingSettingsStatus) -> "EmbeddingSettingsResponse":
+    def from_status(cls, status: EmbeddingProviderConfigStatus) -> "EmbeddingProviderConfigResponse":
         return cls(
             provider=status.provider,
-            model=status.model,
+            enabled=status.enabled,
             configured=status.configured,
+            locked=status.locked,
+            chunk_count=status.chunk_count,
+            model=status.model,
             base_url=status.base_url,
             dimensions=status.dimensions,
             chunk_size=status.chunk_size,
             chunk_overlap=status.chunk_overlap,
             updated_at=status.updated_at,
         )
-
-
-class EmbeddingProviderToggleResponse(BaseModel):
-    provider: str
-    enabled: bool
-    updated_at: datetime
-
-    @classmethod
-    def from_entity(cls, toggle: EmbeddingProviderToggle) -> "EmbeddingProviderToggleResponse":
-        return cls(provider=toggle.provider, enabled=toggle.enabled, updated_at=toggle.updated_at)
-
-
-class EmbeddingProviderToggleUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool
 
 
 class SearchSettingsUpdateRequest(BaseModel):

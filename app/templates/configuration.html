@@ -4,34 +4,7 @@
 {% block sidebar %}{% include "_sidebar.html" %}{% endblock %}
 {% block content %}
 <h1>Configuration</h1>
-<p class="subtitle">Deployment-wide settings, shared by every registered application.</p>
-
-<h2>Embedding Providers</h2>
-<p class="subtitle">Which providers can be selected in the embedding configuration. Disabling a provider doesn't affect an already-configured, in-use provider — it only blocks selecting it going forward.</p>
-
-<table>
-  <thead><tr><th>Provider</th><th>Status</th><th>Actions</th></tr></thead>
-  <tbody>
-  {% for toggle in embedding_providers %}
-    <tr>
-      <td>{{ toggle.provider }}</td>
-      <td>
-        {% if toggle.enabled %}<span class="badge active">enabled</span>
-        {% else %}<span class="badge revoked">disabled</span>{% endif %}
-      </td>
-      <td>
-        <form method="post" action="{{ url_for('auth_ui.toggle_embedding_provider', provider=toggle.provider) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="enabled" value="{{ 'false' if toggle.enabled else 'true' }}">
-          <button type="submit" class="{{ 'danger' if toggle.enabled else '' }}">{{ 'Disable' if toggle.enabled else 'Enable' }}</button>
-        </form>
-      </td>
-    </tr>
-  {% else %}
-    <tr><td colspan="3">No providers registered.</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+<p class="subtitle">Deployment-wide settings, shared by every registered application. Embedding provider configuration now has its own page per provider — see Voyage/OpenAI/Ollama in the sidebar.</p>
 
 <h2>Web Crawler</h2>
 <p class="subtitle">

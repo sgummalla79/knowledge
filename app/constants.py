@@ -1,10 +1,10 @@
 from uuid import UUID
 
 # The dimension used only to size the `chunks.embedding` pgvector column at initial table-creation
-# time (migration 0001). Once `embedding_settings` exists, the column is resized dynamically to
-# match embedding_settings.dimensions whenever the model changes with no documents present (see
-# EmbeddingSettingsService.update() / ChunkRepository.resize_embedding_column) — this constant is
-# no longer consulted anywhere else.
+# time (migration 0001). Once a provider is enabled, the column is resized dynamically to match
+# its dimensions whenever the active model changes with no documents present (see
+# EmbeddingProviderConfigService.enable() / ChunkRepository.resize_embedding_column) — this
+# constant is no longer consulted anywhere else.
 EMBEDDING_DIM = 768
 
 # Historical only: migration 0001's initial DDL used these as the `libraries.embedding_provider`/
@@ -36,16 +36,19 @@ EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
 # — base_url is mandatory for these, not just an optional override.
 EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
-# The bundled Ollama sidecar has been removed from deploy/docker-compose.yml (it required bundling a
-# multi-GB local model runtime by default) — the "ollama" adapter/registry entry still exists in
-# code, but bootstrap_embedding_provider_settings seeds it disabled out of the box so it can't be
-# selected until an admin actually has an Ollama instance to point at. Re-enable via the
-# Configuration page (or PUT /embedding-provider-settings/ollama) once Ollama is available again.
-DEFAULT_DISABLED_EMBEDDING_PROVIDERS = {"ollama"}
+# Display labels for the dashboard's per-provider Configuration pages — the "openai_compatible"
+# registry key isn't UI-friendly on its own. Data-driven so the template never hardcodes a
+# provider's label inline (Open/Closed: a new provider needs an entry here, not a template edit).
+EMBEDDING_PROVIDER_DISPLAY_NAMES = {
+    "voyage": "Voyage",
+    "ollama": "Ollama",
+    "openai_compatible": "OpenAI",
+}
 
 # Kept as the registry's fallback base_url for the "ollama" adapter (app/infrastructure/embeddings/
-# registry.py) — only used if/when a caller enables ollama and doesn't supply their own base_url;
-# not a runtime dependency by itself since the provider defaults to disabled (see above).
+# registry.py) — only used if/when a caller configures ollama and doesn't supply their own
+# base_url; every provider starts disabled out of the box (bootstrap_embedding_provider_settings),
+# so this isn't a runtime dependency by itself.
 DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
 # Fallback chunking parameters used only when a library is created without explicit values;

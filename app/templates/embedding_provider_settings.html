@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }} Embeddings — Knowledge{% endblock %}
+{% block card_class %}page{% endblock %}
+{% block sidebar %}{% include "_sidebar.html" %}{% endblock %}
+{% block content %}
+<h1>{{ display_name }} Embeddings</h1>
+<p class="subtitle">Connection and chunking settings used when {{ display_name }} is the active embedding provider.</p>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="endpoint">
+  <div class="endpoint-head">
+    <strong>{{ display_name }}</strong>
+    {% if status.enabled %}<span class="badge active">enabled</span>
+    {% elif status.configured %}<span class="badge revoked">disabled</span>
+    {% else %}<span class="badge revoked">not configured</span>{% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('auth_ui.update_embedding_provider_settings', provider=provider) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <label for="api_key">API Key{% if not api_key_required %} (optional){% endif %}</label>
+    <input type="password" id="api_key" name="api_key" autocomplete="off"
+           placeholder="{{ 'Leave blank to keep the current key' if status.configured else 'Enter API key' }}">
+
+    {% if base_url_supported %}
+    <label for="base_url">Base URL{% if base_url_required %}{% else %} (optional){% endif %}</label>
+    <input type="text" id="base_url" name="base_url" value="{{ status.base_url or '' }}">
+    {% endif %}
+
+    <label for="model">Model</label>
+    <input type="text" id="model" name="model" value="{{ status.model or '' }}" required
+           {% if status.locked %}readonly{% endif %}>
+
+    <label for="dimensions">Dimensions</label>
+    <input type="number" id="dimensions" name="dimensions" min="1" value="{{ status.dimensions or '' }}" required
+           {% if status.locked %}readonly{% endif %}>
+
+    <label for="chunk_size">Chunk Size</label>
+    <input type="number" id="chunk_size" name="chunk_size" min="1" value="{{ status.chunk_size }}" required>
+
+    <label for="chunk_overlap">Chunk Overlap</label>
+    <input type="number" id="chunk_overlap" name="chunk_overlap" min="0" value="{{ status.chunk_overlap }}" required>
+
+    {% if status.locked %}
+    <p class="subtitle">
+      Model and dimensions are locked, and this provider can't be disabled — {{ status.chunk_count }}
+      chunk{{ '' if status.chunk_count == 1 else 's' }} exist across every library. Delete every
+      document first to change them. Chunk size, chunk overlap, and the API key can still be changed.
+    </p>
+    {% endif %}
+
+    <button type="submit">Save</button>
+  </form>
+
+  <form method="post" style="margin-top: 12px;" action="{{ url_for(
+      'auth_ui.disable_embedding_provider_settings' if status.enabled else 'auth_ui.enable_embedding_provider_settings',
+      provider=provider) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if status.enabled %}
+    <button type="submit" class="danger" {% if status.locked %}disabled{% endif %}>Disable</button>
+    {% else %}
+    <button type="submit" {% if not status.configured %}disabled{% endif %}>Enable</button>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
