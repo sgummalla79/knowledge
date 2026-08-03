@@ -161,3 +161,26 @@ Do not shortcut this by running that `docker compose ... up -d --build api` comm
 way to "just check if it works" — that mutates the prod container immediately, with no isolated
 verification step first. If you need to iterate quickly during development, iterate against
 `deploy/docker-compose.test.yml` (or plain `pytest`), not the prod stack.
+
+## Versioning
+
+The repo root `VERSION` file (plain text, single line, e.g. `1.0.0`) is the single source of truth
+for the app's release version, following semver (`MAJOR.MINOR.PATCH`). The first release is
+`1.0.0`, cut from a long-lived `releases/v1` branch (branched off `master`).
+
+**Bug fix workflow — follow exactly, from any machine:**
+
+1. Branch off `releases/v1` for the fix (e.g. `releases/v1-fix-<short-description>`).
+2. Make and test the fix.
+3. Before committing the fix, bump the `PATCH` number in `VERSION` (e.g. `1.0.0` → `1.0.1`) and
+   include that bump in the same commit as the fix.
+4. Push the fix branch, verify it (see the Docker testing workflow above — never test against the
+   prod container), then merge into `releases/v1`.
+5. Tag the merge commit on `releases/v1` with `v<version>` (e.g. `v1.0.1`) and push the tag.
+6. Cherry-pick the fix commit only (not the `VERSION` bump) onto `master`. `master`'s `VERSION`
+   file is independent of `releases/v1`'s and is not kept in sync — `master` is expected to be
+   ahead in features, so its own version number is tracked separately whenever it cuts its own
+   release branch.
+
+Patch bumps are for bug fixes only. Reserve minor bumps for backward-compatible feature additions
+and major bumps for breaking changes — neither is covered by this workflow yet.
