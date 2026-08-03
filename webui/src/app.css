@@ -203,22 +203,108 @@
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-.rail-footer a {
+
+/* ---- Account menu (rail footer) ---- */
+.account-menu {
+  position: relative;
+}
+.account-menu-trigger {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
+  padding: 6px 8px;
   border-radius: var(--radius);
-  color: var(--muted-foreground);
-  font-size: 13px;
-}
-.rail-footer a:hover {
+  border: none;
+  background: transparent;
   color: var(--foreground);
+  font-size: 13px;
+  cursor: pointer;
+}
+.account-menu-trigger:hover {
   background: var(--secondary);
 }
-.rail-footer svg {
+.account-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.account-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.account-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+.account-menu-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.account-menu-user {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.account-menu-item:hover {
+  background: var(--secondary);
+}
+.account-menu-item svg {
   width: 15px;
   height: 15px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+/* Named distinctly from the general-purpose .danger (button.danger below, used for solid
+   full-width destructive actions like table row deletes) — that class would otherwise also
+   match this element (it's a <button>) and win the cascade for `background`, since this rule
+   only overrides `color`. */
+.account-menu-item.account-menu-item-destructive {
+  color: oklch(0.8368 0.0847 25.3259);
+}
+.account-menu-item.account-menu-item-destructive svg {
+  color: oklch(0.8368 0.0847 25.3259);
 }
 
 /* ---- Main area ---- */

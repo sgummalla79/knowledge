@@ -47,4 +47,4 @@ def workspace(subpath: str | None = None):
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
-    return serve_spa_shell()
+    return serve_spa_shell(extra_globals={"USERNAME": user.username if user is not None else ""})

@@ -69,3 +69,30 @@ export function EyeOffIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function ChevronUpDownIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...base}>
+      <path d="M5 6.5 8 3.5l3 3M5 9.5 8 12.5l3-3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function InfoIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...base}>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 7.25v4M8 5.1v.05" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function LogoutIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...base}>
+      <path d="M6.5 1.75H3.75a1 1 0 0 0-1 1v10.5a1 1 0 0 0 1 1H6.5" strokeLinecap="round" />
+      <path d="M10.25 11 13.25 8l-3-3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.25 8H6" strokeLinecap="round" />
+    </svg>
+  )
+}

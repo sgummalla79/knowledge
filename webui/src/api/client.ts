@@ -1,5 +1,5 @@
 import { ApiError, parseErrorBody } from './errors'
-import { csrfToken } from './csrf'
+import { csrfToken } from './shell'
 
 // Bridges the admin's session-cookie login (already established by the Flask dashboard) to a real
 // OAuth2 bearer token for this app's own REST API — see app/presentation/routes/workspace.py's

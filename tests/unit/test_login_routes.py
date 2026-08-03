@@ -64,12 +64,12 @@ def test_login_success_redirects_to_change_password_when_required(client):
     assert response.get_json()["redirect"].endswith("/change-password")
 
 
-def test_login_success_redirects_to_dashboard_when_password_already_changed(client):
+def test_login_success_redirects_to_workspace_when_password_already_changed(client):
     csrf = _with_csrf(client)
     with patch("app.presentation.routes.auth_ui.AuthService.login", return_value=_user(must_change_password=False)):
         response = client.post("/login", json={"username": "admin", "password": "x"}, headers={"X-CSRF-Token": csrf})
     assert response.status_code == 200
-    assert response.get_json()["redirect"].endswith("/dashboard")
+    assert response.get_json()["redirect"].endswith("/workspace")
 
 
 def test_login_wrong_credentials_shows_error(client):
@@ -135,7 +135,7 @@ def test_change_password_too_short_shows_error(client):
     assert b"at least 8 characters" in response.data
 
 
-def test_change_password_success_redirects_to_dashboard(client):
+def test_change_password_success_redirects_to_workspace(client):
     csrf = _logged_in(client)
     with patch("app.presentation.routes.auth_ui.AuthService.change_password") as change_password:
         response = client.post(
@@ -144,5 +144,5 @@ def test_change_password_success_redirects_to_dashboard(client):
             headers={"X-CSRF-Token": csrf},
         )
     assert response.status_code == 200
-    assert response.get_json()["redirect"].endswith("/dashboard")
+    assert response.get_json()["redirect"].endswith("/workspace")
     change_password.assert_called_once()

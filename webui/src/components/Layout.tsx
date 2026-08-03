@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { useCreateLibrary, useDeleteLibrary, useLibraries, useUpdateLibrary } from '../api/queries'
-import { FolderIcon, GearIcon, PencilIcon, PlusIcon, TrashIcon } from './icons'
+import { FolderIcon, PencilIcon, PlusIcon, TrashIcon } from './icons'
 import { LibraryFormModal } from './LibraryFormModal'
+import { AccountMenu } from './AccountMenu'
 import type { Library } from '../api/types'
 
 export function Layout() {
@@ -71,10 +72,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="rail-footer">
-          <a href="/dashboard">
-            <GearIcon />
-            Knowledge API
-          </a>
+          <AccountMenu />
         </div>
       </aside>
       <div className="main">

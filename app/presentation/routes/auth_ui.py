@@ -113,8 +113,11 @@ def _is_safe_redirect(url: str) -> bool:
 
 
 def _consume_post_login_redirect() -> str:
+    # The React /workspace SPA is the default landing page post-login — the Jinja /dashboard (and
+    # the rest of the admin area) is still fully intact and reachable via the workspace sidebar's
+    # account menu, just no longer where a plain login (no explicit `next`) lands.
     next_url = session.pop("post_login_redirect", None)
-    return next_url if next_url and _is_safe_redirect(next_url) else url_for("auth_ui.dashboard")
+    return next_url if next_url and _is_safe_redirect(next_url) else url_for("workspace.workspace")
 
 
 @auth_ui_bp.get("/login")
