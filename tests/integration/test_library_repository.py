@@ -32,6 +32,31 @@ def test_get_missing_returns_none(db_session):
     assert repo.get("00000000-0000-0000-0000-000000000000") is None
 
 
+def test_update_renames_library(db_session):
+    repo = LibraryRepository(db_session)
+    library = _create_library(repo, name="old-name", description="old description")
+    db_session.commit()
+
+    updated = repo.update(library.id, name="new-name", description="new description")
+    db_session.commit()
+
+    assert updated.name == "new-name"
+    assert updated.description == "new description"
+    fetched = repo.get(library.id)
+    assert fetched.name == "new-name"
+    assert fetched.description == "new description"
+
+
+def test_update_duplicate_name_raises_conflict(db_session):
+    repo = LibraryRepository(db_session)
+    _create_library(repo, name="taken")
+    other = _create_library(repo, name="other")
+    db_session.commit()
+
+    with pytest.raises(ConflictError):
+        repo.update(other.id, name="taken", description=None)
+
+
 def test_duplicate_name_raises_conflict(db_session):
     repo = LibraryRepository(db_session)
     _create_library(repo, name="dup")

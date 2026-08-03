@@ -6,7 +6,7 @@ from app.application.library_service import LibraryService
 from app.auth import require_scope
 from app.container import get_session
 from app.infrastructure.repositories.library_repository import LibraryRepository
-from app.presentation.schemas import LibraryCreateRequest, LibraryResponse, PaginationQuery
+from app.presentation.schemas import LibraryCreateRequest, LibraryResponse, LibraryUpdateRequest, PaginationQuery
 
 libraries_bp = Blueprint("libraries", __name__, url_prefix="/libraries")
 
@@ -40,6 +40,14 @@ def list_libraries():
 @require_scope("libraries:read")
 def get_library(library_id: UUID):
     library = _service().get_library(library_id)
+    return jsonify(LibraryResponse.from_entity(library).model_dump(mode="json"))
+
+
+@libraries_bp.patch("/<uuid:library_id>")
+@require_scope("libraries:write")
+def update_library(library_id: UUID):
+    dto = LibraryUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    library = _service().update_library(library_id, **dto.model_dump())
     return jsonify(LibraryResponse.from_entity(library).model_dump(mode="json"))
 
 

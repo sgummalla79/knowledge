@@ -53,6 +53,21 @@ class LibraryRepository:
         model = self._session.get(LibraryModel, library_id)
         return _to_entity(model) if model is not None else None
 
+    def update(self, library_id, name: str, description: str | None) -> LibraryEntity:
+        model = self._session.get(LibraryModel, library_id)
+        model.name = name
+        model.description = description
+        try:
+            self._session.flush()
+        except IntegrityError:
+            self._session.rollback()
+            raise ConflictError(
+                error_codes.LIBRARY_NAME_TAKEN,
+                f"A library named '{name}' already exists.",
+                field="name",
+            )
+        return _to_entity(model)
+
     def list(self, limit: int, offset: int, sort: str) -> list[LibraryEntity]:
         query = _apply_sort(self._session.query(LibraryModel), sort)
         models = query.offset(offset).limit(limit).all()

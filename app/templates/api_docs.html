@@ -143,6 +143,21 @@ refresh_token=&lt;opaque token&gt;</code></pre>
       <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/libraries/{library_id}</span><span class="scope-tag">libraries:read</span></div>
     </div>
 
+    <div class="endpoint" id="patch-library">
+      <div class="endpoint-head"><span class="method method-patch">PATCH</span><span class="endpoint-path">/libraries/{library_id}</span><span class="scope-tag">libraries:write</span></div>
+      <p class="endpoint-desc">Renames a library and/or updates its description — a pure display-label edit, with no effect on its documents or embeddings.</p>
+      <h4>Request body</h4>
+      <pre class="code"><code>{ "name": "New name", "description": "optional" }</code></pre>
+      <h4>Response — 200</h4>
+      <p class="endpoint-desc">The updated library, same shape as the create endpoint above.</p>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>library_name_taken</code></td><td>409 — another library already has this name</td></tr>
+        </table>
+      </div>
+    </div>
+
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-delete">DELETE</span><span class="endpoint-path">/libraries/{library_id}</span><span class="scope-tag">libraries:write</span></div>
       <p class="endpoint-desc">Cascades to its documents and chunks. Returns <code>204</code>.</p>

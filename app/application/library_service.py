@@ -25,6 +25,11 @@ class LibraryService:
             raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
         return library
 
+    def update_library(self, library_id: UUID, name: str, description: str | None) -> Library:
+        if self._repository.get(library_id) is None:
+            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+        return self._repository.update(library_id, name=name, description=description)
+
     def list_libraries(self, limit: int, offset: int, sort: str) -> tuple[list[Library], int]:
         return self._repository.list(limit, offset, sort), self._repository.count()
 

@@ -20,6 +20,13 @@ class LibraryCreateRequest(BaseModel):
     description: str | None = None
 
 
+class LibraryUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
 class PaginationQuery(BaseModel):
     """Shared shape for every paginated list endpoint (libraries, documents, ...)."""
 

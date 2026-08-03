@@ -89,6 +89,65 @@ def test_get_missing_library_returns_structured_404(client, auth_headers):
     assert response.get_json()["error"]["code"] == "library_not_found"
 
 
+def test_update_library_returns_updated_library(client, auth_headers):
+    library = _library(name="renamed", description="new description")
+    with patch("app.presentation.routes.libraries.LibraryService.update_library", return_value=library):
+        response = client.patch(
+            f"/libraries/{library.id}",
+            json={"name": "renamed", "description": "new description"},
+            headers=auth_headers("libraries:write"),
+        )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["name"] == "renamed"
+    assert body["description"] == "new description"
+
+
+def test_update_library_missing_name_returns_structured_400(client, auth_headers):
+    response = client.patch(
+        f"/libraries/{uuid4()}", json={"description": "no name"}, headers=auth_headers("libraries:write")
+    )
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"]["code"] == "validation_error"
+    assert body["error"]["field"] == "name"
+
+
+def test_update_missing_library_returns_structured_404(client, auth_headers):
+    with patch(
+        "app.presentation.routes.libraries.LibraryService.update_library",
+        side_effect=NotFoundError("library_not_found", "Library not found."),
+    ):
+        response = client.patch(
+            f"/libraries/{uuid4()}", json={"name": "renamed"}, headers=auth_headers("libraries:write")
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "library_not_found"
+
+
+def test_update_library_duplicate_name_returns_409(client, auth_headers):
+    with patch(
+        "app.presentation.routes.libraries.LibraryService.update_library",
+        side_effect=ConflictError("library_name_taken", "already exists", field="name"),
+    ):
+        response = client.patch(
+            f"/libraries/{uuid4()}", json={"name": "dup"}, headers=auth_headers("libraries:write")
+        )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "library_name_taken"
+
+
+def test_update_library_requires_write_scope(client, auth_headers):
+    response = client.patch(
+        f"/libraries/{uuid4()}", json={"name": "renamed"}, headers=auth_headers("libraries:read")
+    )
+    assert response.status_code == 403
+
+
 def test_delete_library_returns_204(client, auth_headers):
     with patch("app.presentation.routes.libraries.LibraryService.delete_library", return_value=None):
         response = client.delete(f"/libraries/{uuid4()}", headers=auth_headers("libraries:write"))
