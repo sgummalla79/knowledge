@@ -1,3 +1,6 @@
+# Lives in deploy/ but the build context is the repo root (see the `context: ..` in
+# deploy/docker-compose*.yml) — every COPY path below is relative to that root, not to this file.
+#
 # Pinned to bookworm (not the floating "slim" tag, which has moved to trixie) — playwright
 # install --with-deps below doesn't yet recognize trixie's apt package names (e.g. ttf-unifont
 # was renamed/split there) and fails; bookworm is a Debian release Playwright fully supports.
@@ -16,7 +19,7 @@ COPY app app
 COPY mcp_server mcp_server
 COPY migrations migrations
 COPY alembic.ini wsgi.py ./
-COPY docker/entrypoint.sh ./entrypoint.sh
+COPY deploy/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
 CMD ["./entrypoint.sh"]

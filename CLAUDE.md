@@ -87,7 +87,7 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
      bumping `mcp` `1.2.0` → `1.27.0` (the old pin had no HTTP transport or auth support at all),
      which cascaded into bumping `pydantic` and `PyJWT` too.
    - Both gunicorn and the MCP HTTP server now start automatically at container boot
-     (`docker/entrypoint.sh`), instead of the MCP server being exec'd on demand per connection.
+     (`deploy/entrypoint.sh`), instead of the MCP server being exec'd on demand per connection.
 9. **`mcp_server/client.py`'s outbound credential (MCP process → this app's own REST API) is now
    fully automatic** — no dashboard registration, no `MCP_CLIENT_ID`/`MCP_CLIENT_SECRET` env vars,
    no rebuild-after-editing-`.env` step. `bootstrap_default_mcp_application()`
@@ -101,7 +101,7 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
    Application is hidden from the dashboard's Applications list and its delete/revoke-token routes
    (`app/presentation/routes/auth_ui.py`) — it's internal plumbing, not something an admin should
    be able to accidentally delete. Also bumped gunicorn from its implicit 1-worker default to 3
-   (`docker/entrypoint.sh`) — streamable-http's persistent MCP sessions could otherwise hold the
+   (`deploy/entrypoint.sh`) — streamable-http's persistent MCP sessions could otherwise hold the
    single worker's only connection slot and 503 every other request for up to 30s at a time.
 10. **Added a Data Model reference page** (`/dashboard/schema`, linked from the sidebar):
     zoomable/pannable Mermaid ER diagram plus a column-level reference for every table, generated
@@ -131,26 +131,33 @@ Current test suite: **368 tests passing** (`python -m pytest tests/`).
 ## Docker testing workflow — never test against the prod container
 
 **Rule:** Never run tests, migrations, or manual verification against the `api` / `knowledge-db`
-containers defined in `docker-compose.yml` (the prod stack). Rebuilding or restarting them
+containers defined in `deploy/docker-compose.yml` (the prod stack). Rebuilding or restarting them
 mid-verification can break a running client or, worse, apply an unverified migration to the real
 database.
 
+All deploy-related files (`Dockerfile`, both compose files, the container entrypoint, and these
+two scripts) live under `deploy/` — everything else in the repo is app code. The Dockerfile's
+build *context* is still the repo root (it COPYs `app/`, `mcp_server/`, etc.), set via `context: ..`
+in both compose files; only the compose/Dockerfile *files themselves* moved.
+
 Instead:
 
-1. `./scripts/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up
+1. `./deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up
    their own ephemeral Postgres via testcontainers — neither touches any docker-compose container),
    then builds a separate image (`knowledge-api:testing`) and boots it as `knowledge-api-test` +
-   `knowledge-db-test` (`docker-compose.test.yml`), fully isolated on port 13199 with a throwaway
-   tmpfs database, under its own compose project (`knowledge-api-test`) so it's never confused with
-   the prod stack. Confirms the built image actually boots (migrations run, gunicorn serves
-   `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port) before it
-   goes anywhere near prod. Tears the isolated stack down automatically on exit, success or
-   failure.
-2. Only once that passes, run `./scripts/promote-image.sh` — this rebuilds and restarts the prod
-   `api` container (`knowledge-api:prod`, via `docker compose up -d --build api`). This is the only
-   command allowed to touch the prod container.
+   `knowledge-db-test` (`deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
+   throwaway tmpfs database, under its own compose project (`knowledge-api-test`) so it's never
+   confused with the prod stack. Confirms the built image actually boots (migrations run, gunicorn
+   serves `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port)
+   before it goes anywhere near prod. Tears the isolated stack down automatically on exit, success
+   or failure.
+2. Only once that passes, run `./deploy/promote-image.sh` — this rebuilds and restarts the prod
+   `api` container (`knowledge-api:prod`, via `docker compose -f deploy/docker-compose.yml
+   --env-file .env up -d --build api` — the explicit `--env-file` matters here: compose's default
+   `.env` lookup follows the first `-f` file's directory, `deploy/`, not the repo root `.env`
+   actually lives in). This is the only command allowed to touch the prod container.
 
-Do not shortcut this by running `docker compose up -d --build api` directly as a way to "just check
-if it works" — that mutates the prod container immediately, with no isolated verification step
-first. If you need to iterate quickly during development, iterate against
-`docker-compose.test.yml` (or plain `pytest`), not the prod stack.
+Do not shortcut this by running that `docker compose ... up -d --build api` command directly as a
+way to "just check if it works" — that mutates the prod container immediately, with no isolated
+verification step first. If you need to iterate quickly during development, iterate against
+`deploy/docker-compose.test.yml` (or plain `pytest`), not the prod stack.

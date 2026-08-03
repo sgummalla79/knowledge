@@ -36,7 +36,7 @@ EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
 # — base_url is mandatory for these, not just an optional override.
 EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
-# The bundled Ollama sidecar has been removed from docker-compose.yml (it required bundling a
+# The bundled Ollama sidecar has been removed from deploy/docker-compose.yml (it required bundling a
 # multi-GB local model runtime by default) — the "ollama" adapter/registry entry still exists in
 # code, but bootstrap_embedding_provider_settings seeds it disabled out of the box so it can't be
 # selected until an admin actually has an Ollama instance to point at. Re-enable via the

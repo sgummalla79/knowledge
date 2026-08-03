@@ -22,7 +22,7 @@ def bootstrap_default_admin(session) -> None:
     is also called directly by integration tests that need a seeded user without going through
     create_app(). Tolerates a duplicate-insert race (unique constraint on username) in case
     multiple workers ever start concurrently — this app now runs multiple gunicorn workers
-    (docker/entrypoint.sh), each calling create_app() independently at boot.
+    (deploy/entrypoint.sh), each calling create_app() independently at boot.
     """
     repository = UserRepository(session)
     if repository.get() is not None:

@@ -47,7 +47,7 @@ mcp = FastMCP(
     # under the same container). A process bound to 127.0.0.1 inside a container is unreachable
     # through Docker's port publishing at all (it's a different network namespace's loopback), so
     # binding narrowly here wouldn't add safety, only breakage. "Never reachable off this machine"
-    # is enforced one layer out instead, by docker-compose.yml's host-side port mapping
+    # is enforced one layer out instead, by deploy/docker-compose.yml's host-side port mapping
     # (`127.0.0.1:${MCP_HTTP_PORT}:${MCP_HTTP_PORT}`), same as it would be for any other service.
     host="0.0.0.0",
     port=config.mcp_http_port,
@@ -119,7 +119,7 @@ class _RewriteResourceMetadataHost:
     per-request. This ASGI middleware rewrites that URL's host to match the incoming request's own
     Host header, restricted to recognized loopback hostnames (never reflects an arbitrary
     attacker-supplied Host header — not that it would matter much given this port is only ever
-    reachable from this machine to begin with, see docker-compose.yml)."""
+    reachable from this machine to begin with, see deploy/docker-compose.yml)."""
 
     def __init__(self, app):
         self.app = app

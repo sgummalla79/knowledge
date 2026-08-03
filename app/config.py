@@ -10,7 +10,7 @@ class Config:
         # two, is proportional at this scale (single local deployment, single admin).
         self.secret_key = self._require("SECRET_KEY")
         self.port = int(os.environ.get("PORT", "13102"))
-        # docker-compose.yml publishes this port loopback-only (127.0.0.1:...) — never intended to
+        # deploy/docker-compose.yml publishes this port loopback-only (127.0.0.1:...) — never intended to
         # be reachable off this machine, unlike `port` above which fronts the actual Flask API.
         self.mcp_http_port = int(os.environ.get("MCP_HTTP_PORT", "13103"))
         self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))

@@ -16,7 +16,9 @@ services:
       retries: 10
 
   api-test:
-    build: .
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
     image: knowledge-api:testing
     container_name: knowledge-api-test
     depends_on:

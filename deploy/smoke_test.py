@@ -11,7 +11,7 @@ deliberately stops short of document ingestion/query, which need one configured 
 first. Once an embedding provider is set up, ingest/query are exercised by
 tests/integration/test_ingestion_service.py and test_retrieval_service.py instead.
 
-Run only by scripts/test-image.sh, after the isolated stack is confirmed healthy. Never run
+Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against the prod stack.
 """
 import re

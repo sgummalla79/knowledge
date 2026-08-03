@@ -4,7 +4,7 @@
 # rebuilds, or otherwise touches them. See CLAUDE.md, "Docker testing workflow", for why this
 # exists.
 #
-# Run this before scripts/promote-image.sh. If this script fails, the prod containers are
+# Run this before deploy/promote-image.sh. If this script fails, the prod containers are
 # untouched and nothing needs to be rolled back.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 # treat the prod "knowledge-api"/"knowledge-db" containers as orphans of *this* project (harmless
 # without --remove-orphans, but confusing). A distinct name keeps the two stacks unambiguously
 # separate.
-COMPOSE="docker compose -p knowledge-api-test -f docker-compose.test.yml"
+COMPOSE="docker compose -p knowledge-api-test -f deploy/docker-compose.test.yml"
 
 echo "==> Running pytest (unit + integration; integration tests use ephemeral testcontainers, not this compose stack)"
 PYTHON=python3
@@ -41,12 +41,12 @@ for _ in $(seq 1 30); do
 done
 
 if [ "$healthy" != true ]; then
-  echo "!! knowledge-api-test never became healthy — check: docker compose -f docker-compose.test.yml logs api-test"
+  echo "!! knowledge-api-test never became healthy — check: docker compose -f deploy/docker-compose.test.yml logs api-test"
   exit 1
 fi
 echo "==> knowledge-api-test is up"
 
-echo "==> Checking the MCP HTTP server came up alongside gunicorn (docker/entrypoint.sh)"
+echo "==> Checking the MCP HTTP server came up alongside gunicorn (deploy/entrypoint.sh)"
 # streamable-http rejects a bare GET (it isn't a full MCP protocol handshake), so "connection
 # accepted at all" is the actual signal here — curl exits 0 once it gets any HTTP response, even
 # a 4xx one. -o /dev/null keeps that response body out of the script's own output.
@@ -59,12 +59,12 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 if [ "$mcp_up" != true ]; then
-  echo "!! MCP HTTP server on :13198 never accepted a connection — check: docker compose -f docker-compose.test.yml logs api-test"
+  echo "!! MCP HTTP server on :13198 never accepted a connection — check: docker compose -f deploy/docker-compose.test.yml logs api-test"
   exit 1
 fi
 echo "==> MCP HTTP server is up"
 
 echo "==> Running end-to-end smoke check (dashboard login, app registration, library CRUD — proves auth/scopes/DB work, not just that migrations applied)"
-"$PYTHON" scripts/smoke_test.py
+"$PYTHON" deploy/smoke_test.py
 
-echo "==> Test image is ready to promote: run scripts/promote-image.sh"
+echo "==> Test image is ready to promote: run deploy/promote-image.sh"
