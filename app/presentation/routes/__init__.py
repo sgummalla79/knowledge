@@ -6,6 +6,7 @@ from app.presentation.routes.oauth import oauth_bp
 from app.presentation.routes.options import options_bp
 from app.presentation.routes.query import query_bp
 from app.presentation.routes.search_settings import search_settings_bp
+from app.presentation.routes.workspace import workspace_bp
 
 ALL_BLUEPRINTS = [
     libraries_bp,
@@ -16,4 +17,5 @@ ALL_BLUEPRINTS = [
     search_settings_bp,
     auth_ui_bp,
     oauth_bp,
+    workspace_bp,
 ]

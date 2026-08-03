@@ -8,6 +8,7 @@ from app.application.auth_service import AuthService
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.constants import (
+    DEFAULT_DASHBOARD_APPLICATION_ID,
     DEFAULT_MCP_APPLICATION_ID,
     EMBEDDING_PROVIDER_DISPLAY_NAMES,
     EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
@@ -15,6 +16,10 @@ from app.constants import (
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
     SUPPORTED_SCOPES,
 )
+
+# Built-in service-account Applications — internal plumbing, never shown in or manageable from the
+# Applications dashboard page (see _applications_with_status/revoke_token/delete_application below).
+_HIDDEN_APPLICATION_IDS = {DEFAULT_MCP_APPLICATION_ID, DEFAULT_DASHBOARD_APPLICATION_ID}
 from app.container import get_session
 from app.domain.errors import DomainError
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
@@ -166,10 +171,11 @@ def logout():
 def _applications_with_status(service: ApplicationService, refresh_tokens: RefreshTokenRepository) -> list[dict]:
     rows = []
     for application in service.list_applications():
-        # The built-in MCP service-account Application (app/infrastructure/auth/bootstrap.py) is
-        # internal plumbing, not something an admin registered or should manage here — deleting or
-        # regenerating it would silently break the bundled MCP server's connection to this API.
-        if application.id == DEFAULT_MCP_APPLICATION_ID:
+        # Built-in service-account Applications (app/infrastructure/auth/bootstrap.py) are internal
+        # plumbing, not something an admin registered or should manage here — deleting or
+        # regenerating either would silently break the bundled MCP server's or the /workspace SPA's
+        # connection to this API.
+        if application.id in _HIDDEN_APPLICATION_IDS:
             continue
         current = refresh_tokens.find_current_for_application(application.id)
         if current is None:
@@ -272,7 +278,7 @@ def revoke_token(application_id: UUID):
     service = _application_service()
     # Not reachable through the dashboard UI (filtered out of _applications_with_status) — this
     # guard is defense in depth against a direct POST to this URL.
-    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
+    if _csrf_valid() and application_id not in _HIDDEN_APPLICATION_IDS:
         service.revoke_application_token(application_id)
     return redirect(url_for("auth_ui.dashboard"))
 
@@ -281,7 +287,7 @@ def revoke_token(application_id: UUID):
 @login_required
 def delete_application(application_id: UUID):
     service = _application_service()
-    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
+    if _csrf_valid() and application_id not in _HIDDEN_APPLICATION_IDS:
         service.delete_application(application_id)
     return redirect(url_for("auth_ui.dashboard"))
 
