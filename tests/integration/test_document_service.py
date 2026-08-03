@@ -17,6 +17,7 @@ from app.infrastructure.repositories.document_repository import DocumentReposito
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.logging_config import configure_logging
+from tests.integration.conftest import seed_active_embedding_provider
 
 # _run_ingestion_job calls SessionLocal() internally (app/infrastructure/orm/base.py's module-level
 # sessionmaker, bound to config.database_url at import time) — that's the dummy placeholder
@@ -40,8 +41,8 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
     configure_logging("INFO")
 
     library = LibraryRepository(db_session).create(name="log-fail-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -72,8 +73,8 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
     configure_logging("INFO")
 
     library = LibraryRepository(db_session).create(name="log-success-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -129,8 +130,8 @@ def test_delete_document_removes_chunks_and_decrements_library_counts(db_session
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="delete-doc-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -157,8 +158,8 @@ def test_delete_document_from_wrong_library_raises_document_not_found(db_session
     chunk_repo = ChunkRepository(db_session)
     library_a = library_repo.create(name="delete-doc-lib-a", description=None)
     library_b = library_repo.create(name="delete-doc-lib-b", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -213,8 +214,8 @@ def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_ses
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="retry-not-failed-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -232,8 +233,8 @@ def test_start_retry_from_wrong_library_raises_document_not_found(db_session):
     chunk_repo = ChunkRepository(db_session)
     library_a = library_repo.create(name="retry-lib-a", description=None)
     library_b = library_repo.create(name="retry-lib-b", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -251,8 +252,8 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="retry-job-success-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -290,8 +291,8 @@ def test_rename_document_updates_source_filename(db_session):
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="rename-doc-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -312,8 +313,8 @@ def test_rename_document_from_wrong_library_raises_document_not_found(db_session
     chunk_repo = ChunkRepository(db_session)
     library_a = library_repo.create(name="rename-lib-a", description=None)
     library_b = library_repo.create(name="rename-lib-b", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -364,8 +365,8 @@ def test_start_retry_allows_cancelled_document(db_session):
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
     library = library_repo.create(name="retry-cancelled-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -398,8 +399,8 @@ def test_ingestion_job_cancelled_before_start_marks_job_and_document_cancelled(
     library_repo = LibraryRepository(db_session)
     document_repo = DocumentRepository(db_session)
     library = library_repo.create(name="cancel-job-test", description=None)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 

@@ -15,7 +15,7 @@ def default_search_settings() -> SearchSettings:
 
 
 class SearchSettingsService:
-    """Unlike EmbeddingSettingsService, there's no "not configured" failure state here — an
+    """Unlike EmbeddingProviderConfigService, there's no "not configured" failure state here — an
     absent row just means the DEFAULT_* constants apply, so get_status() always returns usable
     values."""
 

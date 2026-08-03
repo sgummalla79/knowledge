@@ -10,6 +10,7 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
+from tests.integration.conftest import seed_active_embedding_provider
 
 
 def _fake_provider():
@@ -36,8 +37,8 @@ def _make_service(db_session):
 def test_successful_ingest_is_atomic(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo)
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -69,8 +70,8 @@ def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_sessi
     """
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-nul-byte-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -91,8 +92,8 @@ def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_sessi
 def test_ingest_with_dimension_mismatch_fails_document_and_leaves_counts_unchanged(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-dimension-mismatch-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -117,8 +118,8 @@ def test_ingest_with_dimension_mismatch_fails_document_and_leaves_counts_unchang
 def test_failed_embedding_leaves_document_failed_and_counts_unchanged(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-fail-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -158,8 +159,8 @@ def test_ingest_without_configured_embeddings_raises(db_session):
 def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-clears-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -183,8 +184,8 @@ def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
 def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-keeps-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -214,8 +215,8 @@ def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
 def test_retry_after_failure_succeeds_without_double_counting(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="retry-success-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -257,8 +258,8 @@ def test_retry_after_failure_succeeds_without_double_counting(db_session):
 def test_retry_without_stored_bytes_raises_document_not_retryable(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="retry-no-bytes-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -306,8 +307,8 @@ def test_retry_without_configured_embeddings_raises(db_session):
 def test_ingest_html_creates_html_typed_document_and_completes(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-html-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -335,8 +336,8 @@ def test_ingest_html_creates_html_typed_document_and_completes(db_session):
 def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="retry-crawled-page-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -375,8 +376,8 @@ def test_rename_does_not_break_retry_parser_resolution(db_session):
     """
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="rename-retry-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -415,8 +416,8 @@ def test_rename_does_not_break_retry_parser_resolution(db_session):
 def test_ingest_cancelled_immediately_marks_document_cancelled_not_failed(db_session):
     library_repo = LibraryRepository(db_session)
     library = _make_library(library_repo, name="ingest-cancel-test")
-    EmbeddingSettingsRepository(db_session).upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
@@ -439,12 +440,20 @@ def test_ingest_cancelled_immediately_marks_document_cancelled_not_failed(db_ses
     assert updated_library.chunk_count == 0
 
 
-def test_embedding_settings_clear_removes_the_row(db_session):
+def test_embedding_settings_repository_reflects_whichever_provider_is_enabled(db_session):
     repo = EmbeddingSettingsRepository(db_session)
-    repo.upsert("voyage", "voyage-3", "secret", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100)
-    db_session.commit()
-    assert repo.get() is not None
+    assert repo.get() is None
 
-    repo.clear()
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "secret", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    )
+    db_session.commit()
+    assert repo.get().provider == "voyage"
+
+    from app.infrastructure.repositories.embedding_provider_settings_repository import (
+        EmbeddingProviderSettingsRepository,
+    )
+
+    EmbeddingProviderSettingsRepository(db_session).set_enabled("voyage", False)
     db_session.commit()
     assert repo.get() is None

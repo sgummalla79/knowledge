@@ -3,10 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from uuid import uuid4
-
 from app import create_app
-from app.domain.entities import EmbeddingProviderToggle
+from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
 
 
 @pytest.fixture()
@@ -15,23 +13,33 @@ def client():
     return app.test_client()
 
 
-def _toggle(provider, enabled):
-    return EmbeddingProviderToggle(
-        id=uuid4(), provider=provider, enabled=enabled, updated_at=datetime.now(timezone.utc)
+def _status(provider, enabled=False, configured=False, model=None):
+    return EmbeddingProviderConfigStatus(
+        provider=provider,
+        enabled=enabled,
+        configured=configured,
+        locked=False,
+        chunk_count=0,
+        model=model,
+        base_url=None,
+        dimensions=768 if configured else None,
+        chunk_size=800,
+        chunk_overlap=100,
+        updated_at=datetime.now(timezone.utc) if configured else None,
     )
 
 
 def test_embedding_options_describes_provider_capabilities(client, auth_headers):
-    all_enabled = [_toggle("voyage", True), _toggle("ollama", True), _toggle("openai_compatible", True)]
+    statuses = [_status("voyage"), _status("ollama"), _status("openai_compatible")]
     with patch(
-        "app.presentation.routes.options.EmbeddingProviderSettingsService.list_providers",
-        return_value=all_enabled,
+        "app.presentation.routes.options.EmbeddingProviderConfigService.list_status",
+        return_value=statuses,
     ):
         response = client.get("/embedding-options", headers=auth_headers())
 
     assert response.status_code == 200
     body = response.get_json()
-    # No provider is bundled/enabled by default anymore — nothing sensible to point at.
+    # No provider is enabled by default anymore — nothing sensible to point at.
     assert body["default_provider"] is None
     assert body["default_model"] is None
     assert isinstance(body["suggested_models"], list)
@@ -56,13 +64,18 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
     assert voyage["supports_model_listing"] is False
 
 
-def test_embedding_options_excludes_disabled_providers(client, auth_headers):
+def test_embedding_options_lists_every_known_provider_regardless_of_state(client, auth_headers):
+    # There's no more "selectable in a dropdown" toggle gating this list — every provider is
+    # always listed, whether configured/enabled or not, since the dashboard renders a fixed page
+    # per provider instead of picking from a filtered list.
     with patch(
-        "app.presentation.routes.options.EmbeddingProviderSettingsService.list_providers",
-        return_value=[_toggle("voyage", False), _toggle("ollama", True), _toggle("openai_compatible", False)],
+        "app.presentation.routes.options.EmbeddingProviderConfigService.list_status",
+        return_value=[_status("voyage"), _status("ollama", enabled=True, configured=True, model="nomic-embed-text"), _status("openai_compatible")],
     ):
         response = client.get("/embedding-options", headers=auth_headers())
 
     body = response.get_json()
     provider_names = {provider["name"] for provider in body["providers"]}
-    assert provider_names == {"ollama"}
+    assert provider_names == {"voyage", "ollama", "openai_compatible"}
+    assert body["default_provider"] == "ollama"
+    assert body["default_model"] == "nomic-embed-text"

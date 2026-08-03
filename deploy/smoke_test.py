@@ -5,11 +5,12 @@ rendered, JSON-API doesn't cover app registration by design), register an OAuth2
 mint a token, then create a library — proving the DB, migrations, auth/scope machinery, and core
 CRUD path all work, not just that /health responds.
 
-No embedding provider is enabled by default (the bundled Ollama sidecar was removed from
-docker-compose — see app/constants.py's DEFAULT_DISABLED_EMBEDDING_PROVIDERS), so this
-deliberately stops short of document ingestion/query, which need one configured and enabled
-first. Once an embedding provider is set up, ingest/query are exercised by
-tests/integration/test_ingestion_service.py and test_retrieval_service.py instead.
+No embedding provider is enabled by default — every provider starts disabled until an admin
+configures and enables one via its dashboard page (see
+app/infrastructure/embeddings/bootstrap.py) — so this deliberately stops short of document
+ingestion/query, which need one configured and enabled first. Once an embedding provider is set
+up, ingest/query are exercised by tests/integration/test_ingestion_service.py and
+test_retrieval_service.py instead.
 
 Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against the prod stack.

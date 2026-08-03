@@ -7,7 +7,7 @@ from app.domain.entities import (
     Application,
     AuthorizationCode,
     Document,
-    EmbeddingProviderToggle,
+    EmbeddingProviderConfig,
     EmbeddingSettings,
     Library,
     RefreshToken,
@@ -77,28 +77,30 @@ class ChunkRepositoryPort(Protocol):
 
 
 class EmbeddingSettingsRepositoryPort(Protocol):
+    """Read-only view of whichever provider is currently active — the only thing ingestion and
+    retrieval ever need. Writes go through EmbeddingProviderSettingsRepositoryPort instead, since
+    "active" now means one row among several per-provider configs, not a single global row."""
+
     def get(self) -> EmbeddingSettings | None: ...
 
-    def upsert(
+
+class EmbeddingProviderSettingsRepositoryPort(Protocol):
+    def list(self) -> list[EmbeddingProviderConfig]: ...
+
+    def get(self, provider: str) -> EmbeddingProviderConfig | None: ...
+
+    def upsert_config(
         self,
         provider: str,
         model: str,
         api_key: str | None,
+        base_url: str | None,
         dimensions: int,
         chunk_size: int,
         chunk_overlap: int,
-        base_url: str | None = None,
-    ) -> EmbeddingSettings: ...
+    ) -> EmbeddingProviderConfig: ...
 
-    def clear(self) -> None: ...
-
-
-class EmbeddingProviderSettingsRepositoryPort(Protocol):
-    def list(self) -> list[EmbeddingProviderToggle]: ...
-
-    def get_enabled_providers(self) -> set[str]: ...
-
-    def set_enabled(self, provider: str, enabled: bool) -> EmbeddingProviderToggle: ...
+    def set_enabled(self, provider: str, enabled: bool) -> EmbeddingProviderConfig: ...
 
 
 class SearchSettingsRepositoryPort(Protocol):

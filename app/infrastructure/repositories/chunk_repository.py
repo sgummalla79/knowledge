@@ -15,7 +15,7 @@ class ChunkRepository:
         return self._session.query(Chunk).count()
 
     def resize_embedding_column(self, dimensions: int) -> None:
-        """Only ever called when count_all() == 0 (enforced by EmbeddingSettingsService's
+        """Only ever called when count_all() == 0 (enforced by EmbeddingProviderConfigService's
         model-switch lock) — mirrors the one-time 1024->768 cutover migration 0007 did by hand,
         generalized into a runtime operation.
 
