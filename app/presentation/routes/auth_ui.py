@@ -1,17 +1,25 @@
 from functools import wraps
 from uuid import UUID
 
-from flask import Blueprint, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, redirect, render_template, request, session, url_for
 
 from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
-from app.application.embedding_provider_settings_service import EmbeddingProviderSettingsService
+from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from app.application.web_crawl_settings_service import WebCrawlSettingsService
-from app.constants import DEFAULT_MCP_APPLICATION_ID, SUPPORTED_SCOPES
+from app.constants import (
+    DEFAULT_MCP_APPLICATION_ID,
+    EMBEDDING_PROVIDER_DISPLAY_NAMES,
+    EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
+    EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
+    EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
+    SUPPORTED_SCOPES,
+)
 from app.container import get_session
-from app.domain.entities import EmbeddingProviderToggle
 from app.domain.errors import DomainError
+from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
@@ -22,6 +30,9 @@ from app.presentation.web.csrf import csrf_token, validate_csrf
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
 auth_ui_bp.add_app_template_global(csrf_token)
+# So _sidebar.html can render the "Voyage"/"OpenAI"/"Ollama" nav-sub links on every dashboard
+# page without every route that includes it having to pass the list explicitly.
+auth_ui_bp.add_app_template_global(EMBEDDING_PROVIDER_DISPLAY_NAMES, name="embedding_provider_display_names")
 
 
 def _grouped_scopes(scopes: list[str]) -> list[tuple[str, list[str]]]:
@@ -44,12 +55,9 @@ def _application_service() -> ApplicationService:
     return ApplicationService(ApplicationRepository(session_), RefreshTokenRepository(session_))
 
 
-def _embedding_provider_settings_service() -> EmbeddingProviderSettingsService:
-    return EmbeddingProviderSettingsService(EmbeddingProviderSettingsRepository(get_session()))
-
-
-def _embedding_providers() -> list[EmbeddingProviderToggle]:
-    return _embedding_provider_settings_service().list_providers()
+def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
+    session_ = get_session()
+    return EmbeddingProviderConfigService(EmbeddingProviderSettingsRepository(session_), ChunkRepository(session_))
 
 
 def _web_crawl_settings_service() -> WebCrawlSettingsService:
@@ -184,11 +192,7 @@ def configuration():
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
-    return render_template(
-        "configuration.html",
-        embedding_providers=_embedding_providers(),
-        web_crawl_settings=_web_crawl_settings_service().get_status(),
-    )
+    return render_template("configuration.html", web_crawl_settings=_web_crawl_settings_service().get_status())
 
 
 @auth_ui_bp.get("/api-docs")
@@ -264,13 +268,86 @@ def delete_application(application_id: UUID):
     return redirect(url_for("auth_ui.dashboard"))
 
 
-@auth_ui_bp.post("/dashboard/embedding-providers/<provider>/toggle")
+def _require_known_provider(provider: str) -> None:
+    if provider not in EmbeddingProviderRegistry.known_providers():
+        abort(404)
+
+
+@auth_ui_bp.get("/dashboard/configuration/embeddings/<provider>")
 @login_required
-def toggle_embedding_provider(provider: str):
+def embedding_provider_settings(provider: str, error: str | None = None):
+    _require_known_provider(provider)
+    user = UserRepository(get_session()).get()
+    if user is not None and user.must_change_password:
+        return redirect(url_for("auth_ui.change_password"))
+    return render_template(
+        "embedding_provider_settings.html",
+        provider=provider,
+        display_name=EMBEDDING_PROVIDER_DISPLAY_NAMES.get(provider, provider),
+        status=_embedding_provider_config_service().get_status(provider),
+        api_key_required=provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
+        base_url_required=provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
+        base_url_supported=provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
+        error=error,
+    )
+
+
+@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>")
+@login_required
+def update_embedding_provider_settings(provider: str):
+    _require_known_provider(provider)
+    if not _csrf_valid():
+        return embedding_provider_settings(provider, error="Session expired — please try again."), 400
+
+    try:
+        dimensions = int(request.form.get("dimensions", "").strip())
+        chunk_size = int(request.form.get("chunk_size", "").strip())
+        chunk_overlap = int(request.form.get("chunk_overlap", "").strip())
+    except ValueError:
+        return embedding_provider_settings(
+            provider, error="Dimensions, chunk size, and chunk overlap must be whole numbers."
+        )
+
+    model = request.form.get("model", "").strip()
+    base_url = request.form.get("base_url", "").strip() or None
+    api_key = request.form.get("api_key", "").strip() or None
+    if api_key is None:
+        # "Leave blank to keep the current key" — the form never round-trips a saved key back
+        # into the page, so a blank submission means "unchanged", not "clear it".
+        existing = EmbeddingProviderSettingsRepository(get_session()).get(provider)
+        api_key = existing.api_key if existing is not None else None
+
+    try:
+        _embedding_provider_config_service().update_config(
+            provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap
+        )
+    except DomainError as error:
+        return embedding_provider_settings(provider, error=error.message)
+    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
+
+
+@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>/enable")
+@login_required
+def enable_embedding_provider_settings(provider: str):
+    _require_known_provider(provider)
     if _csrf_valid():
-        enabled = request.form.get("enabled") == "true"
-        _embedding_provider_settings_service().set_enabled(provider, enabled)
-    return redirect(url_for("auth_ui.configuration"))
+        try:
+            _embedding_provider_config_service().enable(provider)
+        except DomainError as error:
+            return embedding_provider_settings(provider, error=error.message)
+    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
+
+
+@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>/disable")
+@login_required
+def disable_embedding_provider_settings(provider: str):
+    _require_known_provider(provider)
+    if _csrf_valid():
+        try:
+            _embedding_provider_config_service().disable(provider)
+        except DomainError as error:
+            return embedding_provider_settings(provider, error=error.message)
+    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
 
 
 @auth_ui_bp.post("/dashboard/web-crawl-settings")

@@ -1,52 +1,64 @@
 from flask import Blueprint, jsonify, request
 
-from app.application.embedding_settings_service import EmbeddingSettingsService
+from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from app.auth import require_scope
 from app.container import get_session
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
-from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
-from app.presentation.schemas import EmbeddingSettingsResponse, EmbeddingSettingsUpdateRequest
+from app.presentation.schemas import EmbeddingProviderConfigResponse, EmbeddingProviderConfigUpdateRequest
 
 embedding_settings_bp = Blueprint("embedding_settings", __name__)
 
 
-def _service() -> EmbeddingSettingsService:
+def _service() -> EmbeddingProviderConfigService:
     session = get_session()
-    return EmbeddingSettingsService(
-        EmbeddingSettingsRepository(session),
-        ChunkRepository(session),
+    return EmbeddingProviderConfigService(
         EmbeddingProviderSettingsRepository(session),
+        ChunkRepository(session),
     )
 
 
 @embedding_settings_bp.get("/embedding-settings")
 @require_scope("embedding_settings:read")
-def get_embedding_settings():
-    status = _service().get_status()
-    return jsonify(EmbeddingSettingsResponse.from_status(status).model_dump(mode="json"))
+def list_embedding_settings():
+    statuses = _service().list_status()
+    return jsonify([EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json") for status in statuses])
 
 
-@embedding_settings_bp.put("/embedding-settings")
+@embedding_settings_bp.get("/embedding-settings/<provider>")
+@require_scope("embedding_settings:read")
+def get_embedding_settings(provider: str):
+    status = _service().get_status(provider)
+    return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))
+
+
+@embedding_settings_bp.put("/embedding-settings/<provider>")
 @require_scope("embedding_settings:write")
-def update_embedding_settings():
-    dto = EmbeddingSettingsUpdateRequest.model_validate(request.get_json(silent=True) or {})
-    status = _service().update(
-        dto.provider,
+def update_embedding_settings(provider: str):
+    dto = EmbeddingProviderConfigUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    status = _service().update_config(
+        provider,
         dto.model,
         dto.api_key,
+        dto.base_url,
         dto.dimensions,
         dto.chunk_size,
         dto.chunk_overlap,
-        dto.base_url,
     )
-    return jsonify(EmbeddingSettingsResponse.from_status(status).model_dump(mode="json"))
+    return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))
 
 
-@embedding_settings_bp.delete("/embedding-settings")
+@embedding_settings_bp.post("/embedding-settings/<provider>/enable")
 @require_scope("embedding_settings:write")
-def delete_embedding_settings():
-    status = _service().clear()
-    return jsonify(EmbeddingSettingsResponse.from_status(status).model_dump(mode="json"))
+def enable_embedding_provider(provider: str):
+    status = _service().enable(provider)
+    return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))
+
+
+@embedding_settings_bp.post("/embedding-settings/<provider>/disable")
+@require_scope("embedding_settings:write")
+def disable_embedding_provider(provider: str):
+    status = _service().disable(provider)
+    return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))

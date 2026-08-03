@@ -30,6 +30,22 @@ def app_context():
         yield app
 
 
+def seed_active_embedding_provider(
+    session, provider, model, api_key, dimensions, chunk_size, chunk_overlap, base_url=None
+):
+    """Test-only convenience: configures and enables a provider in one call, standing in for what
+    was previously a single EmbeddingSettingsRepository.upsert() before embedding config became
+    per-provider (see EmbeddingProviderConfigService). Most integration tests just need "some
+    provider is the active one" and don't care about the enable/disable lock semantics."""
+    from app.infrastructure.repositories.embedding_provider_settings_repository import (
+        EmbeddingProviderSettingsRepository,
+    )
+
+    repo = EmbeddingProviderSettingsRepository(session)
+    repo.upsert_config(provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap)
+    repo.set_enabled(provider, True)
+
+
 @pytest.fixture()
 def db_session(postgres_url):
     from sqlalchemy import create_engine, text
@@ -44,7 +60,7 @@ def db_session(postgres_url):
         session.rollback()
         session.execute(
             text(
-                "TRUNCATE TABLE chunks, documents, libraries, embedding_settings, search_settings, "
+                "TRUNCATE TABLE chunks, documents, libraries, embedding_provider_settings, search_settings, "
                 "users, applications, refresh_tokens CASCADE"
             )
         )

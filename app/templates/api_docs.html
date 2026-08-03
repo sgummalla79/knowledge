@@ -17,7 +17,6 @@
     <a href="#query">Query</a>
     <div class="docs-nav-group">Configuration</div>
     <a href="#embedding-settings">Embedding Settings</a>
-    <a href="#embedding-providers">Embedding Providers</a>
     <a href="#search-settings">Search Settings</a>
     <a href="#options">Reference Options</a>
   </nav>
@@ -298,27 +297,44 @@ refresh_token=&lt;opaque token&gt;</code></pre>
 
     <h2 id="embedding-settings">Embedding Settings</h2>
     <p class="lede">
-      Single global configuration — every library shares the same embedding provider/model.
-      Changing provider, model, base_url, or dimensions is rejected once any document exists
-      anywhere (embeddings from different models aren't comparable); rotating just the api_key is
-      always allowed.
+      One configuration per provider (<code>voyage</code>, <code>ollama</code>,
+      <code>openai_compatible</code>) — every provider starts disabled and unconfigured. Exactly
+      one may be <code>enabled</code> at a time, since every library shares the same embedding
+      model; enabling a provider disables whichever other one was active. Changing a provider's
+      model/base_url/dimensions, or disabling/switching away from it, is rejected while it's the
+      active provider and any document exists anywhere (embeddings from different models aren't
+      comparable) — rotating just its api_key is always allowed, and configuring a provider that
+      isn't the active one is never blocked. Also manageable from
+      <a href="{{ url_for('auth_ui.configuration') }}">Configuration</a>.
     </p>
 
     <div class="endpoint">
       <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:read</span></div>
+      <p class="endpoint-desc">Lists all three providers' status.</p>
       <h4>Response — 200</h4>
-      <pre class="code"><code>{
-  "provider": "ollama", "model": "nomic-embed-text", "configured": true,
-  "base_url": "http://ollama:11434", "dimensions": 768,
-  "chunk_size": 800, "chunk_overlap": 100, "updated_at": "..."
-}</code></pre>
+      <pre class="code"><code>[
+  {
+    "provider": "ollama", "enabled": true, "configured": true, "locked": true, "chunk_count": 42,
+    "model": "nomic-embed-text", "base_url": "http://ollama:11434", "dimensions": 768,
+    "chunk_size": 800, "chunk_overlap": 100, "updated_at": "..."
+  },
+  {
+    "provider": "voyage", "enabled": false, "configured": false, "locked": false, "chunk_count": 0,
+    "model": null, "base_url": null, "dimensions": null,
+    "chunk_size": 800, "chunk_overlap": 100, "updated_at": null
+  }
+]</code></pre>
     </div>
 
     <div class="endpoint">
-      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:write</span></div>
+      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-settings/{provider}</span><span class="scope-tag">embedding_settings:read</span></div>
+      <p class="endpoint-desc">A single provider's status — same shape as one item above.</p>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/embedding-settings/{provider}</span><span class="scope-tag">embedding_settings:write</span></div>
       <h4>Request body</h4>
       <pre class="code"><code>{
-  "provider": "openai_compatible",
   "model": "text-embedding-3-small",
   "api_key": "sk-...",
   "base_url": "https://api.openai.com/v1",
@@ -327,50 +343,46 @@ refresh_token=&lt;opaque token&gt;</code></pre>
   "chunk_overlap": 100
 }</code></pre>
       <p class="endpoint-desc">
-        On a first-time save or any provider/model/base_url/dimensions change, the endpoint is
-        live-verified (an actual embed call) and the <code>chunks</code> vector column is resized
-        to match before the new settings are persisted.
+        Saves this provider's config without changing whether it's enabled. On a first-time save
+        or any model/base_url/dimensions change, the endpoint is live-verified (an actual embed
+        call) before the new config is persisted.
       </p>
       <h4>Errors</h4>
       <div class="table-scroll">
         <table class="params-table">
           <tr><td><code>unsupported_embedding_provider</code></td><td>400 — not a registered provider adapter</td></tr>
-          <tr><td><code>embedding_provider_disabled</code></td><td>400 — provider exists but an admin disabled it (see Embedding Providers)</td></tr>
-          <tr><td><code>embedding_model_locked</code></td><td>400 — provider/model/base_url/dimensions changed while documents already exist</td></tr>
+          <tr><td><code>embedding_model_locked</code></td><td>400 — model/base_url/dimensions changed while this provider is active and documents already exist</td></tr>
           <tr><td><code>embedding_dimension_mismatch</code></td><td>400 — declared dimensions don't match what the provider actually returned</td></tr>
         </table>
       </div>
     </div>
 
     <div class="endpoint">
-      <div class="endpoint-head"><span class="method method-delete">DELETE</span><span class="endpoint-path">/embedding-settings</span><span class="scope-tag">embedding_settings:write</span></div>
-      <p class="endpoint-desc">Clears the configuration entirely (<code>configured: false</code> afterward).</p>
-    </div>
-
-    <h2 id="embedding-providers">Embedding Providers</h2>
-    <p class="lede">
-      Per-provider enable/disable, independent of whichever provider is currently configured
-      above — also manageable from <a href="{{ url_for('auth_ui.configuration') }}">Configuration</a>.
-      Disabling a provider only blocks it from future selection in
-      <code>PUT /embedding-settings</code>; it never affects an already-configured, in-use provider.
-    </p>
-
-    <div class="endpoint">
-      <div class="endpoint-head"><span class="method method-get">GET</span><span class="endpoint-path">/embedding-provider-settings</span><span class="scope-tag">embedding_settings:read</span></div>
-      <h4>Response — 200</h4>
-      <pre class="code"><code>[
-  { "provider": "ollama", "enabled": true, "updated_at": "..." },
-  { "provider": "voyage", "enabled": false, "updated_at": "..." },
-  { "provider": "openai_compatible", "enabled": true, "updated_at": "..." }
-]</code></pre>
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/embedding-settings/{provider}/enable</span><span class="scope-tag">embedding_settings:write</span></div>
+      <p class="endpoint-desc">
+        Makes this the active provider, disabling whichever other one was active. Requires a
+        saved, valid config first.
+      </p>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>embeddings_not_configured</code></td><td>400 — this provider has no saved model/dimensions yet</td></tr>
+          <tr><td><code>embedding_model_locked</code></td><td>400 — a different provider is active and has chunks; delete all documents first</td></tr>
+        </table>
+      </div>
     </div>
 
     <div class="endpoint">
-      <div class="endpoint-head"><span class="method method-put">PUT</span><span class="endpoint-path">/embedding-provider-settings/{provider}</span><span class="scope-tag">embedding_settings:write</span></div>
-      <h4>Request body</h4>
-      <pre class="code"><code>{ "enabled": false }</code></pre>
-      <h4>Response — 200</h4>
-      <pre class="code"><code>{ "provider": "voyage", "enabled": false, "updated_at": "..." }</code></pre>
+      <div class="endpoint-head"><span class="method method-post">POST</span><span class="endpoint-path">/embedding-settings/{provider}/disable</span><span class="scope-tag">embedding_settings:write</span></div>
+      <p class="endpoint-desc">
+        Deactivates this provider. A no-op if it wasn't the active one.
+      </p>
+      <h4>Errors</h4>
+      <div class="table-scroll">
+        <table class="params-table">
+          <tr><td><code>embedding_model_locked</code></td><td>400 — this provider is active and has chunks; delete all documents first</td></tr>
+        </table>
+      </div>
     </div>
 
     <h2 id="search-settings">Search Settings</h2>
@@ -397,14 +409,15 @@ refresh_token=&lt;opaque token&gt;</code></pre>
       <h4>Response — 200</h4>
       <pre class="code"><code>{
   "providers": [
-    { "name": "ollama", "api_key_required": false, "base_url_required": false, "base_url_supported": true, "default_base_url": "http://ollama:11434" },
-    { "name": "openai_compatible", "api_key_required": false, "base_url_required": true, "base_url_supported": true }
+    { "name": "ollama", "enabled": true, "configured": true, "api_key_required": false, "base_url_required": false, "base_url_supported": true, "default_base_url": "http://ollama:11434" },
+    { "name": "openai_compatible", "enabled": false, "configured": false, "api_key_required": false, "base_url_required": true, "base_url_supported": true },
+    { "name": "voyage", "enabled": false, "configured": false, "api_key_required": true, "base_url_required": false, "base_url_supported": false }
   ],
   "default_provider": "ollama",
   "default_model": "nomic-embed-text",
   "suggested_models": [ { "provider": "ollama", "model": "nomic-embed-text", "dimensions": 768 } ]
 }</code></pre>
-      <p class="endpoint-desc">Only <em>enabled</em> providers are listed (see Embedding Providers). <code>suggested_models</code> are convenience hints only — never enforced.</p>
+      <p class="endpoint-desc">Every known provider is listed regardless of state — see Embedding Settings for per-provider configuration. <code>default_provider</code>/<code>default_model</code> reflect whichever provider is currently active (<code>null</code> if none). <code>suggested_models</code> are convenience hints only — never enforced.</p>
     </div>
 
   </div>

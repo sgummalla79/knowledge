@@ -11,6 +11,7 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.infrastructure.repositories.search_settings_repository import SearchSettingsRepository
+from tests.integration.conftest import seed_active_embedding_provider
 
 
 def _fake_provider(query_vector):
@@ -50,10 +51,9 @@ def _make_service(db_session):
 def test_query_returns_nearest_chunks_ranked_by_hybrid_fusion(db_session):
     library_repo = LibraryRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     library = _make_library(library_repo)
-    embedding_settings_repo.upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
     )
     db_session.commit()
 
@@ -84,10 +84,9 @@ def test_query_returns_nearest_chunks_ranked_by_hybrid_fusion(db_session):
 def test_hybrid_fusion_promotes_sparse_match_over_pure_dense_order(db_session):
     library_repo = LibraryRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    embedding_settings_repo = EmbeddingSettingsRepository(db_session)
     library = _make_library(library_repo, name="hybrid-fusion-test")
-    embedding_settings_repo.upsert(
-        "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
+    seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
     )
     db_session.commit()
 

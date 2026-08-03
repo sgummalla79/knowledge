@@ -4,7 +4,7 @@
 {% block sidebar %}{% include "_sidebar.html" %}{% endblock %}
 {% block content %}
 <h1>Data Model</h1>
-<p class="subtitle">knowledge-api — PostgreSQL 16 + pgvector schema reference. Reflects migrations through <code>0014</code>.</p>
+<p class="subtitle">knowledge-api — PostgreSQL 16 + pgvector schema reference. Reflects migrations through <code>0015</code>.</p>
 
 <div class="docs-layout">
   <nav class="docs-nav">
@@ -13,7 +13,6 @@
     <a href="#libraries">libraries</a>
     <a href="#documents">documents</a>
     <a href="#chunks">chunks</a>
-    <a href="#embedding_settings">embedding_settings</a>
     <a href="#embedding_provider_settings">embedding_provider_settings</a>
     <a href="#search_settings">search_settings</a>
     <a href="#web_crawl_settings">web_crawl_settings</a>
@@ -30,10 +29,9 @@
 
     <h2 id="diagram">Entity relationships</h2>
     <p class="lede">
-      <code>embedding_settings</code>, <code>embedding_provider_settings</code>,
-      <code>search_settings</code>, and <code>web_crawl_settings</code> carry no foreign keys —
-      they're global, application-wide configuration (singleton or small lookup tables), not
-      scoped to a library.
+      <code>embedding_provider_settings</code>, <code>search_settings</code>, and
+      <code>web_crawl_settings</code> carry no foreign keys — they're global, application-wide
+      configuration (singleton or small lookup tables), not scoped to a library.
     </p>
 
     <div class="diagram-toolbar">
@@ -173,7 +171,7 @@ erDiagram
       <div class="endpoint-head"><span class="endpoint-path">libraries</span><span class="table-count">8 columns</span></div>
       <p class="endpoint-desc">
         A named collection of documents. Chunking/embedding config is not per-library — it's
-        global (<code>embedding_settings</code>) — so this table only tracks identity and
+        global (<code>embedding_provider_settings</code>) — so this table only tracks identity and
         running counts.
       </p>
       <div class="table-scroll">
@@ -233,44 +231,27 @@ erDiagram
             <tr><td>chunk_index</td><td>integer</td><td>no</td><td>—</td><td>position within the source document</td></tr>
             <tr><td>content</td><td>string</td><td>no</td><td>—</td><td>chunk text</td></tr>
             <tr><td>content_tsv<span class="col-badge gen">GEN</span></td><td>tsvector</td><td>no</td><td>to_tsvector('english', content)</td><td>added 0003, GIN-indexed for sparse search; Postgres keeps it in sync automatically</td></tr>
-            <tr><td>embedding</td><td>vector(N)</td><td>no</td><td>—</td><td>N = embedding_settings.dimensions; HNSW-indexed (cosine ops); resized at runtime when the model changes with zero existing chunks</td></tr>
+            <tr><td>embedding</td><td>vector(N)</td><td>no</td><td>—</td><td>N = the active embedding_provider_settings row's dimensions; HNSW-indexed (cosine ops); resized at runtime when the active provider changes with zero existing chunks</td></tr>
             <tr><td>created_at</td><td>timestamptz</td><td>no</td><td>now()</td><td></td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
-    <div class="endpoint" id="embedding_settings">
-      <div class="endpoint-head"><span class="endpoint-path">embedding_settings</span><span class="table-count">9 columns &middot; singleton</span></div>
-      <p class="endpoint-desc">
-        Single global row (application-level singleton — no DB constraint enforcing exactly one
-        row, just always queried with the first match). Configures which embedding provider/model
-        every library uses; there is no per-library override.
-      </p>
-      <div class="table-scroll">
-        <table class="params-table">
-          <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Default</th><th>Notes</th></tr></thead>
-          <tbody>
-            <tr><td>id<span class="col-badge pk">PK</span></td><td>uuid</td><td>no</td><td>—</td><td></td></tr>
-            <tr><td>provider</td><td>string</td><td>no</td><td>—</td><td>must be registered in EmbeddingProviderRegistry (voyage, ollama, openai_compatible)</td></tr>
-            <tr><td>model</td><td>string</td><td>no</td><td>—</td><td>free text — no whitelist</td></tr>
-            <tr><td>api_key</td><td>string</td><td>yes</td><td>—</td><td>nullable since 0006 (self-hosted providers need none)</td></tr>
-            <tr><td>base_url</td><td>string</td><td>yes</td><td>—</td><td>added 0006; required for openai_compatible, optional override for ollama</td></tr>
-            <tr><td>dimensions</td><td>integer</td><td>no</td><td>—</td><td>added 0009; caller-declared, verified live against the provider's output at save time</td></tr>
-            <tr><td>chunk_size</td><td>integer</td><td>no</td><td>800</td><td>added 0005 (moved from libraries)</td></tr>
-            <tr><td>chunk_overlap</td><td>integer</td><td>no</td><td>100</td><td>added 0005 (moved from libraries)</td></tr>
-            <tr><td>created_at / updated_at</td><td>timestamptz</td><td>no</td><td>now()</td><td></td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
     <div class="endpoint" id="embedding_provider_settings">
-      <div class="endpoint-head"><span class="endpoint-path">embedding_provider_settings</span><span class="table-count">4 columns</span></div>
+      <div class="endpoint-head"><span class="endpoint-path">embedding_provider_settings</span><span class="table-count">11 columns &middot; one row per provider</span></div>
       <p class="endpoint-desc">
-        Per-provider enable/disable toggle, independent of <code>embedding_settings</code>. Lets
-        an admin switch off a provider adapter without touching whichever provider/model is
-        currently configured and in use.
+        One row per provider registered in EmbeddingProviderRegistry (voyage, ollama,
+        openai_compatible) — each seeded disabled/unconfigured at first app start
+        (bootstrap_embedding_provider_settings). Holds that provider's connection/chunking config
+        <em>and</em> whether it's the one actually used for embedding. Since the app embeds with a
+        single global model, not a per-library choice, at most one row may have
+        <code>enabled = true</code> at a time (enforced by
+        <code>ix_embedding_provider_settings_single_enabled</code>, a partial unique index, in
+        addition to EmbeddingProviderConfigService.enable()/disable()). Before migration 0015 this
+        was two tables — a single global "active settings" row plus a separate per-provider
+        enable/disable toggle that only gated dropdown selection — merged here since "enabled" now
+        means "active", making the split pointless.
       </p>
       <div class="table-scroll">
         <table class="params-table">
@@ -278,7 +259,14 @@ erDiagram
           <tbody>
             <tr><td>id<span class="col-badge pk">PK</span></td><td>uuid</td><td>no</td><td>—</td><td></td></tr>
             <tr><td>provider<span class="col-badge uk">UK</span></td><td>string</td><td>no</td><td>—</td><td>the registry key itself; every lookup/route addresses a row by this, not id</td></tr>
-            <tr><td>enabled</td><td>boolean</td><td>no</td><td>true</td><td></td></tr>
+            <tr><td>enabled</td><td>boolean</td><td>no</td><td>false</td><td>at most one row true at a time; "false" default changed from "true" in 0015 — every provider now starts disabled until explicitly configured and enabled</td></tr>
+            <tr><td>model</td><td>string</td><td>yes</td><td>—</td><td>added 0015; free text — no whitelist</td></tr>
+            <tr><td>api_key</td><td>string</td><td>yes</td><td>—</td><td>added 0015; self-hosted providers need none</td></tr>
+            <tr><td>base_url</td><td>string</td><td>yes</td><td>—</td><td>added 0015; required for openai_compatible, optional override for ollama</td></tr>
+            <tr><td>dimensions</td><td>integer</td><td>yes</td><td>—</td><td>added 0015; caller-declared, verified live against the provider's output at save time</td></tr>
+            <tr><td>chunk_size</td><td>integer</td><td>yes</td><td>—</td><td>added 0015</td></tr>
+            <tr><td>chunk_overlap</td><td>integer</td><td>yes</td><td>—</td><td>added 0015</td></tr>
+            <tr><td>created_at</td><td>timestamptz</td><td>yes</td><td>now()</td><td>added 0015; nullable since a seeded-but-never-configured row has no meaningful creation time</td></tr>
             <tr><td>updated_at</td><td>timestamptz</td><td>no</td><td>now(), on update now()</td><td></td></tr>
           </tbody>
         </table>
@@ -288,8 +276,9 @@ erDiagram
     <div class="endpoint" id="search_settings">
       <div class="endpoint-head"><span class="endpoint-path">search_settings</span><span class="table-count">6 columns &middot; singleton</span></div>
       <p class="endpoint-desc">
-        Single global row, same singleton pattern as <code>embedding_settings</code>. Tunes
-        hybrid (dense + sparse) retrieval. An absent row is not an error — retrieval falls back
+        Single global row — the same singleton pattern the embedding config used before migration
+        0015 merged it into per-provider rows. Tunes hybrid (dense + sparse) retrieval. An absent
+        row is not an error — retrieval falls back
         to defaults in <code>app/constants.py</code>. Reranking was removed (migration 0014) —
         it was already unreachable via the API before that.
       </p>
@@ -448,6 +437,7 @@ erDiagram
           <tr><td class="mono">0012</td><td>2026-07-30</td><td>web_crawl_settings: admin-configurable User-Agent for outbound page fetches</td></tr>
           <tr><td class="mono">0013</td><td>2026-08-01</td><td>OAuth authorization_code grant: redirect_uris on applications, authorization_codes table</td></tr>
           <tr><td class="mono">0014</td><td>2026-08-02</td><td>Remove reranking: drop rerank_* columns from search_settings</td></tr>
+          <tr><td class="mono">0015</td><td>2026-08-03</td><td>Per-provider embedding config: merge embedding_settings into embedding_provider_settings, one row per provider, "enabled" now means "active"</td></tr>
         </tbody>
       </table>
     </div>

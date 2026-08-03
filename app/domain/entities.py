@@ -60,10 +60,17 @@ class EmbeddingSettings:
 
 
 @dataclass(frozen=True)
-class EmbeddingProviderToggle:
+class EmbeddingProviderConfig:
     id: UUID
     provider: str
     enabled: bool
+    model: str | None
+    api_key: str | None
+    base_url: str | None
+    dimensions: int | None
+    chunk_size: int | None
+    chunk_overlap: int | None
+    created_at: datetime | None
     updated_at: datetime
 
 
