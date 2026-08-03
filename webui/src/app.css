@@ -4,6 +4,99 @@
   align-items: stretch;
 }
 
+/* ---- Auth pages (login, change-password) — filled-pill inputs, no bordered outline, modeled
+   after the reference design: centered card, big centered brand, no social/create-account ---- */
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px 36px;
+}
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.auth-brand img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+.auth-brand h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.field-wrap {
+  position: relative;
+  margin-bottom: 14px;
+}
+/* Scoped under .auth-card so specificity safely beats the general input[type=text] rule below
+   regardless of source order — otherwise toggling a password field's type to "text" (the "show
+   password" eye button) would suddenly pick up that rule's border/background and visibly jump. */
+.auth-card input.field-pill {
+  width: 100%;
+  padding: 15px 18px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 15px;
+  font-family: inherit;
+}
+.auth-card input.field-pill::placeholder {
+  color: var(--muted-foreground);
+}
+.auth-card input.field-pill:focus-visible {
+  border-color: var(--ring);
+}
+.auth-card .field-wrap input.field-pill {
+  margin-bottom: 0;
+  padding-right: 48px;
+}
+.field-icon-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.field-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.btn-block {
+  width: 100%;
+  justify-content: center;
+  padding: 15px 18px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 6px;
+}
+
 /* ---- Library rail ---- */
 .rail {
   width: 240px;

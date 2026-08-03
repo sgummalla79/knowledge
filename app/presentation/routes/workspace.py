@@ -1,7 +1,4 @@
-import json
-import os
-
-from flask import Blueprint, current_app, jsonify, redirect, request, url_for
+from flask import Blueprint, jsonify, redirect, request, url_for
 
 from app.application.token_service import TokenService
 from app.config import config
@@ -14,7 +11,8 @@ from app.infrastructure.repositories.authorization_code_repository import Author
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 from app.presentation.routes.auth_ui import login_required
-from app.presentation.web.csrf import csrf_token, validate_csrf
+from app.presentation.web.csrf import validate_csrf
+from app.presentation.web.spa import serve_spa_shell
 
 workspace_bp = Blueprint("workspace", __name__)
 
@@ -49,19 +47,4 @@ def workspace(subpath: str | None = None):
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
-
-    index_path = os.path.join(current_app.static_folder, "workspace", "index.html")
-    try:
-        with open(index_path, encoding="utf-8") as handle:
-            html = handle.read()
-    except FileNotFoundError:
-        # Only reachable during local development, before `npm run build` (webui/) has ever been
-        # run once — deploy/Dockerfile's build stage always produces this file for a real image.
-        return (
-            "webui build output not found at app/static/workspace/index.html — "
-            "run `npm run build` in webui/ first.",
-            503,
-        )
-
-    injected = f"<script>window.__CSRF_TOKEN__={json.dumps(csrf_token())};</script></head>"
-    return html.replace("</head>", injected, 1)
+    return serve_spa_shell()

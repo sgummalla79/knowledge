@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { LibrariesPage } from './pages/LibrariesPage'
 import { LibraryDetailPage } from './pages/LibraryDetailPage'
+import { LoginPage } from './pages/LoginPage'
+import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import './app.css'
 
 const queryClient = new QueryClient()
@@ -10,9 +12,11 @@ const queryClient = new QueryClient()
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename="/workspace">
+      <BrowserRouter>
         <Routes>
-          <Route element={<Layout />}>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="/workspace" element={<Layout />}>
             <Route index element={<LibrariesPage />} />
             <Route path="libraries/:libraryId" element={<LibraryDetailPage />} />
           </Route>

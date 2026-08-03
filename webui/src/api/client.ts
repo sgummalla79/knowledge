@@ -1,8 +1,5 @@
-declare global {
-  interface Window {
-    __CSRF_TOKEN__?: string
-  }
-}
+import { ApiError, parseErrorBody } from './errors'
+import { csrfToken } from './csrf'
 
 // Bridges the admin's session-cookie login (already established by the Flask dashboard) to a real
 // OAuth2 bearer token for this app's own REST API — see app/presentation/routes/workspace.py's
@@ -14,7 +11,7 @@ async function mintToken(): Promise<string> {
   const response = await fetch('/dashboard/token', {
     method: 'POST',
     credentials: 'include',
-    headers: { 'X-CSRF-Token': window.__CSRF_TOKEN__ ?? '' },
+    headers: { 'X-CSRF-Token': csrfToken() },
   })
   if (!response.ok) {
     throw new ApiError('Your session has expired — please reload the page and log in again.', response.status)
@@ -24,31 +21,10 @@ async function mintToken(): Promise<string> {
   return accessToken
 }
 
-export class ApiError extends Error {
-  status: number
-  code?: string
-
-  constructor(message: string, status: number, code?: string) {
-    super(message)
-    this.status = status
-    this.code = code
-  }
-}
-
 interface RequestOptions {
   method?: string
   json?: unknown
   formData?: FormData
-}
-
-async function parseErrorBody(response: Response): Promise<{ message: string; code?: string }> {
-  try {
-    const body = (await response.json()) as { error?: { message?: string; code?: string } }
-    if (body.error?.message) return { message: body.error.message, code: body.error.code }
-  } catch {
-    // Non-JSON error body (e.g. a proxy/500 page) — fall through to the generic message below.
-  }
-  return { message: `Request failed with status ${response.status}` }
 }
 
 async function request<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {

@@ -9,7 +9,9 @@ from app.domain.entities import User
 from app.domain.errors import AuthenticationError
 
 # HTTP-layer only — AuthService is mocked. Real password-hash/DB behavior is covered by
-# tests/integration/test_auth_service.py.
+# tests/integration/test_auth_service.py. /login and /change-password serve the React SPA shell
+# on GET and a JSON API on POST (webui/src/pages/LoginPage.tsx, ChangePasswordPage.tsx) — CSRF
+# travels via the X-CSRF-Token header, not a form field.
 
 
 @pytest.fixture()
@@ -37,32 +39,48 @@ def _with_csrf(client):
     return "test-csrf-token"
 
 
-def test_login_page_renders(client):
+def test_login_page_renders(client, tmp_path):
+    # serve_spa_shell() reads the built webui/ output from static_folder — app/static/workspace/
+    # is a gitignored build artifact, not guaranteed to exist on a fresh checkout/CI runner, so
+    # this points static_folder at a stand-in index.html rather than depending on a local build.
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    (workspace_dir / "index.html").write_text("<html><head><title>Workspace</title></head><body></body></html>")
+    with client.application.app_context():
+        client.application.static_folder = str(tmp_path)
+
     response = client.get("/login")
     assert response.status_code == 200
-    assert b"Log in" in response.data
+    assert b"__CSRF_TOKEN__" in response.data
 
 
 def test_login_success_redirects_to_change_password_when_required(client):
     csrf = _with_csrf(client)
     with patch("app.presentation.routes.auth_ui.AuthService.login", return_value=_user(must_change_password=True)):
-        response = client.post("/login", data={"username": "admin", "password": "admin", "csrf_token": csrf})
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/change-password")
+        response = client.post(
+            "/login", json={"username": "admin", "password": "admin"}, headers={"X-CSRF-Token": csrf}
+        )
+    assert response.status_code == 200
+    assert response.get_json()["redirect"].endswith("/change-password")
 
 
 def test_login_success_redirects_to_dashboard_when_password_already_changed(client):
     csrf = _with_csrf(client)
     with patch("app.presentation.routes.auth_ui.AuthService.login", return_value=_user(must_change_password=False)):
-        response = client.post("/login", data={"username": "admin", "password": "x", "csrf_token": csrf})
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/dashboard")
+        response = client.post("/login", json={"username": "admin", "password": "x"}, headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 200
+    assert response.get_json()["redirect"].endswith("/dashboard")
 
 
 def test_login_wrong_credentials_shows_error(client):
     csrf = _with_csrf(client)
-    with patch("app.presentation.routes.auth_ui.AuthService.login", side_effect=AuthenticationError("Invalid username or password.")):
-        response = client.post("/login", data={"username": "admin", "password": "wrong", "csrf_token": csrf})
+    with patch(
+        "app.presentation.routes.auth_ui.AuthService.login",
+        side_effect=AuthenticationError("Invalid username or password."),
+    ):
+        response = client.post(
+            "/login", json={"username": "admin", "password": "wrong"}, headers={"X-CSRF-Token": csrf}
+        )
     assert response.status_code == 401
     assert b"Invalid username or password" in response.data
 
@@ -70,8 +88,10 @@ def test_login_wrong_credentials_shows_error(client):
 def test_login_missing_csrf_rejected(client):
     _with_csrf(client)
     with patch("app.presentation.routes.auth_ui.AuthService.login", return_value=_user()):
-        response = client.post("/login", data={"username": "admin", "password": "admin", "csrf_token": "wrong-token"})
-    assert response.status_code == 400
+        response = client.post(
+            "/login", json={"username": "admin", "password": "admin"}, headers={"X-CSRF-Token": "wrong-token"}
+        )
+    assert response.status_code == 401
 
 
 def test_dashboard_requires_login(client):
@@ -97,7 +117,8 @@ def test_change_password_mismatch_shows_error(client):
     csrf = _logged_in(client)
     response = client.post(
         "/change-password",
-        data={"new_password": "a-strong-password", "confirm_password": "a-different-password", "csrf_token": csrf},
+        json={"new_password": "a-strong-password", "confirm_password": "a-different-password"},
+        headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 400
     assert b"do not match" in response.data
@@ -107,7 +128,8 @@ def test_change_password_too_short_shows_error(client):
     csrf = _logged_in(client)
     response = client.post(
         "/change-password",
-        data={"new_password": "short", "confirm_password": "short", "csrf_token": csrf},
+        json={"new_password": "short", "confirm_password": "short"},
+        headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 400
     assert b"at least 8 characters" in response.data
@@ -118,8 +140,9 @@ def test_change_password_success_redirects_to_dashboard(client):
     with patch("app.presentation.routes.auth_ui.AuthService.change_password") as change_password:
         response = client.post(
             "/change-password",
-            data={"new_password": "a-strong-password", "confirm_password": "a-strong-password", "csrf_token": csrf},
+            json={"new_password": "a-strong-password", "confirm_password": "a-strong-password"},
+            headers={"X-CSRF-Token": csrf},
         )
-    assert response.status_code == 302
-    assert response.headers["Location"].endswith("/dashboard")
+    assert response.status_code == 200
+    assert response.get_json()["redirect"].endswith("/dashboard")
     change_password.assert_called_once()

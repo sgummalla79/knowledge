@@ -1,7 +1,7 @@
 from functools import wraps
 from uuid import UUID
 
-from flask import Blueprint, abort, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, jsonify, redirect, render_template, request, session, url_for
 
 from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
@@ -16,12 +16,9 @@ from app.constants import (
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
     SUPPORTED_SCOPES,
 )
-
-# Built-in service-account Applications — internal plumbing, never shown in or manageable from the
-# Applications dashboard page (see _applications_with_status/revoke_token/delete_application below).
-_HIDDEN_APPLICATION_IDS = {DEFAULT_MCP_APPLICATION_ID, DEFAULT_DASHBOARD_APPLICATION_ID}
 from app.container import get_session
-from app.domain.errors import DomainError
+from app.domain import error_codes
+from app.domain.errors import AuthenticationError, DomainError, ValidationError
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.repositories.application_repository import ApplicationRepository
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
@@ -32,6 +29,11 @@ from app.infrastructure.repositories.refresh_token_repository import RefreshToke
 from app.infrastructure.repositories.user_repository import UserRepository
 from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
 from app.presentation.web.csrf import csrf_token, validate_csrf
+from app.presentation.web.spa import serve_spa_shell
+
+# Built-in service-account Applications — internal plumbing, never shown in or manageable from the
+# Applications dashboard page (see _applications_with_status/revoke_token/delete_application below).
+_HIDDEN_APPLICATION_IDS = {DEFAULT_MCP_APPLICATION_ID, DEFAULT_DASHBOARD_APPLICATION_ID}
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
 auth_ui_bp.add_app_template_global(csrf_token)
@@ -122,44 +124,44 @@ def login():
         session["post_login_redirect"] = next_url
     if session.get("user_id"):
         return redirect(_consume_post_login_redirect())
-    return render_template("login.html")
+    return serve_spa_shell()
 
 
 @auth_ui_bp.post("/login")
 def login_submit():
-    if not _csrf_valid():
-        return render_template("login.html", error="Session expired — please try again."), 400
-    username = request.form.get("username", "")
-    password = request.form.get("password", "")
-    try:
-        user = _auth_service().login(username, password)
-    except DomainError as error:
-        return render_template("login.html", error=error.message), 401
+    # Served to the React login page (webui/src/pages/LoginPage.tsx) via fetch — JSON in/out,
+    # CSRF via header rather than a form field, same convention as POST /dashboard/token.
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+    body = request.get_json(silent=True) or {}
+    user = _auth_service().login(body.get("username", ""), body.get("password", ""))
     session["user_id"] = str(user.id)
-    if user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return redirect(_consume_post_login_redirect())
+    redirect_url = url_for("auth_ui.change_password") if user.must_change_password else _consume_post_login_redirect()
+    return jsonify({"redirect": redirect_url})
 
 
 @auth_ui_bp.get("/change-password")
 @login_required
 def change_password():
-    return render_template("change_password.html")
+    return serve_spa_shell()
 
 
 @auth_ui_bp.post("/change-password")
 @login_required
 def change_password_submit():
-    if not _csrf_valid():
-        return render_template("change_password.html", error="Session expired — please try again."), 400
-    new_password = request.form.get("new_password", "")
-    confirm_password = request.form.get("confirm_password", "")
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+    body = request.get_json(silent=True) or {}
+    new_password = body.get("new_password", "")
+    confirm_password = body.get("confirm_password", "")
     if len(new_password) < 8:
-        return render_template("change_password.html", error="Password must be at least 8 characters."), 400
+        raise ValidationError(
+            error_codes.VALIDATION_ERROR, "Password must be at least 8 characters.", field="new_password"
+        )
     if new_password != confirm_password:
-        return render_template("change_password.html", error="Passwords do not match."), 400
+        raise ValidationError(error_codes.VALIDATION_ERROR, "Passwords do not match.", field="confirm_password")
     _auth_service().change_password(UUID(session["user_id"]), new_password)
-    return redirect(_consume_post_login_redirect())
+    return jsonify({"redirect": _consume_post_login_redirect()})
 
 
 @auth_ui_bp.post("/logout")

@@ -50,3 +50,22 @@ export function ArrowLeftIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function EyeIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...base}>
+      <path d="M1.5 8S4 3 8 3s6.5 5 6.5 5-2.5 5-6.5 5-6.5-5-6.5-5Z" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="1.8" />
+    </svg>
+  )
+}
+
+export function EyeOffIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...base}>
+      <path d="M1.5 8S4 3 8 3s6.5 5 6.5 5-2.5 5-6.5 5-6.5-5-6.5-5Z" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="1.8" />
+      <path d="M2 2l12 12" strokeLinecap="round" />
+    </svg>
+  )
+}
