@@ -123,6 +123,11 @@
   display: block;
   object-fit: contain;
 }
+.rail-brand svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
 .rail-header {
   display: flex;
   align-items: center;
@@ -197,6 +202,68 @@
 }
 .rail-item:hover .rail-item-actions {
   display: flex;
+}
+
+/* ---- Settings sidebar nav groups ---- */
+.settings-nav {
+  gap: 2px;
+}
+.nav-group-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 14px 8px 4px;
+}
+.nav-group-label:first-child {
+  padding-top: 4px;
+}
+
+/* ---- Provider grid (Settings > Providers) ---- */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.provider-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  cursor: pointer;
+}
+.provider-card:hover {
+  border-color: var(--ring);
+}
+.provider-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-foreground);
+}
+.provider-card-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.provider-card-body h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.provider-card-body p {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+}
+.provider-card .badge {
+  align-self: flex-start;
 }
 .rail-footer {
   margin-top: auto;

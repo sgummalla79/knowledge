@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { JobStatus, Library, LibraryDocument, ScoredChunk } from './types'
+import type { EmbeddingOptions, JobStatus, Library, LibraryDocument, ScoredChunk } from './types'
+
+export function useEmbeddingOptions() {
+  return useQuery({
+    queryKey: ['embedding-options'],
+    queryFn: () => api.get<EmbeddingOptions>('/embedding-options'),
+  })
+}
 
 export function useLibraries() {
   return useQuery({

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronUpDownIcon, GearIcon, InfoIcon, LogoutIcon } from './icons'
 import { currentUsername } from '../api/shell'
 import { signOut } from '../api/auth'
@@ -27,10 +28,10 @@ export function AccountMenu() {
       {open && (
         <div className="account-menu-popover">
           <div className="account-menu-user">{username}</div>
-          <a href="/dashboard" className="account-menu-item">
+          <Link to="/settings" className="account-menu-item">
             <GearIcon />
             Settings
-          </a>
+          </Link>
           <a href="/api-docs" className="account-menu-item">
             <InfoIcon />
             About

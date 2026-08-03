@@ -40,11 +40,24 @@ def dashboard_token():
     return jsonify({"access_token": result["access_token"], "expires_in": result["expires_in"]})
 
 
-@workspace_bp.get("/workspace")
-@workspace_bp.get("/workspace/<path:subpath>")
-@login_required
-def workspace(subpath: str | None = None):
+def _serve_spa_page():
+    """Shared by every top-level SPA entry point reachable once logged in (/workspace, /settings)
+    — same must_change_password gate and username injection, just a different mount path each."""
     user = UserRepository(get_session()).get()
     if user is not None and user.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
     return serve_spa_shell(extra_globals={"USERNAME": user.username if user is not None else ""})
+
+
+@workspace_bp.get("/workspace")
+@workspace_bp.get("/workspace/<path:subpath>")
+@login_required
+def workspace(subpath: str | None = None):
+    return _serve_spa_page()
+
+
+@workspace_bp.get("/settings")
+@workspace_bp.get("/settings/<path:subpath>")
+@login_required
+def settings(subpath: str | None = None):
+    return _serve_spa_page()

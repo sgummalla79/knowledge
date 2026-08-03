@@ -38,3 +38,22 @@ export interface ScoredChunk {
   content: string
   score: number
 }
+
+export interface EmbeddingProviderOption {
+  name: string
+  display_name: string
+  enabled: boolean
+  configured: boolean
+  api_key_required: boolean
+  base_url_required: boolean
+  base_url_supported: boolean
+  default_base_url: string | null
+  supports_model_listing: boolean
+}
+
+export interface EmbeddingOptions {
+  providers: EmbeddingProviderOption[]
+  default_provider: string | null
+  default_model: string | null
+  suggested_models: { provider: string; model: string; dimensions: number }[]
+}

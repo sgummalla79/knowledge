@@ -7,6 +7,7 @@ from app.constants import (
     DEFAULT_OLLAMA_BASE_URL,
     EMBEDDING_MODEL_LISTING_RATE_LIMIT,
     EMBEDDING_MODEL_PRESETS,
+    EMBEDDING_PROVIDER_DISPLAY_NAMES,
     EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
     EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
@@ -43,6 +44,10 @@ def get_embedding_options():
             "providers": [
                 {
                     "name": status.provider,
+                    # Single source of truth is app/constants.py — also what the Jinja dashboard's
+                    # per-provider Configuration pages use, so a new provider needs an entry there
+                    # once, not a duplicate mapping kept in sync in the SPA too.
+                    "display_name": EMBEDDING_PROVIDER_DISPLAY_NAMES.get(status.provider, status.provider),
                     "enabled": status.enabled,
                     "configured": status.configured,
                     "api_key_required": status.provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,

@@ -76,3 +76,24 @@ def test_workspace_missing_build_output_returns_503(_get_user, client, tmp_path)
     _logged_in(client)
     response = client.get("/workspace")
     assert response.status_code == 503
+
+
+def test_settings_requires_login(client):
+    response = client.get("/settings")
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
+@patch("app.presentation.routes.workspace.UserRepository.get", return_value=None)
+def test_settings_serves_built_shell_with_injected_csrf_token(_get_user, client, tmp_path):
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    (workspace_dir / "index.html").write_text("<html><head><title>Workspace</title></head><body></body></html>")
+
+    with client.application.app_context():
+        client.application.static_folder = str(tmp_path)
+
+    _logged_in(client)
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert b"__CSRF_TOKEN__" in response.data

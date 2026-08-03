@@ -48,6 +48,7 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
 
     providers_by_name = {provider["name"]: provider for provider in body["providers"]}
     ollama = providers_by_name["ollama"]
+    assert ollama["display_name"] == "Ollama"
     assert ollama["api_key_required"] is False
     assert ollama["base_url_required"] is False
     assert ollama["base_url_supported"] is True
