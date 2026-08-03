@@ -19,6 +19,7 @@ def _status(provider, enabled=False, configured=False, model=None):
         enabled=enabled,
         configured=configured,
         locked=False,
+        locked_by_other=False,
         chunk_count=0,
         model=model,
         base_url=None,
@@ -26,6 +27,7 @@ def _status(provider, enabled=False, configured=False, model=None):
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc) if configured else None,
+        active_provider=provider if enabled else None,
     )
 
 

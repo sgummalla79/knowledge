@@ -170,6 +170,7 @@ class EmbeddingProviderConfigResponse(BaseModel):
     enabled: bool
     configured: bool
     locked: bool
+    locked_by_other: bool
     chunk_count: int
     model: str | None
     base_url: str | None
@@ -177,6 +178,7 @@ class EmbeddingProviderConfigResponse(BaseModel):
     chunk_size: int
     chunk_overlap: int
     updated_at: datetime | None
+    active_provider: str | None
 
     @classmethod
     def from_status(cls, status: EmbeddingProviderConfigStatus) -> "EmbeddingProviderConfigResponse":
@@ -185,6 +187,7 @@ class EmbeddingProviderConfigResponse(BaseModel):
             enabled=status.enabled,
             configured=status.configured,
             locked=status.locked,
+            locked_by_other=status.locked_by_other,
             chunk_count=status.chunk_count,
             model=status.model,
             base_url=status.base_url,
@@ -192,6 +195,7 @@ class EmbeddingProviderConfigResponse(BaseModel):
             chunk_size=status.chunk_size,
             chunk_overlap=status.chunk_overlap,
             updated_at=status.updated_at,
+            active_provider=status.active_provider,
         )
 
 
