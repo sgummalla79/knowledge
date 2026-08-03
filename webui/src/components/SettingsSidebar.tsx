@@ -15,7 +15,7 @@ export function SettingsSidebar() {
       </Link>
 
       <nav className="rail-list settings-nav">
-        <div className="nav-group-label">AI Setup</div>
+        <div className="nav-group-label">Embeddings</div>
         <Link to="/settings" className="rail-item active">
           <LayersIcon />
           <span>Providers</span>

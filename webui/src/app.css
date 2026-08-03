@@ -222,14 +222,11 @@
 /* ---- Provider grid (Settings > Providers) ---- */
 .provider-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 .provider-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--card);
@@ -238,9 +235,25 @@
 .provider-card:hover {
   border-color: var(--ring);
 }
+.provider-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.provider-card-top h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .provider-card-icon {
   width: 34px;
   height: 34px;
+  flex-shrink: 0;
   border-radius: 8px;
   background: var(--secondary);
   display: flex;
@@ -252,18 +265,40 @@
   width: 16px;
   height: 16px;
 }
-.provider-card-body h3 {
-  margin: 0;
-  font-size: 14.5px;
-  font-weight: 600;
+.provider-card-error {
+  margin: 8px 0 0;
+  color: oklch(0.8368 0.0847 25.3259);
+  font-size: 12px;
 }
-.provider-card-body p {
-  margin: 2px 0 0;
-  color: var(--muted-foreground);
-  font-size: 12.5px;
+
+/* ---- Toggle switch (provider enable/disable) ---- */
+.toggle-switch {
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 999px;
+  border: none;
+  background: var(--secondary);
+  cursor: pointer;
 }
-.provider-card .badge {
-  align-self: flex-start;
+.toggle-switch.on {
+  background: var(--primary);
+}
+.toggle-knob {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--foreground);
+  transition: transform 0.15s ease;
+}
+.toggle-switch.on .toggle-knob {
+  transform: translateX(14px);
+}
+.toggle-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .rail-footer {
   margin-top: auto;
@@ -508,6 +543,7 @@ label {
 }
 input[type='text'],
 input[type='number'],
+input[type='password'],
 textarea {
   width: 100%;
   padding: 8px 10px;
@@ -518,6 +554,14 @@ textarea {
   color: var(--foreground);
   font-size: 14px;
   font-family: inherit;
+}
+.field-row {
+  display: flex;
+  gap: 16px;
+}
+.field-row > div {
+  flex: 1;
+  min-width: 0;
 }
 .error-banner {
   background: color-mix(in oklch, var(--destructive) 20%, var(--background));
@@ -546,6 +590,9 @@ textarea {
   padding: 24px;
   width: 90%;
   max-width: 420px;
+}
+.modal.modal-wide {
+  max-width: 560px;
 }
 .modal h3 {
   margin: 0 0 16px;

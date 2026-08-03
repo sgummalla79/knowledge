@@ -50,6 +50,12 @@ def get_embedding_options():
                     "display_name": EMBEDDING_PROVIDER_DISPLAY_NAMES.get(status.provider, status.provider),
                     "enabled": status.enabled,
                     "configured": status.configured,
+                    # True once this provider has chunks embedded with it — an enabled+locked
+                    # provider can't be disabled (or reconfigured) until every chunk is deleted,
+                    # since embeddings from different models aren't comparable. Surfaced here so a
+                    # UI can grey out its own enable/disable toggle instead of only finding out
+                    # after a rejected request.
+                    "locked": status.locked,
                     "api_key_required": status.provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
                     "base_url_required": status.provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
                     "base_url_supported": status.provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,

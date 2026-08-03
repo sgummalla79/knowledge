@@ -44,6 +44,7 @@ export interface EmbeddingProviderOption {
   display_name: string
   enabled: boolean
   configured: boolean
+  locked: boolean
   api_key_required: boolean
   base_url_required: boolean
   base_url_supported: boolean
@@ -56,4 +57,29 @@ export interface EmbeddingOptions {
   default_provider: string | null
   default_model: string | null
   suggested_models: { provider: string; model: string; dimensions: number }[]
+}
+
+export interface EmbeddingProviderStatus {
+  provider: string
+  enabled: boolean
+  configured: boolean
+  locked: boolean
+  locked_by_other: boolean
+  chunk_count: number
+  model: string | null
+  base_url: string | null
+  dimensions: number | null
+  chunk_size: number
+  chunk_overlap: number
+  updated_at: string | null
+  active_provider: string | null
+}
+
+export interface EmbeddingProviderUpdateInput {
+  model: string
+  api_key?: string
+  base_url?: string | null
+  dimensions: number
+  chunk_size: number
+  chunk_overlap: number
 }

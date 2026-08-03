@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronUpDownIcon, GearIcon, InfoIcon, LogoutIcon } from './icons'
+import { ChevronUpDownIcon, GearIcon, LogoutIcon } from './icons'
 import { currentUsername } from '../api/shell'
 import { signOut } from '../api/auth'
 
@@ -32,10 +32,6 @@ export function AccountMenu() {
             <GearIcon />
             Settings
           </Link>
-          <a href="/api-docs" className="account-menu-item">
-            <InfoIcon />
-            About
-          </a>
           <button type="button" className="account-menu-item account-menu-item-destructive" onClick={handleSignOut}>
             <LogoutIcon />
             Sign out

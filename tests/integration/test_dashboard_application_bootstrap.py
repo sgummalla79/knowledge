@@ -33,6 +33,21 @@ def test_bootstrap_stores_the_deterministically_derived_secret(db_session):
     assert model.client_secret_hash == hash_secret(expected_secret)
 
 
+def test_bootstrap_syncs_scopes_on_an_existing_row(db_session):
+    # Simulates a database that already had this Application bootstrapped before a new scope was
+    # added to DEFAULT_DASHBOARD_APPLICATION_SCOPES — the row must pick up the new scope on the
+    # next bootstrap call (every app startup), not stay stuck with whatever it had at creation.
+    bootstrap_default_dashboard_application(db_session)
+    repository = ApplicationRepository(db_session)
+    repository.update_scopes(DEFAULT_DASHBOARD_APPLICATION_ID, ["libraries:read"])
+    db_session.commit()
+
+    bootstrap_default_dashboard_application(db_session)
+
+    application = repository.get(DEFAULT_DASHBOARD_APPLICATION_ID)
+    assert application.allowed_scopes == DEFAULT_DASHBOARD_APPLICATION_SCOPES
+
+
 def test_default_application_secret_actually_authenticates(app_context, db_session):
     bootstrap_default_dashboard_application(db_session)
 

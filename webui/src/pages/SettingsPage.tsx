@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { SettingsSidebar } from '../components/SettingsSidebar'
+import { ProviderSettingsModal } from '../components/ProviderSettingsModal'
+import { ProviderCard } from '../components/ProviderCard'
 import { useEmbeddingOptions } from '../api/queries'
-import { LayersIcon } from '../components/icons'
 
 export function SettingsPage() {
   const { data, isLoading } = useEmbeddingOptions()
+  const [editingProvider, setEditingProvider] = useState<string | null>(null)
+  const editingProviderOption = data?.providers.find((provider) => provider.name === editingProvider)
 
   return (
     <div className="shell">
@@ -16,21 +20,18 @@ export function SettingsPage() {
 
         <div className="provider-grid">
           {(data?.providers ?? []).map((provider) => (
-            <a key={provider.name} href={`/dashboard/configuration/embeddings/${provider.name}`} className="provider-card">
-              <div className="provider-card-icon">
-                <LayersIcon />
-              </div>
-              <div className="provider-card-body">
-                <h3>{provider.display_name}</h3>
-                <p>{provider.name}</p>
-              </div>
-              <span className={`badge ${provider.enabled ? 'status-completed' : 'status-failed'}`}>
-                {provider.enabled ? 'Connected' : 'Not connected'}
-              </span>
-            </a>
+            <ProviderCard key={provider.name} provider={provider} onOpen={() => setEditingProvider(provider.name)} />
           ))}
         </div>
       </div>
+
+      {editingProviderOption && (
+        <ProviderSettingsModal
+          providerName={editingProviderOption.name}
+          displayName={editingProviderOption.display_name}
+          onClose={() => setEditingProvider(null)}
+        />
+      )}
     </div>
   )
 }

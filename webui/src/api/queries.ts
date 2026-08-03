@@ -1,11 +1,60 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { EmbeddingOptions, JobStatus, Library, LibraryDocument, ScoredChunk } from './types'
+import type {
+  EmbeddingOptions,
+  EmbeddingProviderStatus,
+  EmbeddingProviderUpdateInput,
+  JobStatus,
+  Library,
+  LibraryDocument,
+  ScoredChunk,
+} from './types'
 
 export function useEmbeddingOptions() {
   return useQuery({
     queryKey: ['embedding-options'],
     queryFn: () => api.get<EmbeddingOptions>('/embedding-options'),
+  })
+}
+
+export function useEmbeddingProviderStatus(provider: string | null) {
+  return useQuery({
+    queryKey: ['embedding-settings', provider],
+    queryFn: () => api.get<EmbeddingProviderStatus>(`/embedding-settings/${provider}`),
+    enabled: provider !== null,
+  })
+}
+
+function useInvalidateEmbeddingQueries() {
+  const queryClient = useQueryClient()
+  return (provider: string) => {
+    queryClient.invalidateQueries({ queryKey: ['embedding-settings', provider] })
+    queryClient.invalidateQueries({ queryKey: ['embedding-options'] })
+  }
+}
+
+export function useUpdateEmbeddingProvider(provider: string) {
+  const invalidate = useInvalidateEmbeddingQueries()
+  return useMutation({
+    mutationFn: (input: EmbeddingProviderUpdateInput) =>
+      api.put<EmbeddingProviderStatus>(`/embedding-settings/${provider}`, input),
+    onSuccess: () => invalidate(provider),
+  })
+}
+
+export function useEnableEmbeddingProvider(provider: string) {
+  const invalidate = useInvalidateEmbeddingQueries()
+  return useMutation({
+    mutationFn: () => api.post<EmbeddingProviderStatus>(`/embedding-settings/${provider}/enable`),
+    onSuccess: () => invalidate(provider),
+  })
+}
+
+export function useDisableEmbeddingProvider(provider: string) {
+  const invalidate = useInvalidateEmbeddingQueries()
+  return useMutation({
+    mutationFn: () => api.post<EmbeddingProviderStatus>(`/embedding-settings/${provider}/disable`),
+    onSuccess: () => invalidate(provider),
   })
 }
 
