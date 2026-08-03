@@ -1,0 +1,108 @@
+# Publishes the knowledge-api image to Docker Hub.
+#
+# VERSION-BASED, not branch-based: a push to releases/v1 publishes ONLY when the repo-root
+# VERSION file changed in that push. The branch is the carrier; the version is the trigger. A
+# manual run (Actions -> this workflow -> Run workflow, or `gh workflow run`) ALWAYS republishes
+# the current VERSION -- the override for when a multi-merge push left the VERSION bump in a
+# non-tip commit. This mirrors nexus-kit-api's .github/workflows/build-image.yml.
+#
+# Runs the test suite first (the `test` job -- pytest, including testcontainers-backed
+# integration tests, which need the Docker daemon that's already available on ubuntu-latest
+# runners) and publishes only if it passes AND VERSION changed.
+#
+# Multi-arch (linux/amd64 + linux/arm64) so the image pulls natively on x86 hosts and Apple
+# Silicon. Tags published to Docker Hub:
+#   docker.io/sgummalla/knowledge-api:<VERSION>   (e.g. :1.0.1)
+#   docker.io/sgummalla/knowledge-api:latest
+#
+# Requires repo secrets DOCKERHUB_USERNAME + DOCKERHUB_TOKEN (a Docker Hub access token with
+# Read/Write scope -- Account Settings -> Security -> New Access Token).
+#
+# This workflow never touches this machine's local `api`/`knowledge-db` prod containers (see
+# CLAUDE.md, "Docker testing workflow") -- it only builds and pushes an image from CI.
+name: Publish Image
+
+on:
+  push:
+    branches: ["releases/v1"]
+  workflow_dispatch:
+
+env:
+  IMAGE: docker.io/sgummalla/knowledge-api
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+      - name: Run test suite
+        run: python -m pytest tests/
+
+  publish:
+    name: Publish image (on VERSION change)
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Two commits so we can diff VERSION against the previous tip.
+          fetch-depth: 2
+      - id: ver
+        name: Read version + detect a VERSION change
+        run: |
+          set -euo pipefail
+          version=$(cat VERSION)
+          # A manual run (workflow_dispatch) always republishes the current VERSION -- the
+          # escape hatch for when a push's tip commit didn't change VERSION (e.g. the bump
+          # landed in an earlier merge of a multi-merge push, so the HEAD^..HEAD diff below
+          # misses it). A normal push still publishes ONLY on a VERSION change.
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            changed=true
+          elif git diff --quiet HEAD^ HEAD -- VERSION; then
+            changed=false
+          else
+            changed=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version, changed=$changed, event=$GITHUB_EVENT_NAME"
+      - uses: docker/login-action@v3
+        if: steps.ver.outputs.changed == 'true'
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # QEMU lets the amd64 runner emulate the arm64 build for the multi-arch manifest.
+      - uses: docker/setup-qemu-action@v3
+        if: steps.ver.outputs.changed == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.ver.outputs.changed == 'true'
+      - name: Build & push image (multi-arch, versioned)
+        if: steps.ver.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.ver.outputs.changed }}" = "true" ]; then
+            echo "### Published \`sgummalla/knowledge-api:${{ steps.ver.outputs.version }}\` + \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### VERSION unchanged (\`${{ steps.ver.outputs.version }}\`) -- nothing published" >> "$GITHUB_STEP_SUMMARY"
+          fi
