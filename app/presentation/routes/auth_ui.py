@@ -24,6 +24,17 @@ auth_ui_bp = Blueprint("auth_ui", __name__)
 auth_ui_bp.add_app_template_global(csrf_token)
 
 
+def _grouped_scopes(scopes: list[str]) -> list[tuple[str, list[str]]]:
+    """Buckets scopes by the part before ":" (e.g. "libraries:read" -> "Libraries"), so the
+    dashboard can display them by resource group without a hardcoded scope->group mapping that
+    would need updating every time a scope is added."""
+    groups: dict[str, list[str]] = {}
+    for scope in scopes:
+        label = scope.split(":", 1)[0].replace("_", " ").title()
+        groups.setdefault(label, []).append(scope)
+    return list(groups.items())
+
+
 def _auth_service() -> AuthService:
     return AuthService(UserRepository(get_session()))
 
@@ -167,7 +178,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         applications=applications,
-        supported_scopes=SUPPORTED_SCOPES,
+        scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
     )
 
 
@@ -209,7 +220,7 @@ def register_application():
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
     if not _csrf_valid():
         return render_template(
-            "dashboard.html", applications=applications, supported_scopes=SUPPORTED_SCOPES,
+            "dashboard.html", applications=applications, scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
             error="Session expired — please try again.",
         ), 400
     name = request.form.get("name", "").strip()
@@ -218,14 +229,14 @@ def register_application():
         raw_secret, application = service.register(name, scopes)
     except DomainError as error:
         return render_template(
-            "dashboard.html", applications=applications, supported_scopes=SUPPORTED_SCOPES,
+            "dashboard.html", applications=applications, scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
             error=error.message,
         ), 400
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
     return render_template(
         "dashboard.html",
         applications=applications,
-        supported_scopes=SUPPORTED_SCOPES,
+        scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
         new_credential={"name": application.name, "client_id": application.id, "client_secret": raw_secret},
     )
 

@@ -54,7 +54,7 @@
       <span class="popup-hint">Hidden — shown only once, when generated. If it's lost, delete this application and register it again.</span>
     </p>
     <p class="popup-field"><strong>Allowed scopes</strong></p>
-    <ul id="scope-popup-list"></ul>
+    <div id="scope-popup-list"></div>
   </div>
 </div>
 
@@ -94,9 +94,16 @@
   <label for="name">Name</label>
   <input type="text" id="name" name="name" required>
   <label>Allowed scopes <button type="button" class="link-btn" id="select-all-scopes">Select all</button></label>
-  <div class="scope-list">
-    {% for scope in supported_scopes %}
-    <label><input type="checkbox" name="scopes" value="{{ scope }}"> {{ scope }}</label>
+  <div class="scope-groups">
+    {% for group_label, group_scopes in scope_groups %}
+    <div class="scope-group">
+      <div class="scope-group-label">{{ group_label }}</div>
+      <div class="scope-list">
+        {% for scope in group_scopes %}
+        <label><input type="checkbox" name="scopes" value="{{ scope }}"> {{ scope }}</label>
+        {% endfor %}
+      </div>
+    </div>
     {% endfor %}
   </div>
   <button type="submit">Register</button>
@@ -109,15 +116,43 @@
     var clientIdEl = document.getElementById("scope-popup-client-id");
     var list = document.getElementById("scope-popup-list");
 
+    // Mirrors _grouped_scopes() in app/presentation/routes/auth_ui.py: bucket by the part
+    // before ":" so an application's scopes render under the same resource headings as the
+    // registration checkboxes, with no hardcoded scope->group mapping to keep in sync.
+    function groupScopes(scopes) {
+      var order = [];
+      var groups = {};
+      scopes.forEach(function (scope) {
+        var label = scope.split(":")[0].replace(/_/g, " ").replace(/\b\w/g, function (c) {
+          return c.toUpperCase();
+        });
+        if (!groups[label]) {
+          groups[label] = [];
+          order.push(label);
+        }
+        groups[label].push(scope);
+      });
+      return order.map(function (label) { return [label, groups[label]]; });
+    }
+
     document.querySelectorAll(".info-icon-btn").forEach(function (btn) {
       btn.addEventListener("click", function () {
         title.textContent = btn.dataset.name;
         clientIdEl.textContent = btn.dataset.clientId || "";
         list.innerHTML = "";
-        (btn.dataset.scopes || "").split(", ").filter(Boolean).forEach(function (scope) {
-          var li = document.createElement("li");
-          li.textContent = scope;
-          list.appendChild(li);
+        var scopes = (btn.dataset.scopes || "").split(", ").filter(Boolean);
+        groupScopes(scopes).forEach(function (pair) {
+          var heading = document.createElement("div");
+          heading.className = "scope-group-label";
+          heading.textContent = pair[0];
+          list.appendChild(heading);
+          var ul = document.createElement("ul");
+          pair[1].forEach(function (scope) {
+            var li = document.createElement("li");
+            li.textContent = scope;
+            ul.appendChild(li);
+          });
+          list.appendChild(ul);
         });
         overlay.hidden = false;
       });
