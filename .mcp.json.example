@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "rag-knowledge": {
+    "knowledge": {
       "type": "http",
       "url": "http://127.0.0.1:13103/mcp"
     }

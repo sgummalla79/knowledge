@@ -16,7 +16,7 @@ from app.infrastructure.web.url_safety import assert_public_url
 
 logger = logging.getLogger(__name__)
 
-_ROBOTS_USER_AGENT = "knowledge-api-web-ingestion"
+_ROBOTS_USER_AGENT = "knowledge-web-ingestion"
 
 OnPageResult = Callable[[str, Document | None, Exception | None], None]
 

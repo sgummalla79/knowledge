@@ -23,7 +23,7 @@ _JWT_ALGORITHM = "HS256"
 
 
 class KnowledgeApiTokenVerifier(TokenVerifier):
-    """Validates the same JWTs knowledge-api's own /oauth/token issues. Decodes directly with
+    """Validates the same JWTs knowledge's own /oauth/token issues. Decodes directly with
     PyJWT (not app.infrastructure.auth.jwt_tokens.decode_access_token) since that helper reads the
     signing key off Flask's `current_app`, and this process is a standalone MCP server, never a
     Flask request."""
@@ -53,7 +53,7 @@ mcp = FastMCP(
     port=config.mcp_http_port,
     streamable_http_path="/mcp",
     auth=AuthSettings(
-        # knowledge-api's Flask app is the authorization server (POST /oauth/authorize,
+        # knowledge's Flask app is the authorization server (POST /oauth/authorize,
         # /oauth/token, /oauth/register, /.well-known/oauth-authorization-server all live there);
         # this process only ever verifies the tokens it issues, via KnowledgeApiTokenVerifier.
         issuer_url=f"http://127.0.0.1:{config.port}",
@@ -84,7 +84,7 @@ async def _protected_resource_metadata(request: Request) -> JSONResponse:
     # under the *other* one looks logged-out (session cookies don't cross hostnames even on the
     # same machine). This route shadows the SDK's static one (see __main__ below) and echoes back
     # whichever recognized loopback host the request actually used for both fields — same hostname
-    # as the request, but knowledge-api's own port (`config.port`) for `authorization_servers`,
+    # as the request, but knowledge's own port (`config.port`) for `authorization_servers`,
     # since that's a different process on a different port. Any other Host header (never
     # legitimate for a loopback-only server) falls back to the static configured URLs rather than
     # being reflected back unchecked.

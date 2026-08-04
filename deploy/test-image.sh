@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds and verifies a knowledge-api image (tagged knowledge-api:testing) in complete isolation
-# from the PROD "api"/"knowledge-db" containers (image knowledge-api:prod) — never stops,
+# Builds and verifies a knowledge image (tagged knowledge:testing) in complete isolation
+# from the PROD "api"/"knowledge-db" containers (image knowledge:prod) — never stops,
 # rebuilds, or otherwise touches them. See CLAUDE.md, "Docker testing workflow", for why this
 # exists.
 #
@@ -10,18 +10,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Explicit, distinct project name: without it, compose derives the project name from the directory
-# ("knowledge-api"), the same name the prod docker-compose.yml stack uses, which makes compose
-# treat the prod "knowledge-api"/"knowledge-db" containers as orphans of *this* project (harmless
+# ("knowledge"), the same name the prod docker-compose.yml stack uses, which makes compose
+# treat the prod "knowledge"/"knowledge-db" containers as orphans of *this* project (harmless
 # without --remove-orphans, but confusing). A distinct name keeps the two stacks unambiguously
 # separate.
-COMPOSE="docker compose -p knowledge-api-test -f deploy/docker-compose.test.yml"
+COMPOSE="docker compose -p knowledge-test -f deploy/docker-compose.test.yml"
 
 echo "==> Running pytest (unit + integration; integration tests use ephemeral testcontainers, not this compose stack)"
 PYTHON=python3
 [ -x .venv/bin/python ] && PYTHON=.venv/bin/python
 "$PYTHON" -m pytest tests/
 
-echo "==> Building isolated test image + booting knowledge-api-test / knowledge-db-test"
+echo "==> Building isolated test image + booting knowledge-test / knowledge-db-test"
 $COMPOSE up -d --build
 
 cleanup() {
@@ -30,7 +30,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "==> Waiting for knowledge-api-test to become healthy on :13199"
+echo "==> Waiting for knowledge-test to become healthy on :13199"
 healthy=false
 for _ in $(seq 1 30); do
   if curl -sf http://localhost:13199/health >/dev/null 2>&1; then
@@ -41,10 +41,10 @@ for _ in $(seq 1 30); do
 done
 
 if [ "$healthy" != true ]; then
-  echo "!! knowledge-api-test never became healthy — check: docker compose -f deploy/docker-compose.test.yml logs api-test"
+  echo "!! knowledge-test never became healthy — check: docker compose -f deploy/docker-compose.test.yml logs api-test"
   exit 1
 fi
-echo "==> knowledge-api-test is up"
+echo "==> knowledge-test is up"
 
 echo "==> Checking the MCP HTTP server came up alongside gunicorn (deploy/entrypoint.sh)"
 # streamable-http rejects a bare GET (it isn't a full MCP protocol handshake), so "connection
