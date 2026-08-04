@@ -36,9 +36,9 @@ EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
 # — base_url is mandatory for these, not just an optional override.
 EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
-# Display labels for the dashboard's per-provider Configuration pages — the "openai_compatible"
-# registry key isn't UI-friendly on its own. Data-driven so the template never hardcodes a
-# provider's label inline (Open/Closed: a new provider needs an entry here, not a template edit).
+# Display labels for the Settings > Providers page — the "openai_compatible" registry key isn't
+# UI-friendly on its own. Data-driven so the React SPA never hardcodes a provider's label inline
+# (Open/Closed: a new provider needs an entry here, not a frontend edit).
 EMBEDDING_PROVIDER_DISPLAY_NAMES = {
     "voyage": "Voyage",
     "ollama": "Ollama",
