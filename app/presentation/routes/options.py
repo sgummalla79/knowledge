@@ -44,9 +44,8 @@ def get_embedding_options():
             "providers": [
                 {
                     "name": status.provider,
-                    # Single source of truth is app/constants.py — also what the Jinja dashboard's
-                    # per-provider Configuration pages use, so a new provider needs an entry there
-                    # once, not a duplicate mapping kept in sync in the SPA too.
+                    # Single source of truth is app/constants.py, so a new provider needs an entry
+                    # there once, not a duplicate mapping kept in sync in the SPA too.
                     "display_name": EMBEDDING_PROVIDER_DISPLAY_NAMES.get(status.provider, status.provider),
                     "enabled": status.enabled,
                     "configured": status.configured,

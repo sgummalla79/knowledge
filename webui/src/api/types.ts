@@ -83,3 +83,38 @@ export interface EmbeddingProviderUpdateInput {
   chunk_size: number
   chunk_overlap: number
 }
+
+export type ApplicationTokenStatus = 'active' | 'revoked' | 'none'
+
+export interface Application {
+  id: string
+  name: string
+  allowed_scopes: string[]
+  token_status: ApplicationTokenStatus
+  last_used_at: string | null
+}
+
+export interface ScopeGroup {
+  label: string
+  scopes: string[]
+}
+
+export interface WebCrawlSettings {
+  user_agent: string
+  updated_at: string | null
+}
+
+export type CrawlPageState = 'pending' | 'completed' | 'failed'
+
+export interface CrawlPageStatus {
+  status: CrawlPageState
+  document_id: string | null
+  error: string | null
+}
+
+export interface CrawlJobStatus {
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  seed_url: string
+  error: string | null
+  pages: Record<string, CrawlPageStatus>
+}

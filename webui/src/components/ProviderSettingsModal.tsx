@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Modal } from './Modal'
+import { useToast } from './toastContext'
 import { useEmbeddingOptions, useEmbeddingProviderStatus, useUpdateEmbeddingProvider } from '../api/queries'
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function ProviderSettingsModal({ providerName, displayName, onClose }: Props) {
+  const { showToast } = useToast()
   const { data: options } = useEmbeddingOptions()
   const { data: status, isLoading } = useEmbeddingProviderStatus(providerName)
   const option = options?.providers.find((candidate) => candidate.name === providerName)
@@ -35,27 +37,28 @@ export function ProviderSettingsModal({ providerName, displayName, onClose }: Pr
   }, [status, initialized])
 
   const update = useUpdateEmbeddingProvider(providerName)
-  const error = update.error?.message
 
   const lockedByOther = status?.locked_by_other ?? false
   const locked = status?.locked ?? false
 
   function handleSave(event: React.FormEvent) {
     event.preventDefault()
-    update.mutate({
-      model: model.trim(),
-      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
-      ...(option?.base_url_supported ? { base_url: baseUrl.trim() || null } : {}),
-      dimensions: Number(dimensions),
-      chunk_size: Number(chunkSize),
-      chunk_overlap: Number(chunkOverlap),
-    })
+    update.mutate(
+      {
+        model: model.trim(),
+        ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+        ...(option?.base_url_supported ? { base_url: baseUrl.trim() || null } : {}),
+        dimensions: Number(dimensions),
+        chunk_size: Number(chunkSize),
+        chunk_overlap: Number(chunkOverlap),
+      },
+      { onError: (error) => showToast(error.message) },
+    )
   }
 
   return (
     <Modal title={`${displayName} Embeddings`} onClose={onClose} wide>
       {isLoading && <p className="subtitle">Loading…</p>}
-      {error && <div className="error-banner">{error}</div>}
 
       {status && (
         <form onSubmit={handleSave}>

@@ -1,7 +1,7 @@
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, jsonify, redirect, request, url_for
 
 from app.application.authorize_service import AuthorizeService
 from app.application.client_registration_service import ClientRegistrationService
@@ -9,16 +9,16 @@ from app.application.token_service import TokenService
 from app.constants import SUPPORTED_SCOPES
 from app.container import get_session
 from app.domain import error_codes
-from app.domain.errors import DomainError, InvalidRedirectUriError, ValidationError
+from app.domain.errors import AuthenticationError, DomainError, InvalidRedirectUriError, ValidationError
 from app.infrastructure.auth.pkce import SUPPORTED_CODE_CHALLENGE_METHOD
 from app.infrastructure.repositories.application_repository import ApplicationRepository
 from app.infrastructure.repositories.authorization_code_repository import AuthorizationCodeRepository
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.presentation.routes.auth_ui import login_required
-from app.presentation.web.csrf import csrf_token, validate_csrf
+from app.presentation.web.csrf import validate_csrf
+from app.presentation.web.spa import serve_spa_shell
 
 oauth_bp = Blueprint("oauth", __name__)
-oauth_bp.add_app_template_global(csrf_token)
 
 
 def _service() -> TokenService:
@@ -118,6 +118,21 @@ def _authorize_params(source) -> dict:
     }
 
 
+def _authorize_params_from_json(body: dict) -> dict:
+    # The React consent page (AuthorizePage.tsx) POSTs back exactly the params it was handed by
+    # the GET request below, as JSON — scope travels as an array here (what GET already injected
+    # into window.__OAUTH_AUTHORIZE__), not the space-separated string request.args uses.
+    return {
+        "response_type": body.get("response_type", ""),
+        "client_id": body.get("client_id", ""),
+        "redirect_uri": body.get("redirect_uri", ""),
+        "scope": body.get("scope") or [],
+        "state": body.get("state", ""),
+        "code_challenge": body.get("code_challenge", ""),
+        "code_challenge_method": body.get("code_challenge_method", ""),
+    }
+
+
 def _append_query_params(url: str, extra: dict) -> str:
     parts = urlsplit(url)
     query = dict(parse_qsl(parts.query))
@@ -152,13 +167,13 @@ def authorize():
     params = _authorize_params(request.args)
     client_id = _parsed_client_id(params["client_id"])
     if client_id is None:
-        return render_template("oauth_error.html", message="client_id must be a valid UUID."), 400
+        return serve_spa_shell(extra_globals={"OAUTH_ERROR": "client_id must be a valid UUID."})
 
     service = _authorize_service()
     try:
         application = service.validate_request(client_id, params["redirect_uri"])
     except InvalidRedirectUriError as error:
-        return render_template("oauth_error.html", message=error.message), 400
+        return serve_spa_shell(extra_globals={"OAUTH_ERROR": error.message})
 
     # From here redirect_uri is trusted (registered to this application), so any further problem
     # is reported back to the client via redirect rather than an error page.
@@ -171,28 +186,33 @@ def authorize():
     except DomainError as error:
         return redirect(_error_redirect(params["redirect_uri"], error.code, params["state"]))
 
-    return render_template("authorize.html", application=application, params=params)
+    return serve_spa_shell(
+        extra_globals={"OAUTH_AUTHORIZE": {"application_name": application.name, "params": params}}
+    )
 
 
 @oauth_bp.post("/oauth/authorize")
 @login_required
 def authorize_submit():
-    params = _authorize_params(request.form)
-    if not validate_csrf(request.form.get("csrf_token")):
-        return render_template("oauth_error.html", message="Session expired — please try again."), 400
+    # Session+CSRF authenticated JSON, matching /login and /change-password's convention — the
+    # React consent page (AuthorizePage.tsx) POSTs here with the params it was handed by the GET
+    # above, plus the chosen action. Not part of the bearer-token API: this is a browser-session
+    # flow, never something a scoped access token would call.
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+
+    body = request.get_json(silent=True) or {}
+    params = _authorize_params_from_json(body)
 
     client_id = _parsed_client_id(params["client_id"])
     if client_id is None:
-        return render_template("oauth_error.html", message="client_id must be a valid UUID."), 400
+        raise ValidationError(error_codes.INVALID_REQUEST, "client_id must be a valid UUID.", field="client_id")
 
     service = _authorize_service()
-    try:
-        application = service.validate_request(client_id, params["redirect_uri"])
-    except InvalidRedirectUriError as error:
-        return render_template("oauth_error.html", message=error.message), 400
+    application = service.validate_request(client_id, params["redirect_uri"])
 
-    if request.form.get("action") != "approve":
-        return redirect(_error_redirect(params["redirect_uri"], error_codes.ACCESS_DENIED, params["state"]))
+    if body.get("action") != "approve":
+        return jsonify({"redirect": _error_redirect(params["redirect_uri"], error_codes.ACCESS_DENIED, params["state"])})
 
     try:
         service.validate_authorization_params(
@@ -206,9 +226,9 @@ def authorize_submit():
             params["scope"],
         )
     except DomainError as error:
-        return redirect(_error_redirect(params["redirect_uri"], error.code, params["state"]))
+        return jsonify({"redirect": _error_redirect(params["redirect_uri"], error.code, params["state"])})
 
-    return redirect(_code_redirect(params["redirect_uri"], code, params["state"]))
+    return jsonify({"redirect": _code_redirect(params["redirect_uri"], code, params["state"])})
 
 
 @oauth_bp.get("/.well-known/oauth-authorization-server")

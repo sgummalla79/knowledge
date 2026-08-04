@@ -94,12 +94,6 @@ def test_login_missing_csrf_rejected(client):
     assert response.status_code == 401
 
 
-def test_dashboard_requires_login(client):
-    response = client.get("/dashboard")
-    assert response.status_code == 302
-    assert response.headers["Location"].startswith("/login")
-
-
 def test_change_password_requires_login(client):
     response = client.get("/change-password")
     assert response.status_code == 302

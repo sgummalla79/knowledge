@@ -1,10 +1,11 @@
 """End-to-end smoke check against the isolated test stack (docker-compose.test.yml, port 13199).
 
 Drives the real HTTP surface exactly as a human/client would: log in via the React login page's
-JSON API (app/presentation/routes/auth_ui.py), register an OAuth2 application via the still-
-server-rendered dashboard (JSON-API doesn't cover app registration by design), mint a token, then
-create a library — proving the DB, migrations, auth/scope machinery, and core CRUD path all work,
-not just that /health responds.
+JSON API (app/presentation/routes/auth_ui.py), register an OAuth2 application via the React
+Settings > Applications page's JSON API (application registration is deliberately never part of
+the bearer-token OAuth2 surface — see that route module's _require_csrf_header), mint a token,
+then create a library — proving the DB, migrations, auth/scope machinery, and core CRUD path all
+work, not just that /health responds.
 
 No embedding provider is enabled by default — every provider starts disabled until an admin
 configures and enables one via its dashboard page (see
@@ -27,14 +28,10 @@ _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
 _APP_NAME = "smoke-test"
 _REQUIRED_SCOPES = ["libraries:write", "libraries:read"]
-# /login and /change-password serve the React SPA shell (app/presentation/web/spa.py), which
-# carries its CSRF token as a JS global rather than a Jinja hidden field — /dashboard and its
-# Applications form are still server-rendered Jinja, using the older hidden-field convention.
-# Both are the same session-stored token value, just presented two different ways.
+# /login, /change-password, and /settings all serve the React SPA shell (app/presentation/web/
+# spa.py), which carries its CSRF token as a JS global — every JSON POST in this app (including
+# application registration) sends it back via the X-CSRF-Token header, not a form field.
 _CSRF_JS_RE = re.compile(r'window\.__CSRF_TOKEN__="([^"]+)"')
-_CSRF_FORM_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
-_CLIENT_ID_RE = re.compile(r'id="new-credential-client-id">([^<]+)<')
-_CLIENT_SECRET_RE = re.compile(r'id="new-credential-client-secret">([^<]+)<')
 
 
 def _extract(pattern: re.Pattern, text: str, what: str) -> str:
@@ -67,16 +64,15 @@ def _register_application_and_get_token() -> str:
     )
     change_response.raise_for_status()
 
-    dashboard_page = session.get(f"{BASE_URL}/dashboard")
-    dashboard_page.raise_for_status()
-    csrf = _extract(_CSRF_FORM_RE, dashboard_page.text, "dashboard csrf_token")
     register = session.post(
         f"{BASE_URL}/dashboard/applications",
-        data=[("csrf_token", csrf), ("name", _APP_NAME)] + [("scopes", scope) for scope in _REQUIRED_SCOPES],
+        json={"name": _APP_NAME, "scopes": _REQUIRED_SCOPES},
+        headers={"X-CSRF-Token": csrf},
     )
     register.raise_for_status()
-    client_id = _extract(_CLIENT_ID_RE, register.text, "new client_id")
-    client_secret = _extract(_CLIENT_SECRET_RE, register.text, "new client_secret")
+    body = register.json()
+    client_id = body["id"]
+    client_secret = body["client_secret"]
 
     token_response = requests.post(
         f"{BASE_URL}/oauth/token",

@@ -7,18 +7,16 @@ interface Props {
   submitLabel: string
   initial?: Library
   pending: boolean
-  error?: string
   onClose: () => void
   onSubmit: (values: { name: string; description: string | null }) => void
 }
 
-export function LibraryFormModal({ title, submitLabel, initial, pending, error, onClose, onSubmit }: Props) {
+export function LibraryFormModal({ title, submitLabel, initial, pending, onClose, onSubmit }: Props) {
   const [name, setName] = useState(initial?.name ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
 
   return (
     <Modal title={title} onClose={onClose}>
-      {error && <div className="error-banner">{error}</div>}
       <form
         onSubmit={(event) => {
           event.preventDefault()

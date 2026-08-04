@@ -6,6 +6,7 @@ from app.presentation.routes.oauth import oauth_bp
 from app.presentation.routes.options import options_bp
 from app.presentation.routes.query import query_bp
 from app.presentation.routes.search_settings import search_settings_bp
+from app.presentation.routes.web_crawl_settings import web_crawl_settings_bp
 from app.presentation.routes.workspace import workspace_bp
 
 ALL_BLUEPRINTS = [
@@ -15,6 +16,7 @@ ALL_BLUEPRINTS = [
     options_bp,
     embedding_settings_bp,
     search_settings_bp,
+    web_crawl_settings_bp,
     auth_ui_bp,
     oauth_bp,
     workspace_bp,

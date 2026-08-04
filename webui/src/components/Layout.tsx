@@ -1,14 +1,22 @@
 import { useState } from 'react'
-import { Link, Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useCreateLibrary, useDeleteLibrary, useLibraries, useUpdateLibrary } from '../api/queries'
-import { FolderIcon, PencilIcon, PlusIcon, TrashIcon } from './icons'
+import { LibraryIcon, PlusIcon } from './icons'
 import { LibraryFormModal } from './LibraryFormModal'
+import { LibraryItemMenu } from './LibraryItemMenu'
 import { AccountMenu } from './AccountMenu'
+import { useToast } from './toastContext'
 import type { Library } from '../api/types'
 
+export interface WorkspaceContext {
+  openCreateLibrary: () => void
+}
+
 export function Layout() {
+  const { showToast } = useToast()
   const { data: libraries } = useLibraries()
   const navigate = useNavigate()
+  const location = useLocation()
   const params = useParams<{ libraryId?: string }>()
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<Library | null>(null)
@@ -21,53 +29,38 @@ export function Layout() {
     if (!window.confirm(`Delete "${library.name}"? This also deletes its documents.`)) return
     deleteLibrary.mutate(library.id, {
       onSuccess: () => {
-        if (params.libraryId === library.id) navigate('/')
+        if (params.libraryId === library.id) navigate('/workspace')
       },
+      onError: (error) => showToast(error.message),
     })
   }
 
   return (
     <div className="shell">
       <aside className="rail">
-        <a href="/dashboard" className="rail-brand">
+        <a href="/workspace" className="rail-brand">
           <img src="/static/brand-icon.png" alt="" />
           <span>Knowledge</span>
         </a>
         <div className="rail-header">
-          <h2>Libraries</h2>
-          <button type="button" className="icon-btn" onClick={() => setCreateOpen(true)} aria-label="New library">
-            <PlusIcon />
-          </button>
+          <div className="rail-header-row">
+            <h2>
+              <Link to="/workspace" className={`rail-header-link ${location.pathname === '/workspace' ? 'active' : ''}`}>
+                <LibraryIcon />
+                Libraries
+              </Link>
+            </h2>
+            <button type="button" className="icon-btn" onClick={() => setCreateOpen(true)} aria-label="New library">
+              <PlusIcon />
+            </button>
+          </div>
         </div>
-        <nav className="rail-list">
+        <nav className="rail-list rail-list-tree">
           {(libraries ?? []).map((library) => (
-            <Link key={library.id} to={`/libraries/${library.id}`} className={`rail-item ${params.libraryId === library.id ? 'active' : ''}`}>
-              <FolderIcon />
+            <Link key={library.id} to={`/workspace/libraries/${library.id}`} className={`rail-item ${params.libraryId === library.id ? 'active' : ''}`}>
+              <LibraryIcon />
               <span>{library.name}</span>
-              <span className="rail-item-actions">
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="Rename library"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    setEditing(library)
-                  }}
-                >
-                  <PencilIcon />
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="Delete library"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    handleDelete(library)
-                  }}
-                >
-                  <TrashIcon />
-                </button>
-              </span>
+              <LibraryItemMenu onRename={() => setEditing(library)} onDelete={() => handleDelete(library)} />
             </Link>
           ))}
         </nav>
@@ -76,7 +69,7 @@ export function Layout() {
         </div>
       </aside>
       <div className="main">
-        <Outlet />
+        <Outlet context={{ openCreateLibrary: () => setCreateOpen(true) } satisfies WorkspaceContext} />
       </div>
 
       {createOpen && (
@@ -84,14 +77,17 @@ export function Layout() {
           title="New library"
           submitLabel="Create"
           pending={createLibrary.isPending}
-          error={createLibrary.error?.message}
           onClose={() => {
             setCreateOpen(false)
             createLibrary.reset()
           }}
           onSubmit={(values) =>
             createLibrary.mutate(values, {
-              onSuccess: () => setCreateOpen(false),
+              onSuccess: (library) => {
+                setCreateOpen(false)
+                navigate(`/workspace/libraries/${library.id}`)
+              },
+              onError: (error) => showToast(error.message),
             })
           }
         />
@@ -103,7 +99,6 @@ export function Layout() {
           submitLabel="Save"
           initial={editing}
           pending={updateLibrary.isPending}
-          error={updateLibrary.error?.message}
           onClose={() => {
             setEditing(null)
             updateLibrary.reset()
@@ -111,6 +106,7 @@ export function Layout() {
           onSubmit={(values) =>
             updateLibrary.mutate(values, {
               onSuccess: () => setEditing(null),
+              onError: (error) => showToast(error.message),
             })
           }
         />

@@ -1,23 +1,23 @@
 import { useState } from 'react'
 import { AuthLayout } from '../components/AuthLayout'
 import { PasswordField } from '../components/PasswordField'
+import { useToast } from '../components/toastContext'
 import { changePassword } from '../api/auth'
 
 export function ChangePasswordPage() {
+  const { showToast } = useToast()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
-    setError(null)
     setPending(true)
     try {
       const result = await changePassword(newPassword, confirmPassword)
       window.location.href = result.redirect
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not change password.')
+      showToast(err instanceof Error ? err.message : 'Could not change password.')
       setPending(false)
     }
   }
@@ -28,7 +28,6 @@ export function ChangePasswordPage() {
         Choose a new password to continue.
       </p>
       <form onSubmit={handleSubmit}>
-        {error && <div className="error-banner">{error}</div>}
         <PasswordField id="new-password" placeholder="New password" value={newPassword} onChange={setNewPassword} />
         <PasswordField
           id="confirm-password"

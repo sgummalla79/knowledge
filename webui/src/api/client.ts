@@ -27,7 +27,7 @@ interface RequestOptions {
   formData?: FormData
 }
 
-async function request<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {
+async function rawRequest(path: string, options: RequestOptions = {}, retried = false): Promise<Response> {
   if (accessToken === null) await mintToken()
 
   const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` }
@@ -43,18 +43,33 @@ async function request<T>(path: string, options: RequestOptions = {}, retried = 
 
   if (response.status === 401 && !retried) {
     accessToken = null
-    return request<T>(path, options, true)
+    return rawRequest(path, options, true)
   }
   if (!response.ok) {
     const { message, code } = await parseErrorBody(response)
     throw new ApiError(message, response.status, code)
   }
+  return response
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await rawRequest(path, options)
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
+// For list endpoints that report their total row count via X-Total-Count (see PaginationQuery in
+// app/presentation/schemas.py) rather than in the JSON body itself.
+async function requestPaginated<T>(path: string): Promise<{ items: T[]; total: number }> {
+  const response = await rawRequest(path)
+  const items = (await response.json()) as T[]
+  const total = Number(response.headers.get('X-Total-Count') ?? items.length)
+  return { items, total }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getPaginated: <T>(path: string) => requestPaginated<T>(path),
   post: <T>(path: string, json?: unknown) => request<T>(path, { method: 'POST', json }),
   patch: <T>(path: string, json?: unknown) => request<T>(path, { method: 'PATCH', json }),
   put: <T>(path: string, json?: unknown) => request<T>(path, { method: 'PUT', json }),

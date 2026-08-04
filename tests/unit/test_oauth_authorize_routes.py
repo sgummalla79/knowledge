@@ -9,7 +9,11 @@ from app.domain.entities import Application
 from app.domain.errors import InvalidRedirectUriError
 
 # HTTP-layer only — AuthorizeService/ClientRegistrationService are mocked. Real behavior is
-# covered by tests/integration/test_authorization_code_flow.py.
+# covered by tests/integration/test_authorization_code_flow.py. GET /oauth/authorize serves the
+# React SPA shell (app/presentation/web/spa.py) with the consent request injected as a JS global
+# (window.__OAUTH_AUTHORIZE__) or an error message (window.__OAUTH_ERROR__) — see
+# webui/src/pages/AuthorizePage.tsx. POST is JSON, CSRF via the X-CSRF-Token header, matching
+# /login and /change-password's convention.
 
 
 @pytest.fixture()
@@ -51,6 +55,20 @@ def _authorize_query(**overrides):
     return params
 
 
+def _authorize_body(**overrides):
+    params = dict(
+        response_type="code",
+        client_id=str(uuid4()),
+        redirect_uri="http://127.0.0.1:9999/callback",
+        scope=["libraries:read"],
+        state="xyz",
+        code_challenge="abc123",
+        code_challenge_method="S256",
+    )
+    params.update(overrides)
+    return params
+
+
 def test_authorize_get_requires_login(client):
     response = client.get("/oauth/authorize", query_string=_authorize_query())
     assert response.status_code == 302
@@ -66,20 +84,22 @@ def test_authorize_get_renders_consent_screen(client):
     assert response.status_code == 200
     assert b"claude-code" in response.data
     assert b"libraries:read" in response.data
+    assert b"__OAUTH_AUTHORIZE__" in response.data
 
 
-def test_authorize_get_invalid_redirect_uri_renders_error_page_not_redirect(client):
+def test_authorize_get_invalid_redirect_uri_injects_error_not_consent(client):
     _logged_in(client)
     with patch(
         "app.presentation.routes.oauth.AuthorizeService.validate_request",
         side_effect=InvalidRedirectUriError(),
     ):
         response = client.get("/oauth/authorize", query_string=_authorize_query())
-    assert response.status_code == 400
-    assert b"redirect_uri" in response.data.lower() or b"client_id" in response.data.lower()
+    assert response.status_code == 200
+    assert b"__OAUTH_ERROR__" in response.data
+    assert b"__OAUTH_AUTHORIZE__" not in response.data
 
 
-def test_authorize_post_approve_redirects_with_code(client):
+def test_authorize_post_approve_returns_redirect_with_code(client):
     csrf = _logged_in(client)
     application = _application()
     with (
@@ -88,32 +108,36 @@ def test_authorize_post_approve_redirects_with_code(client):
     ):
         response = client.post(
             "/oauth/authorize",
-            data={**_authorize_query(), "csrf_token": csrf, "action": "approve"},
+            json={**_authorize_body(), "action": "approve"},
+            headers={"X-CSRF-Token": csrf},
         )
-    assert response.status_code == 302
-    assert "code=the-code" in response.headers["Location"]
-    assert "state=xyz" in response.headers["Location"]
+    assert response.status_code == 200
+    redirect = response.get_json()["redirect"]
+    assert "code=the-code" in redirect
+    assert "state=xyz" in redirect
 
 
-def test_authorize_post_deny_redirects_with_access_denied(client):
+def test_authorize_post_deny_returns_redirect_with_access_denied(client):
     csrf = _logged_in(client)
     application = _application()
     with patch("app.presentation.routes.oauth.AuthorizeService.validate_request", return_value=application):
         response = client.post(
             "/oauth/authorize",
-            data={**_authorize_query(), "csrf_token": csrf, "action": "deny"},
+            json={**_authorize_body(), "action": "deny"},
+            headers={"X-CSRF-Token": csrf},
         )
-    assert response.status_code == 302
-    assert "error=access_denied" in response.headers["Location"]
+    assert response.status_code == 200
+    assert "error=access_denied" in response.get_json()["redirect"]
 
 
 def test_authorize_post_missing_csrf_rejected(client):
     _logged_in(client)
     response = client.post(
         "/oauth/authorize",
-        data={**_authorize_query(), "csrf_token": "wrong", "action": "approve"},
+        json={**_authorize_body(), "action": "approve"},
+        headers={"X-CSRF-Token": "wrong"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 401
 
 
 def test_register_client_returns_credentials(client):

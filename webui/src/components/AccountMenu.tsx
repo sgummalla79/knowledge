@@ -27,7 +27,6 @@ export function AccountMenu() {
     <div className="account-menu" ref={containerRef}>
       {open && (
         <div className="account-menu-popover">
-          <div className="account-menu-user">{username}</div>
           <Link to="/settings" className="account-menu-item">
             <GearIcon />
             Settings

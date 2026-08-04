@@ -1,5 +1,6 @@
 import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
+import type { OAuthAuthorizeParams } from './shell'
 
 // Session+CSRF authenticated, not bearer-token — these run before any access token can exist
 // (minting one itself requires being logged in), so they bypass client.ts's `api` helper
@@ -28,4 +29,8 @@ export function changePassword(newPassword: string, confirmPassword: string) {
 
 export async function signOut(): Promise<void> {
   await fetch('/logout', { method: 'POST', credentials: 'include' })
+}
+
+export function submitOauthAuthorize(params: OAuthAuthorizeParams, action: 'approve' | 'deny') {
+  return post('/oauth/authorize', { ...params, action })
 }

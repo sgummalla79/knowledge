@@ -1,17 +1,18 @@
 import { ToggleSwitch } from './ToggleSwitch'
 import { LayersIcon } from './icons'
+import { useToast } from './toastContext'
 import { useDisableEmbeddingProvider, useEnableEmbeddingProvider } from '../api/queries'
 import type { EmbeddingProviderOption } from '../api/types'
 
 export function ProviderCard({ provider, onOpen }: { provider: EmbeddingProviderOption; onOpen: () => void }) {
+  const { showToast } = useToast()
   const enable = useEnableEmbeddingProvider(provider.name)
   const disable = useDisableEmbeddingProvider(provider.name)
-  const error = enable.error?.message ?? disable.error?.message
 
   function handleToggle(event: React.MouseEvent) {
     event.stopPropagation()
-    if (provider.enabled) disable.mutate()
-    else enable.mutate()
+    const mutation = provider.enabled ? disable : enable
+    mutation.mutate(undefined, { onError: (error) => showToast(error.message) })
   }
 
   return (
@@ -28,7 +29,6 @@ export function ProviderCard({ provider, onOpen }: { provider: EmbeddingProvider
           onClick={handleToggle}
         />
       </div>
-      {error && <p className="provider-card-error">{error}</p>}
     </div>
   )
 }

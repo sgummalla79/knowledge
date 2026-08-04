@@ -1,20 +1,28 @@
 import { useState } from 'react'
-import { SettingsSidebar } from '../components/SettingsSidebar'
 import { ProviderSettingsModal } from '../components/ProviderSettingsModal'
 import { ProviderCard } from '../components/ProviderCard'
+import { LayersIcon } from '../components/icons'
 import { useEmbeddingOptions } from '../api/queries'
 
-export function SettingsPage() {
+export function ProvidersPage() {
   const { data, isLoading } = useEmbeddingOptions()
   const [editingProvider, setEditingProvider] = useState<string | null>(null)
   const editingProviderOption = data?.providers.find((provider) => provider.name === editingProvider)
 
   return (
-    <div className="shell">
-      <SettingsSidebar />
-      <div className="main">
-        <h1>Providers</h1>
-        <p className="subtitle">Connect your embedding providers. Click a tile to manage credentials and models.</p>
+    <>
+      <div className="settings-narrow">
+        <div className="page-header">
+          <div className="page-header-left">
+            <div className="page-header-icon">
+              <LayersIcon />
+            </div>
+            <div>
+              <h1>Providers</h1>
+              <p className="subtitle">Connect your embedding providers. Click a tile to manage credentials and models.</p>
+            </div>
+          </div>
+        </div>
 
         {isLoading && <p className="subtitle">Loading…</p>}
 
@@ -32,6 +40,6 @@ export function SettingsPage() {
           onClose={() => setEditingProvider(null)}
         />
       )}
-    </div>
+    </>
   )
 }
