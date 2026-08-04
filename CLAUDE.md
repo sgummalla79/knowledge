@@ -1,7 +1,7 @@
-# knowledge-api Project Instructions
+# knowledge Project Instructions
 
-This application is called **knowledge-api** (container/image name: `knowledge-api`, prod image
-tag `knowledge-api:prod`). It only runs locally right now (no real production deployment), but the
+This application is called **knowledge** (container/image name: `knowledge`, prod image
+tag `knowledge:prod`). It only runs locally right now (no real production deployment), but the
 running `api` container is what **knowledge-store** (the desktop app) and any MCP clients are
 actively depending on — call it **prod** to keep it unambiguous from throwaway test containers.
 
@@ -195,6 +195,24 @@ stack as the rest of the API — see session history item 8.
     "dashboard sidebar," "Jinja admin pages," or a `/dashboard/configuration`,
     `/dashboard/schema`, `/api-docs`, `authorize.html`, or `oauth_error.html` route/template
     outside this item's own history, that reference is stale — none of it exists anymore.**
+14. **Renamed `knowledge-api` → `knowledge`** (GitHub repo, the repo directory itself,
+    container/image names, and every in-repo reference) — the project had outgrown the "-api"
+    suffix: it's a full RAG backend with an MCP server, OAuth2 stack, and React SPA, not just a
+    bare API. Image tag `knowledge-api:prod` → `knowledge:prod`, container name `knowledge-api` →
+    `knowledge`, test image/container `knowledge-api:testing`/`knowledge-api-test` →
+    `knowledge:testing`/`knowledge-test`, compose project names in `deploy/promote-image.sh`/
+    `deploy/test-image.sh` updated to match. Docker Hub path
+    `docker.io/sgummalla/knowledge-api` → `docker.io/sgummalla/knowledge` (same account, renamed
+    repo) in `.github/workflows/publish-image.yml` and `docs/DOCKER_HUB.md`. GitHub repo
+    `sgummalla79/knowledge-api` → `sgummalla79/knowledge`. Also renamed the internal
+    `_knowledge_api_json_handler` logging marker, the `_ROBOTS_USER_AGENT` outbound crawl
+    User-Agent string, and the two secret-derivation labels in
+    `app/infrastructure/auth/secrets.py` (safe to change — those secrets are re-derived from
+    `SECRET_KEY` on every use, never stored, so bootstrap and client stay in sync automatically).
+    `knowledge-store`'s own CLAUDE.md still says "knowledge-api" in places — that's a separate
+    repo and wasn't touched by this rename. Same `.venv` stale-shebang quirk noted below applies
+    again after the folder itself moved — recreate `.venv` or keep invoking via
+    `.venv/bin/python -m <module>` rather than the console scripts directly.
 
 Current test suite: **382 tests passing** (`python -m pytest tests/`).
 
@@ -219,15 +237,15 @@ Instead:
 
 1. `./deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up
    their own ephemeral Postgres via testcontainers — neither touches any docker-compose container),
-   then builds a separate image (`knowledge-api:testing`) and boots it as `knowledge-api-test` +
+   then builds a separate image (`knowledge:testing`) and boots it as `knowledge-test` +
    `knowledge-db-test` (`deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
-   throwaway tmpfs database, under its own compose project (`knowledge-api-test`) so it's never
+   throwaway tmpfs database, under its own compose project (`knowledge-test`) so it's never
    confused with the prod stack. Confirms the built image actually boots (migrations run, gunicorn
    serves `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port)
    before it goes anywhere near prod. Tears the isolated stack down automatically on exit, success
    or failure.
 2. Only once that passes, run `./deploy/promote-image.sh` — this rebuilds and restarts the prod
-   `api` container (`knowledge-api:prod`, via `docker compose -f deploy/docker-compose.yml
+   `api` container (`knowledge:prod`, via `docker compose -f deploy/docker-compose.yml
    --env-file .env up -d --build api` — the explicit `--env-file` matters here: compose's default
    `.env` lookup follows the first `-f` file's directory, `deploy/`, not the repo root `.env`
    actually lives in). This is the only command allowed to touch the prod container.
@@ -255,7 +273,7 @@ build. Fixed conventions — reuse these exact values every time rather than pic
 
 **Why a separate throwaway Ollama container, not prod's:** the prod stack's `ollama` container
 (started outside `deploy/docker-compose.yml` historically — check `docker ps` for
-`knowledge-api-ollama-1`) only publishes port 11434 *inside* the compose network (`ollama:11434`),
+`knowledge-ollama-1`) only publishes port 11434 *inside* the compose network (`ollama:11434`),
 not to the host, so a bare host-side Flask process can't reach it — and recreating that container
 to add a port mapping risks disrupting whatever's currently using it. Spinning up a second,
 independent Ollama container costs one quick model pull (`nomic-embed-text` is ~274MB) and keeps

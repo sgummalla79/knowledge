@@ -1,4 +1,4 @@
-# knowledge-api Data Model
+# knowledge Data Model
 
 Postgres schema (via `pgvector`), managed by Alembic migrations in `migrations/versions/`.
 ORM source of truth: `app/infrastructure/orm/`. Migration history: `0001` → `0010` (see

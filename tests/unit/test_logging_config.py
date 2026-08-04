@@ -102,7 +102,7 @@ def test_json_formatter_drops_non_allowlisted_extra_field():
 def test_configure_logging_is_idempotent():
     configure_logging("INFO")
     configure_logging("DEBUG")
-    marked = [h for h in logging.getLogger().handlers if getattr(h, "_knowledge_api_json_handler", False)]
+    marked = [h for h in logging.getLogger().handlers if getattr(h, "_knowledge_json_handler", False)]
     assert len(marked) == 1
 
 

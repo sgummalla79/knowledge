@@ -5,12 +5,12 @@ import secrets
 
 # Not a secret itself — an HMAC domain-separation label, so this derivation can never collide with
 # some other deterministic-secret use elsewhere that also happens to key off SECRET_KEY.
-_DEFAULT_MCP_CLIENT_SECRET_LABEL = b"knowledge-api:default-mcp-client"
+_DEFAULT_MCP_CLIENT_SECRET_LABEL = b"knowledge:default-mcp-client"
 
 # Distinct label for the built-in dashboard/workspace Application (see
 # DEFAULT_DASHBOARD_APPLICATION_ID) — a different label guarantees this never derives to the same
 # value as the MCP client's secret even though both key off the same SECRET_KEY.
-_DEFAULT_DASHBOARD_CLIENT_SECRET_LABEL = b"knowledge-api:default-dashboard-client"
+_DEFAULT_DASHBOARD_CLIENT_SECRET_LABEL = b"knowledge:default-dashboard-client"
 
 
 def generate_secret() -> str:
