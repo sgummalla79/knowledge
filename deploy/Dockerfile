@@ -28,7 +28,7 @@ RUN playwright install --with-deps chromium
 COPY app app
 COPY mcp_server mcp_server
 COPY migrations migrations
-COPY alembic.ini wsgi.py ./
+COPY alembic.ini wsgi.py VERSION ./
 COPY deploy/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 COPY --from=webui-build /app/static/workspace app/static/workspace
