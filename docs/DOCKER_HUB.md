@@ -61,7 +61,61 @@ The container runs `alembic upgrade head` automatically on startup — no manual
 
 ## Quick Start (docker-compose)
 
-```yaml
+This section assumes **no prior experience** with Docker or the command line. Grey boxes below are
+commands: type or paste them into a **terminal** (macOS) or **PowerShell** (Windows) window — a
+text-based way to instruct your computer — then press **Enter/Return**. Multi-line blocks (Steps 2
+and 3) can be pasted all at once; just press Enter once at the end. Don't skip steps; each depends
+on the one before it.
+
+Two files are involved, and **both filenames matter exactly as written** — Docker looks for these
+specific names in the folder you run it from:
+
+- **`docker-compose.yml`** — describes what to run. Must be named exactly that, lowercase — not
+  `docker-compose.yaml.txt`, not `Docker-Compose.yml`.
+- **`.env`** — holds two private, randomly-generated passwords. Must be named exactly `.env`
+  (nothing before the dot), in the **same folder** as `docker-compose.yml`.
+
+You won't hand-type either — Steps 2 and 3 give you a command that creates each one for you, named
+correctly, automatically.
+
+### 0. Install Docker Desktop
+
+Everything here runs inside **Docker**, a free program that runs apps in self-contained "containers"
+so you don't install any of this app's dependencies yourself.
+
+1. Download **Docker Desktop** from Docker's website for your OS (Mac or Windows) and install it
+   like any other application.
+2. **Windows only:** the installer may prompt to enable **WSL2** — accept it, it's required. Restart
+   if asked, then continue the install.
+3. Open **Docker Desktop** (Applications folder on Mac, Start menu on Windows) and leave it running
+   — wait for it to show a "running" status, which can take a minute the first time. **It must stay
+   running in the background** for any command below to work; minimize it, don't quit it.
+
+### 1. Open a terminal and create a project folder
+
+**macOS:** Press `Cmd + Space`, type `Terminal`, press Enter. Then paste and run:
+```bash
+mkdir -p ~/knowledge-api && cd ~/knowledge-api
+```
+
+**Windows:** Click Start, type `PowerShell`, open **Windows PowerShell** (or **Terminal**). Then
+paste and run:
+```powershell
+mkdir C:\knowledge-api; cd C:\knowledge-api
+```
+
+This creates a `knowledge-api` folder and moves you "into" it. Keep this window open — every
+command below is typed into the same window and expects to run from inside this folder.
+
+### 2. Create the compose file (`docker-compose.yml`)
+
+Copy the **entire block below** (first and last line included) for your OS, paste into the same
+terminal window, press Enter. This creates a correctly-named file for you — nothing to save by
+hand, no risk of a filename typo.
+
+**macOS:**
+```bash
+cat > docker-compose.yml <<'EOF'
 services:
   knowledge-db:
     image: pgvector/pgvector:pg16
@@ -91,11 +145,115 @@ services:
 
 volumes:
   knowledge-db-data:
+EOF
 ```
 
-Set `POSTGRES_PASSWORD` and `SECRET_KEY` in a `.env` file next to this compose file (or export
-them), then `docker compose up -d`. Check `http://localhost:13102/health` for a `200` once it's
-up.
+**Windows:** (same idea — paste this whole block into the PowerShell window from Step 1)
+```powershell
+@'
+services:
+  knowledge-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - knowledge-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: sgummalla/knowledge-api:latest
+    depends_on:
+      knowledge-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@knowledge-db:5432/rag
+      SECRET_KEY: ${SECRET_KEY}
+    ports:
+      - "13102:13102"
+      - "127.0.0.1:13103:13103"
+
+volumes:
+  knowledge-db-data:
+'@ | Out-File -Encoding utf8 docker-compose.yml
+```
+
+No output after pressing Enter means it worked. Double check with `dir` (Windows) or `ls` (macOS)
+— you should see `docker-compose.yml` listed.
+
+**Prefer a text editor over the terminal?** Paste the YAML (just the part between the marker
+lines, not the markers themselves) and save it — but watch for two common mistakes: **Notepad**
+silently adds `.txt` unless you set "Save as type" to **All Files** and type the full name; **macOS
+TextEdit** saves rich text (`.rtf`) by default, which breaks the file — use **Format → Make Plain
+Text** first.
+
+### 3. Create the `.env` file with your secrets
+
+This holds two private values: a database password and a `SECRET_KEY` used to keep logins secure.
+Don't make these up yourself — the commands below generate long random values for you.
+
+**macOS:** paste this into the same terminal window and press Enter:
+```bash
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -hex 16)
+SECRET_KEY=$(openssl rand -hex 32)
+EOF
+```
+
+**Windows:** paste this into the same PowerShell window and press Enter:
+```powershell
+@"
+POSTGRES_PASSWORD=$([System.Guid]::NewGuid().ToString("N"))
+SECRET_KEY=$([System.Guid]::NewGuid().ToString("N") + [System.Guid]::NewGuid().ToString("N"))
+"@ | Out-File -Encoding utf8 .env
+```
+
+No output means it worked. This file never needs to be opened again. Notes: a filename that's
+*only* a dot plus extension (`.env`) is unusual but valid on both OSes; on **macOS**, dot-files are
+hidden from Finder by default (not from the terminal) — expected, not a bug. **Never share or
+upload this file anywhere** — it holds the credentials to your own instance.
+
+### 4. Start the application
+
+Still in the same window, inside the `knowledge-api` folder, run:
+```bash
+docker compose up -d
+```
+This downloads the two pieces of software this app needs and starts them in the background
+(`-d` = "detached" — they keep running after you close this window). First run downloads
+everything from the internet, so it can take a couple of minutes with text scrolling by — that's
+normal.
+
+### 5. Check that it worked
+
+```bash
+docker compose ps
+```
+You should see two rows, `knowledge-db` and `api`, both `running`/`healthy`. If instead you see
+`Exit` or `unhealthy`, see **Troubleshooting** below.
+
+Once healthy, open a browser to `http://localhost:13102/health` — a `200`/small text response (not
+an error page) confirms it's up. Then go to `http://localhost:13102/login` — see **First Login**
+below.
+
+### Troubleshooting
+
+- **"docker: command not found" / "'docker' is not recognized" / "Cannot connect to the Docker
+  daemon"** — Docker Desktop isn't open, or hasn't finished starting (Step 0). Wait for it, then
+  retry.
+- **"port is already allocated"** — something's already using port `13102`/`13103` (maybe a
+  previous run of this guide). Run `docker compose down`, then `docker compose up -d` again.
+- **`api` shows `Exit` or keeps restarting** — run `docker compose logs api`; usually `.env` is
+  missing or misnamed (Step 3 — must be exactly `.env`, same folder as `docker-compose.yml`).
+- **Nothing loads at `/health`** — confirm both rows in `docker compose ps` are running first; if
+  so, check for a VPN/firewall/antivirus blocking local connections.
+- **To stop:** `docker compose down` (data is kept, `up -d` later resumes where you left off). To
+  also erase all data: `docker compose down -v`.
 
 ## The Admin UI (React SPA)
 
@@ -196,26 +354,69 @@ for any of the three.
 Ollama runs entirely on your own machine, so it's the option that needs no external account or
 API key — good for trying the app out or keeping data fully offline.
 
-1. **Run Ollama and pull an embedding model.** Easiest as its own container on the same Docker
-   network as this image, named `ollama` (the default `base_url` above, `http://ollama:11434`,
-   matches that container name so you don't need to set a base URL override at all):
+1. **Run Ollama as its own container on the same Docker network as this image**, named `ollama`
+   (matches the default `base_url`, `http://ollama:11434`, so no override needed). Don't hand-edit
+   your existing `docker-compose.yml` — YAML is indentation-sensitive and easy to break by hand.
+   Replace it entirely with this version instead (same file as Quick Start Step 2, with `ollama`
+   added):
    ```yaml
-   # add to the docker-compose.yml above
+   services:
+     knowledge-db:
+       image: pgvector/pgvector:pg16
+       environment:
+         POSTGRES_DB: rag
+         POSTGRES_USER: rag
+         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+       volumes:
+         - knowledge-db-data:/var/lib/postgresql/data
+       healthcheck:
+         test: ["CMD-SHELL", "pg_isready -U rag"]
+         interval: 5s
+         timeout: 5s
+         retries: 10
+
+     api:
+       image: sgummalla/knowledge-api:latest
+       depends_on:
+         knowledge-db:
+           condition: service_healthy
+       environment:
+         DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@knowledge-db:5432/rag
+         SECRET_KEY: ${SECRET_KEY}
+       ports:
+         - "13102:13102"
+         - "127.0.0.1:13103:13103"
+
      ollama:
        image: ollama/ollama
        volumes:
          - ollama-data:/root/.ollama
-   ```
-   ```yaml
-   # and to its `volumes:` block
+
+   volumes:
+     knowledge-db-data:
      ollama-data:
    ```
-   Then pull the model into it once it's up:
+   Same paste method as Quick Start Step 2, same folder: on **macOS**, type `cat > docker-compose.yml <<'EOF'`,
+   press Enter, paste the YAML above, then a line with just `EOF`. On **Windows**, type `@'`, press
+   Enter, paste the YAML above, then a line with `'@ | Out-File -Encoding utf8 docker-compose.yml`.
+
+   **Rewriting the file doesn't restart anything by itself** — apply it the same way as Quick Start
+   Step 4:
+   ```bash
+   docker compose up -d
+   ```
+   This is the step that actually creates and starts the new `ollama` container — skipping it is
+   why you'd see `service "ollama" is not running` if you try the next command too soon. Confirm
+   with `docker compose ps` (a third row, `ollama`, `running`), then pull the model:
    ```bash
    docker compose exec ollama ollama pull nomic-embed-text
    ```
+   This downloads the actual model weights (a few hundred MB), so it takes a minute. Still failing?
+   Check `docker compose logs ollama`, and confirm you're in the same folder as your
+   `docker-compose.yml`.
+
    Running Ollama on the host instead of in a container also works — set **Base URL** to
-   `http://host.docker.internal:11434` (Mac/Windows) instead of relying on the default.
+   `http://host.docker.internal:11434` instead of relying on the default.
 
 2. In **Settings → Providers**, open the Ollama tile, set **Model** to `nomic-embed-text` and
    **Dimensions** to `768` (that model's output size — a different model needs its own dimension
