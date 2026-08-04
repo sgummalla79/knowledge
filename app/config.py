@@ -2,6 +2,9 @@ import os
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
+# VERSION lives at the repo root; this file is at app/config.py, so one parent up.
+_VERSION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+
 
 class Config:
     def __init__(self):
@@ -14,6 +17,7 @@ class Config:
         # be reachable off this machine, unlike `port` above which fronts the actual Flask API.
         self.mcp_http_port = int(os.environ.get("MCP_HTTP_PORT", "13103"))
         self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))
+        self.version = self._read_version()
 
     @staticmethod
     def _require(name):
@@ -21,6 +25,11 @@ class Config:
         if not value:
             raise RuntimeError(f"Missing required environment variable: {name}")
         return value
+
+    @staticmethod
+    def _read_version() -> str:
+        with open(_VERSION_FILE) as f:
+            return f.read().strip()
 
     @staticmethod
     def _validated_log_level(value: str) -> str:
