@@ -237,6 +237,87 @@ way to "just check if it works" — that mutates the prod container immediately,
 verification step first. If you need to iterate quickly during development, iterate against
 `deploy/docker-compose.test.yml` (or plain `pytest`), not the prod stack.
 
+## Local dev preview — for interactively clicking around a change, not for CI-style verification
+
+A third option alongside plain `pytest` and `deploy/test-image.sh`: a persistent local Flask dev
+server + throwaway Postgres/Ollama containers, for manually exercising a change in the browser
+(uploads, search, Settings pages) without touching the prod stack or waiting on a Docker image
+build. Fixed conventions — reuse these exact values every time rather than picking new ones:
+
+| What | Value |
+|---|---|
+| Flask dev server | `http://127.0.0.1:15100` |
+| Postgres container | `knowledge-dev-preview`, port `15432`, db/user/password all `rag` |
+| Ollama container | `knowledge-dev-preview-ollama`, port `11500` |
+| `SECRET_KEY` | `dev-preview-secret` |
+| Flask PID file | `/tmp/workspace-preview.pid` |
+| Flask log file | `/tmp/knowledge-dev-preview-flask.log` |
+
+**Why a separate throwaway Ollama container, not prod's:** the prod stack's `ollama` container
+(started outside `deploy/docker-compose.yml` historically — check `docker ps` for
+`knowledge-api-ollama-1`) only publishes port 11434 *inside* the compose network (`ollama:11434`),
+not to the host, so a bare host-side Flask process can't reach it — and recreating that container
+to add a port mapping risks disrupting whatever's currently using it. Spinning up a second,
+independent Ollama container costs one quick model pull (`nomic-embed-text` is ~274MB) and keeps
+this preview fully isolated from prod, same rationale as the throwaway Postgres.
+
+**Quirk:** `.venv`'s console-script shebangs (`pip`, `alembic`, etc.) still point at a stale path
+from before this repo's `rag-api` → `knowledge-api` rename and will fail with "bad interpreter".
+Always invoke via `.venv/bin/python -m <module>` (e.g. `python -m alembic`, `python -m pip`)
+instead of the console script directly.
+
+**First-time setup / after a `.venv` rebuild:**
+```bash
+# 1. Throwaway Postgres — pgvector/pgvector image is required (plain postgres lacks the extension)
+docker run -d --name knowledge-dev-preview -p 15432:5432 \
+  -e POSTGRES_DB=rag -e POSTGRES_USER=rag -e POSTGRES_PASSWORD=rag \
+  pgvector/pgvector:pg16
+
+# 2. Throwaway Ollama
+docker run -d --name knowledge-dev-preview-ollama -p 11500:11434 \
+  -v knowledge-dev-preview-ollama-data:/root/.ollama ollama/ollama
+docker exec knowledge-dev-preview-ollama ollama pull nomic-embed-text
+
+# 3. Migrations
+DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
+  .venv/bin/python -m alembic upgrade head
+
+# 4. Frontend build (needed once, and again after any webui/ change)
+cd webui && npm run build && cd ..
+
+# 5. Start Flask, tracking its PID
+DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
+  nohup .venv/bin/python -m flask --app wsgi run --port 15100 \
+  > /tmp/knowledge-dev-preview-flask.log 2>&1 &
+disown
+echo $! > /tmp/workspace-preview.pid
+```
+Then open `http://127.0.0.1:15100/login` — `admin`/`admin`, forced password change on first login
+— and configure the embedding provider once at `http://127.0.0.1:15100/settings` (Providers tab,
+the default landing page): model `nomic-embed-text`, base URL `http://127.0.0.1:11500`,
+dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
+
+**Day-to-day after that (containers already running):**
+- **Backend code change:** Flask's dev server doesn't hot-reload — kill the tracked PID
+  (`kill $(cat /tmp/workspace-preview.pid)`, never by port — see the process-safety note below)
+  and re-run step 5 above (containers/DB/model stay up, so only Flask needs restarting).
+- **Frontend-only change:** just re-run `npm run build` in `webui/`; Flask reads the built
+  `index.html` fresh per request, no restart needed.
+- **Don't tear the containers down between checks** — keep this as one stable, persistent preview
+  across a session rather than recreating it for every verification pass; the user may be clicking
+  around the same URL. If you need a DB for your own throwaway/automated test script, spin up yet
+  another separate container/port rather than reusing this shared preview's data.
+- **Never kill by port** (e.g. `lsof -ti:15100 | kill`) — on this machine that pattern has taken
+  down Docker Desktop itself before. Always kill by the exact tracked PID or `docker rm -f
+  <container-name>`.
+
+**Full teardown**, once genuinely done with the preview:
+```bash
+kill $(cat /tmp/workspace-preview.pid) 2>/dev/null
+docker rm -f knowledge-dev-preview knowledge-dev-preview-ollama
+docker volume rm knowledge-dev-preview-ollama-data
+```
+
 ## Versioning
 
 The repo root `VERSION` file (plain text, single line, e.g. `2.0.0`) is the single source of truth

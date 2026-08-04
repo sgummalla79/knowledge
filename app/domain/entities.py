@@ -29,6 +29,9 @@ class Document:
     error_message: str | None
     size_bytes: int | None
     chunk_count: int | None
+    split_group_id: UUID | None
+    split_part: int | None
+    split_total: int | None
     ingested_at: datetime | None
     created_at: datetime
 
