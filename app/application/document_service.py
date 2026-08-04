@@ -5,6 +5,7 @@ from uuid import UUID
 from app.application.crawl_job_store import CrawlJobNotFoundError, CrawlJobStore
 from app.application.ingestion_service import IngestionService
 from app.application.job_store import JobNotFoundError, JobStore
+from app.application.pdf_split_ingestion_service import PdfSplitIngestionService
 from app.application.web_crawl_service import WebCrawlService
 from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.domain import error_codes
@@ -170,12 +171,56 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
             ChunkRepository(session),
             EmbeddingSettingsRepository(session),
         )
-        document = ingestion_service.ingest(
-            library, filename, file_bytes, should_cancel=lambda: JobStore.is_cancellation_requested(job_id)
+        split_service = PdfSplitIngestionService(ingestion_service)
+
+        # Commits after every part (like _run_crawl_job's on_page_result below) so a part that
+        # ingests successfully is durably saved even if a later part in the same oversized-PDF
+        # split fails. For an ordinary (non-split) upload this callback fires exactly once, with
+        # parts_total == 1 — see the branching below.
+        def on_part_result(part_index, parts_total, document, error):
+            session.commit()
+            JobStore.set_parts_total(job_id, parts_total)
+            if document is not None:
+                JobStore.mark_part_completed(job_id, document.id)
+                logger.info(
+                    "Ingestion part completed",
+                    extra={"document_id": str(document.id), "split_part": part_index, "split_total": parts_total},
+                )
+            else:
+                JobStore.mark_part_failed(job_id, error)
+                logger.warning(
+                    "Ingestion part failed",
+                    extra={"split_part": part_index, "split_total": parts_total, "error": str(error)},
+                )
+
+        split_service.ingest(
+            library,
+            filename,
+            file_bytes,
+            should_cancel=lambda: JobStore.is_cancellation_requested(job_id),
+            on_part_result=on_part_result,
         )
-        session.commit()
-        JobStore.mark_completed(job_id, document.id)
-        logger.info("Ingestion job completed", extra={"document_id": str(document.id)})
+
+        # split_service.ingest() only returns normally after at least one on_part_result call —
+        # any failure on the ordinary single-document path raises instead (caught below), so
+        # parts_total is guaranteed to be set here.
+        job = JobStore.get(job_id)
+        if job["parts_total"] == 1:
+            document_id = job["document_ids"][0]
+            JobStore.mark_completed(job_id, document_id)
+            logger.info("Ingestion job completed", extra={"document_id": document_id})
+        elif job["parts_completed"] > 0:
+            JobStore.mark_completed_with_parts(job_id)
+            logger.info(
+                "Ingestion job completed",
+                extra={"parts_completed": job["parts_completed"], "parts_failed": job["parts_failed"]},
+            )
+        else:
+            JobStore.mark_failed(job_id, RuntimeError("Every part of this PDF failed to ingest."))
+            logger.error(
+                "Ingestion job failed: every split part failed",
+                extra={"parts_failed": job["parts_failed"]},
+            )
     except IngestionCancelled:
         session.commit()
         JobStore.mark_cancelled(job_id)

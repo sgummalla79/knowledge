@@ -20,6 +20,11 @@ export interface LibraryDocument {
   error_message: string | null
   size_bytes: number | null
   chunk_count: number | null
+  // Set only for a document created as one part of an oversized PDF auto-split on ingest — all
+  // three are null for an ordinary, unsplit document.
+  split_group_id: string | null
+  split_part: number | null
+  split_total: number | null
   ingested_at: string | null
   created_at: string
 }
@@ -29,6 +34,13 @@ export interface JobStatus {
   error: string | null
   document_id: string | null
   cancel_requested: boolean
+  // Populated only when this job ingested an oversized PDF that got split into multiple parts —
+  // parts_total === 1 (or null, before the first part result arrives) means document_id above is
+  // the whole story, same as before this field existed.
+  document_ids: string[]
+  parts_total: number | null
+  parts_completed: number
+  parts_failed: number
 }
 
 export interface ScoredChunk {

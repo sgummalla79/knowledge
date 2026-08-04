@@ -68,6 +68,9 @@ class DocumentResponse(BaseModel):
     error_message: str | None
     size_bytes: int | None
     chunk_count: int | None
+    split_group_id: UUID | None = None
+    split_part: int | None = None
+    split_total: int | None = None
     ingested_at: datetime | None
     created_at: datetime
 
@@ -82,6 +85,9 @@ class DocumentResponse(BaseModel):
             error_message=document.error_message,
             size_bytes=document.size_bytes,
             chunk_count=document.chunk_count,
+            split_group_id=document.split_group_id,
+            split_part=document.split_part,
+            split_total=document.split_total,
             ingested_at=document.ingested_at,
             created_at=document.created_at,
         )
@@ -92,6 +98,14 @@ class JobStatusResponse(BaseModel):
     error: str | None
     document_id: str | None
     cancel_requested: bool = False
+    # Populated only for an ingestion that split an oversized PDF into multiple parts
+    # (PdfSplitIngestionService) — parts_total == 1 (the default single-document case) means
+    # document_id above is the whole story; parts_total > 1 means document_ids lists every
+    # successfully-ingested part and parts_failed may be > 0 even though the job itself completed.
+    document_ids: list[str] = []
+    parts_total: int | None = None
+    parts_completed: int = 0
+    parts_failed: int = 0
 
 
 class DocumentRenameRequest(BaseModel):

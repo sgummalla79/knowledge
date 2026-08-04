@@ -1,19 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useQueryClient } from '@tanstack/react-query'
-import {
-  useCrawlDocuments,
-  useCrawlJobStatus,
-  useDeleteDocument,
-  useDocuments,
-  useJobStatus,
-  useLibrary,
-  useRenameDocument,
-  useUploadDocument,
-} from '../api/queries'
-import type { JobStatus } from '../api/types'
+import { useDeleteDocument, useDocuments, useLibrary, useRenameDocument } from '../api/queries'
+import type { CrawlJobStatus } from '../api/types'
 import { GlobeIcon, LibraryIcon, UploadIcon } from '../components/icons'
 import { useToast } from '../components/toastContext'
+import { useIngestion, type IngestionKind } from '../components/ingestionContext'
 
 type Tab = 'documents' | 'web-pages'
 
@@ -22,70 +13,34 @@ type Tab = 'documents' | 'web-pages'
 // browsable table.
 const DOCUMENTS_PAGE_SIZE = 20
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB']
-  let value = bytes / 1024
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex += 1
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`
-}
+const TERMINAL_CRAWL_JOB_STATUSES = new Set(['completed', 'failed'])
 
-const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+function otherActivityLabel(kind: IngestionKind | null): string {
+  return kind === 'crawl' ? 'crawl' : 'upload'
+}
 
 export function LibraryDetailPage() {
   const { libraryId } = useParams<{ libraryId: string }>()
   const [tab, setTab] = useState<Tab>('documents')
   const { data: library } = useLibrary(libraryId!)
-  const { showToast } = useToast()
-  const queryClient = useQueryClient()
 
-  // Owned here (rather than inside UploadAction) so it survives a tab switch mid-upload — both
-  // CrawlAction's button (a sibling, not a child) and the elapsed-time display need to keep
-  // reflecting an in-flight upload even if the Documents tab isn't the active one.
-  const uploadDocument = useUploadDocument(libraryId!)
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const [uploadStartedAt, setUploadStartedAt] = useState<number | null>(null)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
-
-  const { data: jobStatus } = useJobStatus(libraryId!, activeJobId)
-
-  // A job can fail before it ever creates a Document row (e.g. no embedding provider configured
-  // yet) — the documents grid alone would never show that, so re-fetch it once the job settles
-  // and surface the job's own error via toast in the meantime.
-  useEffect(() => {
-    if (jobStatus && TERMINAL_JOB_STATUSES.has(jobStatus.status)) {
-      queryClient.invalidateQueries({ queryKey: ['libraries', libraryId, 'documents'] })
-    }
-    if (jobStatus?.status === 'failed') {
-      showToast(`Upload failed: ${jobStatus.error ?? 'Unknown error.'}`)
-    }
-  }, [jobStatus?.status, jobStatus?.error, libraryId, queryClient, showToast])
-
-  // Ticks once a second purely to re-render the "Uploading… Ns" display — the duration reported
-  // in the completion toast is measured separately from Date.now(), not this counter.
-  useEffect(() => {
-    if (uploadStartedAt === null) return
-    const interval = setInterval(() => setElapsedSeconds(Math.floor((Date.now() - uploadStartedAt) / 1000)), 1000)
-    return () => clearInterval(interval)
-  }, [uploadStartedAt])
+  // Global (app-wide), not owned by this page — starting an upload OR a crawl must keep blocking
+  // BOTH kinds from any other library too, even across a tab/page navigation, so this state has to
+  // outlive this component's mount. See components/IngestionProvider.tsx.
+  const {
+    isBusy,
+    activeKind,
+    activeLibraryId,
+    uploadElapsedSeconds,
+    uploadJobStatusLabel,
+    startUpload,
+    crawlJobStatus,
+    startCrawl,
+  } = useIngestion()
+  const isHere = activeLibraryId === libraryId
 
   function handleUpload(file: File) {
-    const startedAt = Date.now()
-    setUploadStartedAt(startedAt)
-    setElapsedSeconds(0)
-    uploadDocument.mutate(file, {
-      onSuccess: (result) => {
-        setActiveJobId(result.job_id)
-        const seconds = ((Date.now() - startedAt) / 1000).toFixed(1)
-        showToast(`${file.name} of size ${formatFileSize(file.size)} uploaded in ${seconds}s`)
-      },
-      onError: (error) => showToast(error.message),
-      onSettled: () => setUploadStartedAt(null),
-    })
+    startUpload(libraryId!, file)
   }
 
   return (
@@ -112,12 +67,20 @@ export function LibraryDetailPage() {
       {tab === 'documents' ? (
         <UploadAction
           onUpload={handleUpload}
-          isUploading={uploadDocument.isPending}
-          elapsedSeconds={elapsedSeconds}
-          jobStatus={jobStatus}
+          isBusy={isBusy}
+          isMine={isHere && activeKind === 'upload'}
+          activeKind={activeKind}
+          elapsedSeconds={uploadElapsedSeconds}
+          jobStatusLabel={uploadJobStatusLabel}
         />
       ) : (
-        <CrawlAction libraryId={libraryId!} uploadInProgress={uploadDocument.isPending} />
+        <CrawlAction
+          isBusy={isBusy}
+          isMine={isHere && activeKind === 'crawl'}
+          activeKind={activeKind}
+          jobStatus={isHere && activeKind === 'crawl' ? crawlJobStatus : null}
+          onCrawl={(input) => startCrawl(libraryId!, input)}
+        />
       )}
       <DocumentsGrid libraryId={libraryId!} />
     </div>
@@ -126,14 +89,18 @@ export function LibraryDetailPage() {
 
 function UploadAction({
   onUpload,
-  isUploading,
+  isBusy,
+  isMine,
+  activeKind,
   elapsedSeconds,
-  jobStatus,
+  jobStatusLabel,
 }: {
   onUpload: (file: File) => void
-  isUploading: boolean
+  isBusy: boolean
+  isMine: boolean
+  activeKind: IngestionKind | null
   elapsedSeconds: number
-  jobStatus: JobStatus | undefined
+  jobStatusLabel: string | null
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -148,60 +115,54 @@ function UploadAction({
     <>
       <input ref={fileInputRef} type="file" hidden onChange={handleFileChange} />
       <div style={{ marginBottom: 16 }}>
-        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isBusy}>
           <UploadIcon />
           Upload document
         </button>
-        {isUploading && (
+        {isMine && (
           <span className="subtitle" style={{ marginLeft: 12 }}>
             Uploading… {elapsedSeconds}s
           </span>
         )}
+        {isBusy && !isMine && (
+          <span className="subtitle" style={{ marginLeft: 12 }}>
+            Another {otherActivityLabel(activeKind)} is in progress — please wait.
+          </span>
+        )}
       </div>
-      {jobStatus && !TERMINAL_JOB_STATUSES.has(jobStatus.status) && (
-        <p className="subtitle">Processing upload ({jobStatus.status})…</p>
-      )}
+      {isMine && jobStatusLabel && <p className="subtitle">Processing upload ({jobStatusLabel})…</p>}
     </>
   )
 }
 
-const TERMINAL_CRAWL_JOB_STATUSES = new Set(['completed', 'failed'])
-
-function CrawlAction({ libraryId, uploadInProgress }: { libraryId: string; uploadInProgress: boolean }) {
-  const { showToast } = useToast()
+function CrawlAction({
+  isBusy,
+  isMine,
+  activeKind,
+  jobStatus,
+  onCrawl,
+}: {
+  isBusy: boolean
+  isMine: boolean
+  activeKind: IngestionKind | null
+  jobStatus: CrawlJobStatus | null
+  onCrawl: (input: { url: string; maxPages: number; scopePrefix: string | null }) => void
+}) {
   const [url, setUrl] = useState('')
   const [maxPages, setMaxPages] = useState(1)
   const [scopePrefix, setScopePrefix] = useState('')
-  const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const crawlDocuments = useCrawlDocuments(libraryId)
-  const queryClient = useQueryClient()
-
-  const { data: jobStatus } = useCrawlJobStatus(libraryId, activeJobId)
-
-  // Same rationale as UploadAction's identical effect: a crawled page only becomes a Document row
-  // once its own fetch+ingest step completes, so the documents grid needs a re-fetch once the job
-  // settles rather than relying on the mutation's own onSuccess (which only means the job started).
-  useEffect(() => {
-    if (jobStatus && TERMINAL_CRAWL_JOB_STATUSES.has(jobStatus.status)) {
-      queryClient.invalidateQueries({ queryKey: ['libraries', libraryId, 'documents'] })
-    }
-    if (jobStatus?.status === 'failed') {
-      showToast(`Crawl failed: ${jobStatus.error ?? 'Unknown error.'}`)
-    }
-  }, [jobStatus?.status, jobStatus?.error, libraryId, queryClient, showToast])
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!url.trim()) return
-    crawlDocuments.mutate(
-      { url: url.trim(), maxPages, scopePrefix: scopePrefix.trim() || null },
-      { onSuccess: (result) => setActiveJobId(result.job_id), onError: (error) => showToast(error.message) },
-    )
+    onCrawl({ url: url.trim(), maxPages, scopePrefix: scopePrefix.trim() || null })
   }
 
   // Per-page detail for the crawl that's currently running (or just finished) — a page that fails
   // never becomes a Document row, so this is the only place its status/error is visible; the
-  // shared grid below only ever reflects pages that succeeded.
+  // shared grid below only ever reflects pages that succeeded. Only populated while this library
+  // is the one actually crawling (see isMine) — another library's in-flight crawl has no per-page
+  // detail to show here.
   const pages = jobStatus ? Object.entries(jobStatus.pages) : []
 
   return (
@@ -243,15 +204,16 @@ function CrawlAction({ libraryId, uploadInProgress }: { libraryId: string; uploa
             />
           </div>
         )}
-        <button type="submit" disabled={crawlDocuments.isPending || uploadInProgress}>
+        <button type="submit" disabled={isBusy}>
           <GlobeIcon />
           Crawl
         </button>
       </form>
 
-      {jobStatus && !TERMINAL_CRAWL_JOB_STATUSES.has(jobStatus.status) && (
+      {isMine && jobStatus && !TERMINAL_CRAWL_JOB_STATUSES.has(jobStatus.status) && (
         <p className="subtitle">Crawling ({jobStatus.status})…</p>
       )}
+      {isBusy && !isMine && <p className="subtitle">Another {otherActivityLabel(activeKind)} is in progress — please wait.</p>}
       {pages.length > 0 && (
         <table style={{ marginBottom: 20 }}>
           <thead>

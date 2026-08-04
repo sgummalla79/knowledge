@@ -28,6 +28,13 @@ class Document(Base):
     # pending/processing/failed documents, so API consumers can tell "not available yet" apart
     # from "genuinely zero chunks" instead of just seeing 0.
     chunk_count = Column(Integer, nullable=True)
+    # Set together, only for a document created as one part of an auto-split oversized PDF
+    # (PdfSplitIngestionService) — all three stay NULL for an ordinary, unsplit document. Purely
+    # grouping/traceability metadata: each part is otherwise an entirely ordinary Document row,
+    # ingested/retried through the same IngestionService.ingest()/retry() as any other document.
+    split_group_id = Column(UUID(as_uuid=True), nullable=True)
+    split_part = Column(Integer, nullable=True)
+    split_total = Column(Integer, nullable=True)
     ingested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -38,6 +45,9 @@ class Document(Base):
             "source_filename": self.source_filename,
             "file_type": self.file_type,
             "status": self.status,
+            "split_group_id": str(self.split_group_id) if self.split_group_id else None,
+            "split_part": self.split_part,
+            "split_total": self.split_total,
             "ingested_at": self.ingested_at.isoformat() if self.ingested_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

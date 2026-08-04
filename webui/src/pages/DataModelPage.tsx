@@ -28,6 +28,9 @@ const DIAGRAM_SOURCE = `erDiagram
         string error_message
         int size_bytes
         int chunk_count
+        uuid split_group_id
+        int split_part
+        int split_total
         timestamp ingested_at
         timestamp created_at
     }
@@ -182,7 +185,7 @@ export function DataModelPage() {
           </div>
 
           <div className="endpoint" id="documents">
-            <div className="endpoint-head"><span className="endpoint-path">documents</span><span className="table-count">12 columns</span></div>
+            <div className="endpoint-head"><span className="endpoint-path">documents</span><span className="table-count">15 columns</span></div>
             <p className="endpoint-desc">One row per uploaded file within a library.</p>
             <div className="table-scroll">
               <table className="params-table">
@@ -198,6 +201,9 @@ export function DataModelPage() {
                   <tr><td>error_message</td><td>string</td><td>yes</td><td>—</td><td>added 0008; failure reason surfaced to retry callers</td></tr>
                   <tr><td>size_bytes</td><td>integer</td><td>yes</td><td>—</td><td>added 0011; set at upload time</td></tr>
                   <tr><td>chunk_count</td><td>integer</td><td>yes</td><td>—</td><td>added 0011; NULL until ingestion completes, so callers can tell "not available yet" apart from "genuinely zero chunks"</td></tr>
+                  <tr><td>split_group_id</td><td>uuid</td><td>yes</td><td>—</td><td>added 0016, indexed (partial); shared by every part of an oversized PDF auto-split on ingest; NULL for an ordinary, unsplit document</td></tr>
+                  <tr><td>split_part</td><td>integer</td><td>yes</td><td>—</td><td>added 0016; 1-indexed position among split_total parts</td></tr>
+                  <tr><td>split_total</td><td>integer</td><td>yes</td><td>—</td><td>added 0016; total parts in this document's split_group_id</td></tr>
                   <tr><td>ingested_at</td><td>timestamptz</td><td>yes</td><td>—</td><td>set on successful completion</td></tr>
                   <tr><td>created_at</td><td>timestamptz</td><td>no</td><td>now()</td><td></td></tr>
                 </tbody>
@@ -399,6 +405,7 @@ export function DataModelPage() {
               <thead><tr><th>Name</th><th>Table</th><th>Columns</th><th>Kind</th></tr></thead>
               <tbody>
                 <tr><td className="mono">ix_documents_library_id</td><td>documents</td><td>library_id</td><td>btree</td></tr>
+                <tr><td className="mono">ix_documents_split_group_id</td><td>documents</td><td>split_group_id</td><td>btree, partial (WHERE split_group_id IS NOT NULL)</td></tr>
                 <tr><td className="mono">ix_chunks_document_id</td><td>chunks</td><td>document_id</td><td>btree</td></tr>
                 <tr><td className="mono">ix_chunks_library_id</td><td>chunks</td><td>library_id</td><td>btree</td></tr>
                 <tr><td className="mono">ix_chunks_content_tsv_gin</td><td>chunks</td><td>content_tsv</td><td>GIN (sparse/keyword search)</td></tr>

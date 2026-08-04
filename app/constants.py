@@ -64,7 +64,42 @@ DEFAULT_DENSE_K = 20
 DEFAULT_SPARSE_K = 20
 DEFAULT_RRF_K = 60
 
+# The outer WSGI-level cap on a single upload request's raw body size (app/__init__.py's
+# MAX_CONTENT_LENGTH) — anything over this is rejected by Werkzeug with a 413 before any route
+# code runs. Deliberately larger than MAX_UPLOAD_MB (below): it exists to let an oversized PDF's
+# bytes actually reach the application so PdfSplitter can split it, not to raise the effective
+# per-file size a single document/part is allowed to be.
+MAX_REQUEST_BODY_MB = 300
+
+# The size ceiling for one ingested unit: a non-PDF upload is rejected outright above this (checked
+# in application code, since MAX_REQUEST_BODY_MB now admits larger request bodies at the WSGI
+# layer); for a PDF, this is also the trigger threshold above which IngestionService splits it into
+# multiple parts via PdfSplitter rather than ingesting it as a single document.
 MAX_UPLOAD_MB = 50
+
+# Target size per PDF part produced by PdfSplitter — comfortably under MAX_UPLOAD_MB so each part's
+# parse/embed memory footprint stays within the already-proven single-document envelope even after
+# overlap pages are added on top.
+PDF_SPLIT_TARGET_PART_MB = 40
+
+# Hard ceiling on how many parts a single oversized PDF can be split into, regardless of size —
+# defense-in-depth against a pathologically page-dense PDF producing dozens of parts; combined with
+# MAX_REQUEST_BODY_MB (the actual binding limit on the largest PDF this feature can accept), a PDF
+# needing more parts than this is rejected outright rather than silently exploded into many
+# documents.
+PDF_SPLIT_MAX_PARTS = 20
+
+# Multiplier applied to the active chunk_size + chunk_overlap (embedding_settings) to compute the
+# minimum amount of boundary text PdfSplitter must duplicate between consecutive parts — sized well
+# above one chunking window, not just "a page", so a paragraph/table straddling the original page
+# boundary between two parts is fully covered by at least one part's own TextChunker pass.
+PDF_SPLIT_OVERLAP_SAFETY_FACTOR = 3
+
+# Floor/ceiling on the page-count PdfSplitter computes for that overlap, since page text density
+# varies hugely (a dense text page vs. a mostly-whitespace or scanned/near-empty page) — the
+# computed value is clamped into this range rather than trusted unbounded.
+PDF_SPLIT_MIN_OVERLAP_PAGES = 1
+PDF_SPLIT_MAX_OVERLAP_PAGES = 5
 
 # flask-limiter's rate-string format ("N per interval") is a library-imposed literal, not a
 # value that varies by environment for this local, single-user tool.

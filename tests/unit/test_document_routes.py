@@ -30,6 +30,9 @@ def _document(**overrides):
         error_message=None,
         size_bytes=1024,
         chunk_count=3,
+        split_group_id=None,
+        split_part=None,
+        split_total=None,
         ingested_at=now,
         created_at=now,
     )

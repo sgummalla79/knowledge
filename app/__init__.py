@@ -3,7 +3,7 @@ import uuid
 from flask import Flask, g, jsonify, request
 
 from app.config import config
-from app.constants import MAX_UPLOAD_MB, RATE_LIMIT_DEFAULT
+from app.constants import MAX_REQUEST_BODY_MB, RATE_LIMIT_DEFAULT
 from app.container import teardown_session
 from app.infrastructure.auth.bootstrap import (
     bootstrap_default_admin,
@@ -29,7 +29,7 @@ def create_app(
     app = Flask(__name__)
     app.testing = testing
     app.config["SECRET_KEY"] = config.secret_key
-    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BODY_MB * 1024 * 1024
     # The Limiter instance (and its in-memory counters) is a module-level singleton shared
     # across every create_app() call in this process — harmless in production (one app per
     # process) but would let test requests across many `create_app()` calls in the same pytest

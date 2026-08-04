@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { SettingsLayout } from './components/SettingsLayout'
 import { ToastProvider } from './components/ToastProvider'
+import { IngestionProvider } from './components/IngestionProvider'
 import { LibrariesPage } from './pages/LibrariesPage'
 import { LibraryDetailPage } from './pages/LibraryDetailPage'
 import { LoginPage } from './pages/LoginPage'
@@ -26,31 +27,33 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/change-password" element={<ChangePasswordPage />} />
-            <Route path="/oauth/authorize" element={<AuthorizePage />} />
-            <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<ProvidersPage />} />
-              <Route path="applications" element={<ApplicationsPage />} />
-              <Route path="web-crawler" element={<WebCrawlerPage />} />
-              <Route path="api-docs" element={<ApiDocsPage />} />
-              <Route
-                path="data-model"
-                element={
-                  <Suspense fallback={<p className="subtitle">Loading…</p>}>
-                    <DataModelPage />
-                  </Suspense>
-                }
-              />
-            </Route>
-            <Route path="/workspace" element={<Layout />}>
-              <Route index element={<LibrariesPage />} />
-              <Route path="libraries/:libraryId" element={<LibraryDetailPage />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+        <IngestionProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/change-password" element={<ChangePasswordPage />} />
+              <Route path="/oauth/authorize" element={<AuthorizePage />} />
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route index element={<ProvidersPage />} />
+                <Route path="applications" element={<ApplicationsPage />} />
+                <Route path="web-crawler" element={<WebCrawlerPage />} />
+                <Route path="api-docs" element={<ApiDocsPage />} />
+                <Route
+                  path="data-model"
+                  element={
+                    <Suspense fallback={<p className="subtitle">Loading…</p>}>
+                      <DataModelPage />
+                    </Suspense>
+                  }
+                />
+              </Route>
+              <Route path="/workspace" element={<Layout />}>
+                <Route index element={<LibrariesPage />} />
+                <Route path="libraries/:libraryId" element={<LibraryDetailPage />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </IngestionProvider>
       </ToastProvider>
     </QueryClientProvider>
   )
