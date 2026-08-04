@@ -1,4 +1,4 @@
-# Publishes the knowledge-api image to Docker Hub.
+# Publishes the knowledge image to Docker Hub.
 #
 # VERSION-BASED, not branch-based: a push to releases/v2 publishes ONLY when the repo-root
 # VERSION file changed in that push. The branch is the carrier; the version is the trigger.
@@ -13,8 +13,8 @@
 #
 # Multi-arch (linux/amd64 + linux/arm64) so the image pulls natively on x86 hosts and Apple
 # Silicon. Tags published to Docker Hub:
-#   docker.io/sgummalla/knowledge-api:<VERSION>   (e.g. :2.0.1)
-#   docker.io/sgummalla/knowledge-api:latest
+#   docker.io/sgummalla/knowledge:<VERSION>   (e.g. :2.0.1)
+#   docker.io/sgummalla/knowledge:latest
 #
 # Requires repo secrets DOCKERHUB_USERNAME + DOCKERHUB_TOKEN (a Docker Hub access token with
 # Read/Write scope -- Account Settings -> Security -> New Access Token).
@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: docker.io/sgummalla/knowledge-api
+  IMAGE: docker.io/sgummalla/knowledge
 
 jobs:
   test:
@@ -103,7 +103,7 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.ver.outputs.changed }}" = "true" ]; then
-            echo "### Published \`sgummalla/knowledge-api:${{ steps.ver.outputs.version }}\` + \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Published \`sgummalla/knowledge:${{ steps.ver.outputs.version }}\` + \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### VERSION unchanged (\`${{ steps.ver.outputs.version }}\`) -- nothing published" >> "$GITHUB_STEP_SUMMARY"
           fi

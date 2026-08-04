@@ -120,7 +120,7 @@ export function DataModelPage() {
   return (
     <div className="settings-wide">
       <h1>Data Model</h1>
-      <p className="subtitle">knowledge-api — PostgreSQL 16 + pgvector schema reference. Reflects migrations through <code>0015</code>.</p>
+      <p className="subtitle">knowledge — PostgreSQL 16 + pgvector schema reference. Reflects migrations through <code>0015</code>.</p>
 
       <div className="docs-layout">
         <nav className="docs-nav">

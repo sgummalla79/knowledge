@@ -4,7 +4,7 @@ export function ApiDocsPage() {
   return (
     <div className="settings-wide">
       <h1>API Documentation</h1>
-      <p className="subtitle">knowledge-api — REST reference. Every route below returns JSON and is served from this same host.</p>
+      <p className="subtitle">knowledge — REST reference. Every route below returns JSON and is served from this same host.</p>
 
       <div className="docs-layout">
         <nav className="docs-nav">

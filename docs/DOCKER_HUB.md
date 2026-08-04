@@ -1,7 +1,7 @@
-# sgummalla/knowledge-api — Docker Hub Overview
+# sgummalla/knowledge — Docker Hub Overview
 
 This file is the source of truth for the **Overview** tab on
-[hub.docker.com/r/sgummalla/knowledge-api](https://hub.docker.com/r/sgummalla/knowledge-api).
+[hub.docker.com/r/sgummalla/knowledge](https://hub.docker.com/r/sgummalla/knowledge).
 Docker Hub does not pull this automatically — after editing this file, paste its contents into
 the Docker Hub repo's Overview editor by hand. Keep it in sync whenever a change in this repo
 would affect what a first-time puller of the image needs to know (new/renamed env vars, routes,
@@ -95,16 +95,16 @@ so you don't install any of this app's dependencies yourself.
 
 **macOS:** Press `Cmd + Space`, type `Terminal`, press Enter. Then paste and run:
 ```bash
-mkdir -p ~/knowledge-api && cd ~/knowledge-api
+mkdir -p ~/knowledge && cd ~/knowledge
 ```
 
 **Windows:** Click Start, type `PowerShell`, open **Windows PowerShell** (or **Terminal**). Then
 paste and run:
 ```powershell
-mkdir C:\knowledge-api; cd C:\knowledge-api
+mkdir C:\knowledge; cd C:\knowledge
 ```
 
-This creates a `knowledge-api` folder and moves you "into" it. Keep this window open — every
+This creates a `knowledge` folder and moves you "into" it. Keep this window open — every
 command below is typed into the same window and expects to run from inside this folder.
 
 ### 2. Create the compose file (`docker-compose.yml`)
@@ -132,7 +132,7 @@ services:
       retries: 10
 
   api:
-    image: sgummalla/knowledge-api:latest
+    image: sgummalla/knowledge:latest
     depends_on:
       knowledge-db:
         condition: service_healthy
@@ -167,7 +167,7 @@ services:
       retries: 10
 
   api:
-    image: sgummalla/knowledge-api:latest
+    image: sgummalla/knowledge:latest
     depends_on:
       knowledge-db:
         condition: service_healthy
@@ -220,7 +220,7 @@ upload this file anywhere** — it holds the credentials to your own instance.
 
 ### 4. Start the application
 
-Still in the same window, inside the `knowledge-api` folder, run:
+Still in the same window, inside the `knowledge` folder, run:
 ```bash
 docker compose up -d
 ```
@@ -374,7 +374,7 @@ API key — good for trying the app out or keeping data fully offline.
          retries: 10
 
      api:
-       image: sgummalla/knowledge-api:latest
+       image: sgummalla/knowledge:latest
        depends_on:
          knowledge-db:
            condition: service_healthy
@@ -448,8 +448,8 @@ endpoint requires one, **Model** (e.g. `text-embedding-3-small`), and **Dimensio
 
 ## Tags
 
-- `sgummalla/knowledge-api:<version>` — e.g. `2.0.1`, matching this repo's `VERSION` file
-- `sgummalla/knowledge-api:latest` — always the most recently published version
+- `sgummalla/knowledge:<version>` — e.g. `2.0.1`, matching this repo's `VERSION` file
+- `sgummalla/knowledge:latest` — always the most recently published version
 
 ## Connecting Claude Code (MCP)
 
@@ -463,11 +463,11 @@ or token for you to create or paste anywhere.
    registers it for the current project (`local` scope, private to you); add `-s user` to make it
    available globally, in every project you open on this machine:
    ```bash
-   claude mcp add --transport http knowledge-api http://localhost:13103/mcp
+   claude mcp add --transport http knowledge http://localhost:13103/mcp
    ```
    Globally, for every project:
    ```bash
-   claude mcp add --transport http -s user knowledge-api http://localhost:13103/mcp
+   claude mcp add --transport http -s user knowledge http://localhost:13103/mcp
    ```
 2. The first time Claude Code calls a tool, it opens your browser to this instance's login/consent
    screen. Log in (`admin` / your changed password) and approve access. Claude Code stores the
@@ -477,8 +477,8 @@ or token for you to create or paste anywhere.
    ```bash
    claude mcp list
    ```
-   `knowledge-api` should show as connected. Try asking Claude Code something like "what libraries
-   do I have in knowledge-api?".
+   `knowledge` should show as connected. Try asking Claude Code something like "what libraries
+   do I have in knowledge?".
 
 Notes:
 - Only reachable from the same machine the Docker host runs on — this won't work if Claude Code
@@ -486,4 +486,4 @@ Notes:
 - Running Claude Code inside its own container (e.g. a devcontainer)? Point the URL at
   `host.docker.internal:13103` instead of `localhost`, and confirm the MCP port is actually
   published to the host (see **Ports & Volumes** above).
-- To remove it later: `claude mcp remove knowledge-api`.
+- To remove it later: `claude mcp remove knowledge`.

@@ -34,7 +34,7 @@ _EXTRA_ALLOWLIST = (
     "document_count",
 )
 
-_HANDLER_MARKER = "_knowledge_api_json_handler"
+_HANDLER_MARKER = "_knowledge_json_handler"
 
 
 class ContextFilter(logging.Filter):

@@ -29,8 +29,8 @@ services:
     # Explicit "prod" tag (this is the image rag-desktop and MCP clients actually talk to) so it
     # reads clearly in `docker images` instead of relying on the implicit ":latest" default —
     # distinct from the ":testing" tag built by docker-compose.test.yml.
-    image: knowledge-api:prod
-    container_name: knowledge-api
+    image: knowledge:prod
+    container_name: knowledge
     depends_on:
       knowledge-db:
         condition: service_healthy

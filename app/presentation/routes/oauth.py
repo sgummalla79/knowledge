@@ -83,7 +83,7 @@ def issue_token():
 @oauth_bp.post("/oauth/register")
 def register_client():
     # RFC 7591 Dynamic Client Registration — deliberately unauthenticated, matching the rest of
-    # this endpoint's trust boundary: knowledge-api only ever binds to 127.0.0.1 (see CLAUDE.md),
+    # this endpoint's trust boundary: knowledge only ever binds to 127.0.0.1 (see CLAUDE.md),
     # so anything that can reach this route is already a local process on this machine.
     body = request.get_json(silent=True) or {}
     client_name = body.get("client_name", "")
