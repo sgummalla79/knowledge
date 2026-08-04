@@ -145,8 +145,6 @@ class ApplicationRepositoryPort(Protocol):
 
     def delete(self, application_id: UUID) -> None: ...
 
-    def update_secret(self, application_id: UUID, client_secret_hash: str) -> None: ...
-
 
 class RefreshTokenRepositoryPort(Protocol):
     def create(
