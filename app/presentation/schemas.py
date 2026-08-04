@@ -10,7 +10,7 @@ from app.constants import (
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
-from app.domain.entities import Document, Library, ScoredChunk, SearchSettings
+from app.domain.entities import Document, Library, ScoredChunk, SearchSettings, WebCrawlSettings
 
 
 class LibraryCreateRequest(BaseModel):
@@ -221,3 +221,48 @@ class SearchSettingsResponse(BaseModel):
             rrf_k=settings.rrf_k,
             updated_at=settings.updated_at,
         )
+
+
+class WebCrawlSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_agent: str = Field(min_length=1)
+
+
+class WebCrawlSettingsResponse(BaseModel):
+    user_agent: str
+    updated_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, settings: WebCrawlSettings) -> "WebCrawlSettingsResponse":
+        return cls(user_agent=settings.user_agent, updated_at=settings.updated_at)
+
+
+class ScopeGroupResponse(BaseModel):
+    """One resource-group bucket of scopes (e.g. "Libraries" -> ["libraries:read",
+    "libraries:write"]) — see _grouped_scopes in app/presentation/routes/auth_ui.py."""
+
+    label: str
+    scopes: list[str]
+
+
+class ApplicationResponse(BaseModel):
+    id: UUID
+    name: str
+    allowed_scopes: list[str]
+    token_status: str
+    last_used_at: datetime | None
+
+
+class RegisterApplicationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    scopes: list[str] = Field(default_factory=list)
+
+
+class RegisterApplicationResponse(BaseModel):
+    id: UUID
+    name: str
+    allowed_scopes: list[str]
+    client_secret: str

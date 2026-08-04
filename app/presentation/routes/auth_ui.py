@@ -1,38 +1,31 @@
 from functools import wraps
 from uuid import UUID
 
-from flask import Blueprint, abort, redirect, render_template, request, session, url_for
+from flask import Blueprint, jsonify, redirect, request, session, url_for
 
 from app.application.application_service import ApplicationService
 from app.application.auth_service import AuthService
-from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
-from app.application.web_crawl_settings_service import WebCrawlSettingsService
-from app.constants import (
-    DEFAULT_MCP_APPLICATION_ID,
-    EMBEDDING_PROVIDER_DISPLAY_NAMES,
-    EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
-    EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
-    EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
-    SUPPORTED_SCOPES,
-)
+from app.constants import DEFAULT_DASHBOARD_APPLICATION_ID, DEFAULT_MCP_APPLICATION_ID, SUPPORTED_SCOPES
 from app.container import get_session
-from app.domain.errors import DomainError
-from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
+from app.domain import error_codes
+from app.domain.errors import AuthenticationError, NotFoundError, ValidationError
 from app.infrastructure.repositories.application_repository import ApplicationRepository
-from app.infrastructure.repositories.chunk_repository import ChunkRepository
-from app.infrastructure.repositories.embedding_provider_settings_repository import (
-    EmbeddingProviderSettingsRepository,
-)
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
-from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
-from app.presentation.web.csrf import csrf_token, validate_csrf
+from app.presentation.schemas import (
+    ApplicationResponse,
+    RegisterApplicationRequest,
+    RegisterApplicationResponse,
+    ScopeGroupResponse,
+)
+from app.presentation.web.csrf import validate_csrf
+from app.presentation.web.spa import serve_spa_shell
+
+# Built-in service-account Applications — internal plumbing, never shown in or manageable from the
+# Applications dashboard page (see _applications_with_status/revoke_token/delete_application below).
+_HIDDEN_APPLICATION_IDS = {DEFAULT_MCP_APPLICATION_ID, DEFAULT_DASHBOARD_APPLICATION_ID}
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
-auth_ui_bp.add_app_template_global(csrf_token)
-# So _sidebar.html can render the "Voyage"/"OpenAI"/"Ollama" nav-sub links on every dashboard
-# page without every route that includes it having to pass the list explicitly.
-auth_ui_bp.add_app_template_global(EMBEDDING_PROVIDER_DISPLAY_NAMES, name="embedding_provider_display_names")
 
 
 def _grouped_scopes(scopes: list[str]) -> list[tuple[str, list[str]]]:
@@ -55,33 +48,6 @@ def _application_service() -> ApplicationService:
     return ApplicationService(ApplicationRepository(session_), RefreshTokenRepository(session_))
 
 
-def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
-    session_ = get_session()
-    return EmbeddingProviderConfigService(EmbeddingProviderSettingsRepository(session_), ChunkRepository(session_))
-
-
-@auth_ui_bp.context_processor
-def _inject_embedding_provider_nav_status():
-    """Every dashboard page's sidebar shows which embedding provider (if any) is currently
-    active, since it's a single global setting relevant no matter which page you're on — not
-    just something you'd notice by visiting Configuration. Skips the DB round-trip on
-    unauthenticated requests (login) this blueprint also serves."""
-    if not session.get("user_id"):
-        return {}
-    configs = EmbeddingProviderSettingsRepository(get_session()).list()
-    enabled_by_provider = {config.provider: config.enabled for config in configs}
-    return {
-        "sidebar_embedding_providers": [
-            {"provider": provider, "display_name": display_name, "enabled": enabled_by_provider.get(provider, False)}
-            for provider, display_name in EMBEDDING_PROVIDER_DISPLAY_NAMES.items()
-        ]
-    }
-
-
-def _web_crawl_settings_service() -> WebCrawlSettingsService:
-    return WebCrawlSettingsService(WebCrawlSettingsRepository(get_session()))
-
-
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -95,10 +61,6 @@ def login_required(view):
     return wrapped
 
 
-def _csrf_valid() -> bool:
-    return validate_csrf(request.form.get("csrf_token"))
-
-
 def _is_safe_redirect(url: str) -> bool:
     # Relative path only — rules out "//evil.com/..." (scheme-relative) and absolute URLs, both of
     # which would send a post-login redirect off this host.
@@ -106,8 +68,12 @@ def _is_safe_redirect(url: str) -> bool:
 
 
 def _consume_post_login_redirect() -> str:
+    # The React /workspace SPA is the default landing page post-login — the rest of the admin area
+    # (Configuration, API Documentation, Data Model, plus the React /settings pages) is still fully
+    # intact and reachable via the workspace sidebar's account menu, just no longer where a plain
+    # login (no explicit `next`) lands.
     next_url = session.pop("post_login_redirect", None)
-    return next_url if next_url and _is_safe_redirect(next_url) else url_for("auth_ui.dashboard")
+    return next_url if next_url and _is_safe_redirect(next_url) else url_for("workspace.workspace")
 
 
 @auth_ui_bp.get("/login")
@@ -117,44 +83,44 @@ def login():
         session["post_login_redirect"] = next_url
     if session.get("user_id"):
         return redirect(_consume_post_login_redirect())
-    return render_template("login.html")
+    return serve_spa_shell()
 
 
 @auth_ui_bp.post("/login")
 def login_submit():
-    if not _csrf_valid():
-        return render_template("login.html", error="Session expired — please try again."), 400
-    username = request.form.get("username", "")
-    password = request.form.get("password", "")
-    try:
-        user = _auth_service().login(username, password)
-    except DomainError as error:
-        return render_template("login.html", error=error.message), 401
+    # Served to the React login page (webui/src/pages/LoginPage.tsx) via fetch — JSON in/out,
+    # CSRF via header rather than a form field, same convention as POST /dashboard/token.
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+    body = request.get_json(silent=True) or {}
+    user = _auth_service().login(body.get("username", ""), body.get("password", ""))
     session["user_id"] = str(user.id)
-    if user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return redirect(_consume_post_login_redirect())
+    redirect_url = url_for("auth_ui.change_password") if user.must_change_password else _consume_post_login_redirect()
+    return jsonify({"redirect": redirect_url})
 
 
 @auth_ui_bp.get("/change-password")
 @login_required
 def change_password():
-    return render_template("change_password.html")
+    return serve_spa_shell()
 
 
 @auth_ui_bp.post("/change-password")
 @login_required
 def change_password_submit():
-    if not _csrf_valid():
-        return render_template("change_password.html", error="Session expired — please try again."), 400
-    new_password = request.form.get("new_password", "")
-    confirm_password = request.form.get("confirm_password", "")
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+    body = request.get_json(silent=True) or {}
+    new_password = body.get("new_password", "")
+    confirm_password = body.get("confirm_password", "")
     if len(new_password) < 8:
-        return render_template("change_password.html", error="Password must be at least 8 characters."), 400
+        raise ValidationError(
+            error_codes.VALIDATION_ERROR, "Password must be at least 8 characters.", field="new_password"
+        )
     if new_password != confirm_password:
-        return render_template("change_password.html", error="Passwords do not match."), 400
+        raise ValidationError(error_codes.VALIDATION_ERROR, "Passwords do not match.", field="confirm_password")
     _auth_service().change_password(UUID(session["user_id"]), new_password)
-    return redirect(_consume_post_login_redirect())
+    return jsonify({"redirect": _consume_post_login_redirect()})
 
 
 @auth_ui_bp.post("/logout")
@@ -163,13 +129,16 @@ def logout():
     return redirect(url_for("auth_ui.login"))
 
 
-def _applications_with_status(service: ApplicationService, refresh_tokens: RefreshTokenRepository) -> list[dict]:
+def _applications_with_status(
+    service: ApplicationService, refresh_tokens: RefreshTokenRepository
+) -> list[ApplicationResponse]:
     rows = []
     for application in service.list_applications():
-        # The built-in MCP service-account Application (app/infrastructure/auth/bootstrap.py) is
-        # internal plumbing, not something an admin registered or should manage here — deleting or
-        # regenerating it would silently break the bundled MCP server's connection to this API.
-        if application.id == DEFAULT_MCP_APPLICATION_ID:
+        # Built-in service-account Applications (app/infrastructure/auth/bootstrap.py) are internal
+        # plumbing, not something an admin registered or should manage here — deleting or
+        # revoking either would silently break the bundled MCP server's or the /workspace SPA's
+        # connection to this API.
+        if application.id in _HIDDEN_APPLICATION_IDS:
             continue
         current = refresh_tokens.find_current_for_application(application.id)
         if current is None:
@@ -182,199 +151,77 @@ def _applications_with_status(service: ApplicationService, refresh_tokens: Refre
             status = "active"
             last_used_at = current.last_used_at
         rows.append(
-            {
-                "id": application.id,
-                "name": application.name,
-                "allowed_scopes": application.allowed_scopes,
-                "token_status": status,
-                "last_used_at": last_used_at,
-            }
+            ApplicationResponse(
+                id=application.id,
+                name=application.name,
+                allowed_scopes=application.allowed_scopes,
+                token_status=status,
+                last_used_at=last_used_at,
+            )
         )
     return rows
 
 
-@auth_ui_bp.get("/dashboard")
+def _require_csrf_header() -> None:
+    # Applications management is deliberately never part of the bearer-token OAuth2 API surface
+    # (see CLAUDE.md item 4) — these routes authenticate the same way as /dashboard/token and
+    # /change-password's JSON endpoints: the admin's session cookie plus a CSRF header, not a
+    # scope-checked access token, since a delegable credential able to mint or delete other
+    # credentials would be a privilege-escalation vector.
+    if not validate_csrf(request.headers.get("X-CSRF-Token")):
+        raise AuthenticationError("Session expired — please reload the page.")
+
+
+def _reject_hidden_application(application_id: UUID) -> None:
+    # Built-in service-account Applications aren't reachable through the Applications page (see
+    # _applications_with_status) — this is defense in depth against a direct request to this URL.
+    if application_id in _HIDDEN_APPLICATION_IDS:
+        raise NotFoundError(error_codes.APPLICATION_NOT_FOUND, "Application not found.")
+
+
+@auth_ui_bp.get("/dashboard/scopes")
 @login_required
-def dashboard():
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
+def list_scopes():
+    groups = _grouped_scopes(SUPPORTED_SCOPES)
+    return jsonify([ScopeGroupResponse(label=label, scopes=scopes).model_dump() for label, scopes in groups])
+
+
+@auth_ui_bp.get("/dashboard/applications")
+@login_required
+def list_applications():
     service = _application_service()
     applications = _applications_with_status(service, RefreshTokenRepository(get_session()))
-    return render_template("dashboard.html", applications=applications)
-
-
-@auth_ui_bp.get("/dashboard/configuration")
-@login_required
-def configuration():
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return render_template("configuration.html", web_crawl_settings=_web_crawl_settings_service().get_status())
-
-
-@auth_ui_bp.get("/api-docs")
-@login_required
-def api_docs():
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return render_template("api_docs.html")
-
-
-@auth_ui_bp.get("/dashboard/schema")
-@login_required
-def schema():
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return render_template("schema.html")
-
-
-@auth_ui_bp.get("/dashboard/clients/register")
-@login_required
-def register_application_page():
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    return render_template("register_application.html", scope_groups=_grouped_scopes(SUPPORTED_SCOPES))
+    return jsonify([application.model_dump(mode="json") for application in applications])
 
 
 @auth_ui_bp.post("/dashboard/applications")
 @login_required
 def register_application():
-    if not _csrf_valid():
-        return render_template(
-            "register_application.html",
-            scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
-            error="Session expired — please try again.",
-        ), 400
-    name = request.form.get("name", "").strip()
-    scopes = request.form.getlist("scopes")
-    try:
-        raw_secret, application = _application_service().register(name, scopes)
-    except DomainError as error:
-        return render_template(
-            "register_application.html",
-            scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
-            error=error.message,
-        ), 400
-    return render_template(
-        "register_application.html",
-        scope_groups=_grouped_scopes(SUPPORTED_SCOPES),
-        new_credential={"name": application.name, "client_id": application.id, "client_secret": raw_secret},
+    _require_csrf_header()
+    dto = RegisterApplicationRequest.model_validate(request.get_json(silent=True) or {})
+    raw_secret, application = _application_service().register(dto.name, dto.scopes)
+    response = RegisterApplicationResponse(
+        id=application.id,
+        name=application.name,
+        allowed_scopes=application.allowed_scopes,
+        client_secret=raw_secret,
     )
+    return jsonify(response.model_dump(mode="json"))
 
 
 @auth_ui_bp.post("/dashboard/applications/<uuid:application_id>/revoke-token")
 @login_required
 def revoke_token(application_id: UUID):
-    service = _application_service()
-    # Not reachable through the dashboard UI (filtered out of _applications_with_status) — this
-    # guard is defense in depth against a direct POST to this URL.
-    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
-        service.revoke_application_token(application_id)
-    return redirect(url_for("auth_ui.dashboard"))
+    _require_csrf_header()
+    _reject_hidden_application(application_id)
+    _application_service().revoke_application_token(application_id)
+    return "", 204
 
 
 @auth_ui_bp.post("/dashboard/applications/<uuid:application_id>/delete")
 @login_required
 def delete_application(application_id: UUID):
-    service = _application_service()
-    if _csrf_valid() and application_id != DEFAULT_MCP_APPLICATION_ID:
-        service.delete_application(application_id)
-    return redirect(url_for("auth_ui.dashboard"))
-
-
-def _require_known_provider(provider: str) -> None:
-    if provider not in EmbeddingProviderRegistry.known_providers():
-        abort(404)
-
-
-@auth_ui_bp.get("/dashboard/configuration/embeddings/<provider>")
-@login_required
-def embedding_provider_settings(provider: str, error: str | None = None):
-    _require_known_provider(provider)
-    user = UserRepository(get_session()).get()
-    if user is not None and user.must_change_password:
-        return redirect(url_for("auth_ui.change_password"))
-    status = _embedding_provider_config_service().get_status(provider)
-    return render_template(
-        "embedding_provider_settings.html",
-        provider=provider,
-        display_name=EMBEDDING_PROVIDER_DISPLAY_NAMES.get(provider, provider),
-        status=status,
-        active_display_name=EMBEDDING_PROVIDER_DISPLAY_NAMES.get(status.active_provider, status.active_provider),
-        api_key_required=provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
-        base_url_required=provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
-        base_url_supported=provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
-        error=error,
-    )
-
-
-@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>")
-@login_required
-def update_embedding_provider_settings(provider: str):
-    _require_known_provider(provider)
-    if not _csrf_valid():
-        return embedding_provider_settings(provider, error="Session expired — please try again."), 400
-
-    try:
-        dimensions = int(request.form.get("dimensions", "").strip())
-        chunk_size = int(request.form.get("chunk_size", "").strip())
-        chunk_overlap = int(request.form.get("chunk_overlap", "").strip())
-    except ValueError:
-        return embedding_provider_settings(
-            provider, error="Dimensions, chunk size, and chunk overlap must be whole numbers."
-        )
-
-    model = request.form.get("model", "").strip()
-    base_url = request.form.get("base_url", "").strip() or None
-    api_key = request.form.get("api_key", "").strip() or None
-    if api_key is None:
-        # "Leave blank to keep the current key" — the form never round-trips a saved key back
-        # into the page, so a blank submission means "unchanged", not "clear it".
-        existing = EmbeddingProviderSettingsRepository(get_session()).get(provider)
-        api_key = existing.api_key if existing is not None else None
-
-    try:
-        _embedding_provider_config_service().update_config(
-            provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap
-        )
-    except DomainError as error:
-        return embedding_provider_settings(provider, error=error.message)
-    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
-
-
-@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>/enable")
-@login_required
-def enable_embedding_provider_settings(provider: str):
-    _require_known_provider(provider)
-    if _csrf_valid():
-        try:
-            _embedding_provider_config_service().enable(provider)
-        except DomainError as error:
-            return embedding_provider_settings(provider, error=error.message)
-    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
-
-
-@auth_ui_bp.post("/dashboard/configuration/embeddings/<provider>/disable")
-@login_required
-def disable_embedding_provider_settings(provider: str):
-    _require_known_provider(provider)
-    if _csrf_valid():
-        try:
-            _embedding_provider_config_service().disable(provider)
-        except DomainError as error:
-            return embedding_provider_settings(provider, error=error.message)
-    return redirect(url_for("auth_ui.embedding_provider_settings", provider=provider))
-
-
-@auth_ui_bp.post("/dashboard/web-crawl-settings")
-@login_required
-def update_web_crawl_settings():
-    if _csrf_valid():
-        user_agent = request.form.get("user_agent", "").strip()
-        if user_agent:
-            _web_crawl_settings_service().update(user_agent)
-    return redirect(url_for("auth_ui.configuration"))
+    _require_csrf_header()
+    _reject_hidden_application(application_id)
+    _application_service().delete_application(application_id)
+    return "", 204

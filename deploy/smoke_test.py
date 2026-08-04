@@ -1,9 +1,11 @@
 """End-to-end smoke check against the isolated test stack (docker-compose.test.yml, port 13199).
 
-Drives the real HTTP surface exactly as a human/client would: log into the dashboard (server-
-rendered, JSON-API doesn't cover app registration by design), register an OAuth2 application,
-mint a token, then create a library — proving the DB, migrations, auth/scope machinery, and core
-CRUD path all work, not just that /health responds.
+Drives the real HTTP surface exactly as a human/client would: log in via the React login page's
+JSON API (app/presentation/routes/auth_ui.py), register an OAuth2 application via the React
+Settings > Applications page's JSON API (application registration is deliberately never part of
+the bearer-token OAuth2 surface — see that route module's _require_csrf_header), mint a token,
+then create a library — proving the DB, migrations, auth/scope machinery, and core CRUD path all
+work, not just that /health responds.
 
 No embedding provider is enabled by default — every provider starts disabled until an admin
 configures and enables one via its dashboard page (see
@@ -26,9 +28,10 @@ _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
 _APP_NAME = "smoke-test"
 _REQUIRED_SCOPES = ["libraries:write", "libraries:read"]
-_CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"')
-_CLIENT_ID_RE = re.compile(r'id="new-credential-client-id">([^<]+)<')
-_CLIENT_SECRET_RE = re.compile(r'id="new-credential-client-secret">([^<]+)<')
+# /login, /change-password, and /settings all serve the React SPA shell (app/presentation/web/
+# spa.py), which carries its CSRF token as a JS global — every JSON POST in this app (including
+# application registration) sends it back via the X-CSRF-Token header, not a form field.
+_CSRF_JS_RE = re.compile(r'window\.__CSRF_TOKEN__="([^"]+)"')
 
 
 def _extract(pattern: re.Pattern, text: str, what: str) -> str:
@@ -43,34 +46,33 @@ def _register_application_and_get_token() -> str:
 
     login_page = session.get(f"{BASE_URL}/login")
     login_page.raise_for_status()
-    csrf = _extract(_CSRF_RE, login_page.text, "login csrf_token")
+    csrf = _extract(_CSRF_JS_RE, login_page.text, "login csrf token")
 
-    after_login = session.post(
+    login_response = session.post(
         f"{BASE_URL}/login",
-        data={"username": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD, "csrf_token": csrf},
+        json={"username": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
+        headers={"X-CSRF-Token": csrf},
     )
-    after_login.raise_for_status()
+    login_response.raise_for_status()
 
     # Fresh bootstrap always forces a password change on first login (must_change_password=True).
-    csrf = _extract(_CSRF_RE, after_login.text, "change-password csrf_token")
-    after_change = session.post(
+    # Same session, same CSRF token throughout — it's never rotated mid-session.
+    change_response = session.post(
         f"{BASE_URL}/change-password",
-        data={
-            "new_password": _NEW_ADMIN_PASSWORD,
-            "confirm_password": _NEW_ADMIN_PASSWORD,
-            "csrf_token": csrf,
-        },
+        json={"new_password": _NEW_ADMIN_PASSWORD, "confirm_password": _NEW_ADMIN_PASSWORD},
+        headers={"X-CSRF-Token": csrf},
     )
-    after_change.raise_for_status()
+    change_response.raise_for_status()
 
-    csrf = _extract(_CSRF_RE, after_change.text, "dashboard csrf_token")
     register = session.post(
         f"{BASE_URL}/dashboard/applications",
-        data=[("csrf_token", csrf), ("name", _APP_NAME)] + [("scopes", scope) for scope in _REQUIRED_SCOPES],
+        json={"name": _APP_NAME, "scopes": _REQUIRED_SCOPES},
+        headers={"X-CSRF-Token": csrf},
     )
     register.raise_for_status()
-    client_id = _extract(_CLIENT_ID_RE, register.text, "new client_id")
-    client_secret = _extract(_CLIENT_SECRET_RE, register.text, "new client_secret")
+    body = register.json()
+    client_id = body["id"]
+    client_secret = body["client_secret"]
 
     token_response = requests.post(
         f"{BASE_URL}/oauth/token",

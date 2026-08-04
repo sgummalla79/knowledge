@@ -1,0 +1,65 @@
+from app.application.token_service import TokenService
+from app.config import config
+from app.constants import DEFAULT_DASHBOARD_APPLICATION_ID, DEFAULT_DASHBOARD_APPLICATION_SCOPES
+from app.infrastructure.auth.bootstrap import bootstrap_default_dashboard_application
+from app.infrastructure.auth.secrets import derive_default_dashboard_client_secret, hash_secret
+from app.infrastructure.orm import Application as ApplicationModel
+from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.authorization_code_repository import AuthorizationCodeRepository
+from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
+
+
+def test_bootstrap_creates_the_default_application(db_session):
+    bootstrap_default_dashboard_application(db_session)
+
+    application = ApplicationRepository(db_session).get(DEFAULT_DASHBOARD_APPLICATION_ID)
+    assert application is not None
+    assert application.allowed_scopes == DEFAULT_DASHBOARD_APPLICATION_SCOPES
+
+
+def test_bootstrap_is_idempotent(db_session):
+    bootstrap_default_dashboard_application(db_session)
+    bootstrap_default_dashboard_application(db_session)  # must not raise or duplicate
+
+    matches = [a for a in ApplicationRepository(db_session).list() if a.id == DEFAULT_DASHBOARD_APPLICATION_ID]
+    assert len(matches) == 1
+
+
+def test_bootstrap_stores_the_deterministically_derived_secret(db_session):
+    bootstrap_default_dashboard_application(db_session)
+
+    model = db_session.query(ApplicationModel).filter(ApplicationModel.id == DEFAULT_DASHBOARD_APPLICATION_ID).one()
+    expected_secret = derive_default_dashboard_client_secret(config.secret_key)
+    assert model.client_secret_hash == hash_secret(expected_secret)
+
+
+def test_bootstrap_syncs_scopes_on_an_existing_row(db_session):
+    # Simulates a database that already had this Application bootstrapped before a new scope was
+    # added to DEFAULT_DASHBOARD_APPLICATION_SCOPES — the row must pick up the new scope on the
+    # next bootstrap call (every app startup), not stay stuck with whatever it had at creation.
+    bootstrap_default_dashboard_application(db_session)
+    repository = ApplicationRepository(db_session)
+    repository.update_scopes(DEFAULT_DASHBOARD_APPLICATION_ID, ["libraries:read"])
+    db_session.commit()
+
+    bootstrap_default_dashboard_application(db_session)
+
+    application = repository.get(DEFAULT_DASHBOARD_APPLICATION_ID)
+    assert application.allowed_scopes == DEFAULT_DASHBOARD_APPLICATION_SCOPES
+
+
+def test_default_application_secret_actually_authenticates(app_context, db_session):
+    bootstrap_default_dashboard_application(db_session)
+
+    applications = ApplicationRepository(db_session)
+    token_service = TokenService(
+        applications, RefreshTokenRepository(db_session), AuthorizationCodeRepository(db_session)
+    )
+    raw_secret = derive_default_dashboard_client_secret(config.secret_key)
+
+    result = token_service.client_credentials_grant(
+        DEFAULT_DASHBOARD_APPLICATION_ID, raw_secret, DEFAULT_DASHBOARD_APPLICATION_SCOPES
+    )
+
+    assert result["access_token"]
+    assert result["scope"] == " ".join(DEFAULT_DASHBOARD_APPLICATION_SCOPES)

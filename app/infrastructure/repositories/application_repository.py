@@ -38,6 +38,14 @@ class ApplicationRepository:
         self._session.flush()
         return _to_entity(model)
 
+    # Placed before list() below, deliberately — a bare `list[str]` annotation on any method
+    # defined *after* list() would resolve `list` to that method itself (shadowing the builtin in
+    # this class's namespace), not the builtin generic, and blow up at class-definition time.
+    def update_scopes(self, application_id: UUID, allowed_scopes: list[str]) -> None:
+        model = self._session.query(ApplicationModel).filter(ApplicationModel.id == application_id).one()
+        model.allowed_scopes = " ".join(allowed_scopes)
+        self._session.flush()
+
     def list(self) -> list[ApplicationEntity]:
         models = self._session.query(ApplicationModel).order_by(ApplicationModel.created_at).all()
         return [_to_entity(model) for model in models]

@@ -13,10 +13,12 @@ Structured as hexagonal/clean architecture:
 `app/domain` (entities, repository ports as `typing.Protocol`, errors) →
 `app/application` (services — one per feature area, no framework imports) →
 `app/infrastructure` (SQLAlchemy ORM/repositories, embeddings provider registries, auth
-helpers) → `app/presentation` (Flask blueprints/routes, pydantic schemas, Jinja2 admin dashboard
-templates). Bundles an MCP server (`mcp_server/`) exposing `list_libraries`/`query_library` tools
-over streamable-HTTP, published loopback-only via docker-compose (never reachable off this
-machine) and secured by the same OAuth2 stack as the rest of the API — see session history item 8.
+helpers) → `app/presentation` (Flask blueprints/routes, pydantic schemas — JSON only; see item 13,
+there is no server-rendered HTML left anywhere in this app). The React SPA (`webui/`, built into
+`app/static/workspace/`) is the only UI — see item 13 for how it's served. Bundles an MCP server
+(`mcp_server/`) exposing `list_libraries`/`query_library` tools over streamable-HTTP, published
+loopback-only via docker-compose (never reachable off this machine) and secured by the same OAuth2
+stack as the rest of the API — see session history item 8.
 
 ## Session history — what's been built (in build order)
 
@@ -37,8 +39,10 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
      `must_change_password=True`, forcing a real first-login password change.
    - `applications` table: named OAuth2 clients (`client_id` = the row's UUID, `client_secret`
      shown once at registration/regeneration, hashed at rest) with an `allowed_scopes` list.
-     Registered via the server-rendered admin dashboard (`/login` → `/dashboard`), **not** via any
-     JSON API — app registration is deliberately dashboard-only.
+     Registered via the admin's authenticated session (originally the server-rendered dashboard,
+     now the React Settings > Applications page — see item 12), **not** via the bearer-token OAuth2
+     API — app registration is deliberately never delegable to a scoped access token, since a
+     credential able to mint or delete other credentials would be a privilege-escalation vector.
    - `refresh_tokens` table: opaque, SHA-256-hashed, DB-backed, **reusable (not rotated)**.
    - Scopes (`app/constants.py`): `libraries:read`, `libraries:write`, `documents:read`,
      `documents:write`, `query:execute`, `embedding_settings:read`, `embedding_settings:write`,
@@ -51,10 +55,10 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
      asymmetric with the opaque/DB-backed refresh tokens, since access tokens are checked on
      every request (wants speed) while refresh tokens are rare and must be revocable.
    - `app/auth.py`'s `require_scope(scope)` decorator gates every resource route.
-   - Dashboard: register/delete applications, view scopes + (once, on issuance) the client secret
-     in a popup modal with copy buttons, revoke/regenerate tokens, forced first-login password
-     change, hand-rolled CSRF protection for the session-cookie surface (everything else is
-     bearer-token JSON, inherently CSRF-immune).
+   - Dashboard (now the React Settings > Applications page — item 12): register/delete
+     applications, view scopes + (once, on issuance) the client secret in a modal with copy
+     buttons, revoke tokens, forced first-login password change, hand-rolled CSRF protection for
+     the session-cookie surface (everything else is bearer-token JSON, inherently CSRF-immune).
 5. **Static `API_KEY` removed entirely** — every route requires a scoped bearer token now; there
    is no unrestricted-access credential anymore. `mcp_server/client.py` is OAuth2-only (requests
    `libraries:read query:execute offline_access`, refreshes proactively before expiry) — see item 9
@@ -75,8 +79,8 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
      `DCR_DEFAULT_SCOPES`; deliberately not dashboard-only like normal Application registration,
      since this endpoint (like everything else here) is only ever reachable on localhost.
    - `GET/POST /oauth/authorize` — reuses the dashboard's session login as the consent step
-     (`app/templates/authorize.html`); `/login` now honors a `next` param so this doesn't dead-end
-     an unauthenticated visitor.
+     (originally `app/templates/authorize.html`, a React page since item 13); `/login` now honors
+     a `next` param so this doesn't dead-end an unauthenticated visitor.
    - `POST /oauth/token` gained an `authorization_code` branch (PKCE `S256` verification via
      `app/infrastructure/auth/pkce.py`); redirect_uri matching
      (`app/infrastructure/auth/redirect_uri.py`) ignores port for loopback hosts, since a CLI
@@ -98,15 +102,16 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
    bootstrap step and `mcp_server/client.py` independently derive the same value from `SECRET_KEY`
    via `derive_default_mcp_client_secret` (`app/infrastructure/auth/secrets.py`, HMAC-SHA256), so
    it's unique per deployment without being a literal secret sitting in source control. This
-   Application is hidden from the dashboard's Applications list and its delete/revoke-token routes
-   (`app/presentation/routes/auth_ui.py`) — it's internal plumbing, not something an admin should
-   be able to accidentally delete. Also bumped gunicorn from its implicit 1-worker default to 3
+   Application is hidden from the Settings > Applications page's list and its delete/revoke-token
+   routes (`app/presentation/routes/auth_ui.py`) — it's internal plumbing, not something an admin
+   should be able to accidentally delete. Also bumped gunicorn from its implicit 1-worker default to 3
    (`deploy/entrypoint.sh`) — streamable-http's persistent MCP sessions could otherwise hold the
    single worker's only connection slot and 503 every other request for up to 30s at a time.
-10. **Added a Data Model reference page** (`/dashboard/schema`, linked from the sidebar):
-    zoomable/pannable Mermaid ER diagram plus a column-level reference for every table, generated
-    from the live ORM models and `migrations/versions/` rather than hand-maintained prose.
-    `mermaid.min.js` is vendored into `app/static/` (no runtime CDN dependency).
+10. **Added a Data Model reference page**: zoomable/pannable Mermaid ER diagram plus a
+    column-level reference for every table, originally hand-authored once from the live ORM models
+    and `migrations/versions/` rather than generated per-request. Originally a Jinja page at
+    `/dashboard/schema` with `mermaid.min.js` vendored into `app/static/`; moved to React in item
+    13 (`webui/src/pages/DataModelPage.tsx`), now using the `mermaid` npm package instead.
 11. **Reranking removed entirely** (migration `0014`) — it had already been unreachable via the
     API since `SUPPORTED_RERANK_MODELS_BY_PROVIDER` was emptied out (see item 3's note): with no
     supported rerank provider, `rerank_enabled` could never be validly turned on, so the feature
@@ -120,8 +125,78 @@ machine) and secured by the same OAuth2 stack as the rest of the API — see ses
     retrieval (`dense_k`/`sparse_k`/`rrf_k`) — no reranking stage exists anywhere in the pipeline.
     May reconsider later with a cleaner design (e.g. deriving the rerank provider from the active
     embedding provider instead of a separate field) rather than resurrecting this version.
+12. **Applications moved from the Jinja dashboard to the React Settings > Applications page**
+    (`/settings/applications`, `webui/src/pages/ApplicationsPage.tsx`) — `dashboard.html` and
+    `register_application.html` are gone, along with the `GET /dashboard`, `GET
+    /dashboard/clients/register` routes. The page is **read-only** by design (list, per-application
+    info modal showing client id + scopes, revoke token, delete) — there is deliberately no "Add
+    Application" UI; the bundled MCP server and the SPA itself already authenticate via built-in
+    service-account Applications with derived, never-stored secrets (item 9), so the only
+    remaining use case for registering a *new* Application by hand is an external client like
+    knowledge-store, which isn't built yet. The underlying `POST /dashboard/applications`
+    registration endpoint (`app/presentation/routes/auth_ui.py`) still exists and is exercised by
+    `deploy/smoke_test.py` — it's just not wired to any button. All of `GET/POST
+    /dashboard/applications`, `POST /dashboard/applications/<id>/revoke-token`, `POST
+    /dashboard/applications/<id>/delete`, `GET /dashboard/scopes` are JSON, kept on the same
+    session-cookie + `X-CSRF-Token` header authentication as `/dashboard/token`, deliberately never
+    added to the bearer-token OAuth2 API surface (see item 4).
+13. **The entire Jinja admin UI was retired — this app now serves zero server-rendered HTML.**
+    `app/templates/` and every `render_template()` call are gone; `app/presentation/` is JSON-only
+    (routes + pydantic schemas). Everything that was still Jinja after item 12 moved to the React
+    SPA (`webui/`), each following the same pattern: the Flask route calls
+    `serve_spa_shell(extra_globals=...)` (`app/presentation/web/spa.py`) to inject page-specific
+    data as `window.__SOME_GLOBAL__`, and a React page under `/settings/*` (or, for the OAuth
+    screen, a new top-level route) renders it client-side:
+    - **Web Crawler settings** — was the *entire* contents of the old `/dashboard/configuration`
+      page (that page had nothing else on it, so the whole route/template is gone, not just the
+      form). Now `webui/src/pages/WebCrawlerPage.tsx` at `/settings/web-crawler`, backed by a new
+      scoped JSON API (`GET/PUT /web-crawl-settings`, scopes `web_crawl_settings:read`/`:write` —
+      `app/presentation/routes/web_crawl_settings.py`), the same pattern as `search_settings`/
+      `embedding_settings` rather than the session+CSRF pattern Applications uses — this data isn't
+      credential-shaped, so there's no privilege-escalation reason to keep it off the bearer-token
+      API.
+    - **API Documentation** — was fully static content (`api_docs.html`, no service calls, no
+      Jinja loops); ported near-verbatim into `webui/src/pages/ApiDocsPage.tsx` at
+      `/settings/api-docs`. JSON code blocks are template literals (`` {`{...}`} ``) since JSX text
+      can't contain a bare `{`.
+    - **Data Model** — `webui/src/pages/DataModelPage.tsx` at `/settings/data-model`. The
+      zoom/pan/drag toolbar and the ER diagram rendering were rewritten as a dedicated component
+      (`webui/src/components/ErDiagram.tsx`) using `mermaid.render()` (returns an SVG string,
+      inserted via `dangerouslySetInnerHTML`) rather than `mermaid.run()` (mutates DOM nodes
+      in-place, fighting React's reconciliation) — same rationale for using `render()` applies to
+      any future mermaid usage in this SPA. `mermaid` is lazy-loaded (`React.lazy` in `App.tsx`):
+      it pulls in every diagram-type sub-renderer as separate chunks, and a static import would
+      have put that weight in every route's bundle, including `/login`, for a page most sessions
+      never visit. The vendored `app/static/mermaid.min.js` is deleted — the npm package replaces
+      it, still fully bundled at build time (no runtime CDN dependency, same property the vendored
+      file existed for).
+    - **OAuth consent screen** (`authorize.html`/`oauth_error.html`) — the one genuinely
+      security-sensitive page in this batch, so the server-side validation in
+      `app/presentation/routes/oauth.py`'s `authorize()`/`authorize_submit()` (registered
+      `redirect_uri` check, PKCE/scope/response_type validation) is **unchanged**; only the
+      rendering changed. `GET /oauth/authorize` now calls `serve_spa_shell()` with either
+      `OAUTH_AUTHORIZE` (application name + params, once validation passes) or `OAUTH_ERROR`
+      (a message, for the two failure modes that must show an error page rather than redirect to
+      an unproven `redirect_uri`) injected as a global — `webui/src/pages/AuthorizePage.tsx`
+      (a new top-level route, alongside `/login`) picks between the consent form and the error
+      view based on which one is present. `POST /oauth/authorize` became JSON: CSRF via the
+      `X-CSRF-Token` header instead of a form field (matching `/login`), and instead of an HTTP
+      redirect it returns `{"redirect": "..."}` for the client to follow via
+      `window.location.href` — same shape `login`/`change-password` already used. The
+      `AuthorizeService`/PKCE/redirect_uri validation logic itself was not touched, only how its
+      result is delivered to the browser.
 
-Current test suite: **368 tests passing** (`python -m pytest tests/`).
+    `_sidebar.html`, `base.html`, and the `_inject_embedding_provider_nav_status` context
+    processor (the sidebar's per-provider status strip) are deleted outright — nothing renders
+    Jinja anymore, so nothing needs them. Both `auth_ui_bp.add_app_template_global(csrf_token)` and
+    `oauth_bp`'s equivalent are gone too; `csrf_token()` is still a plain Python function, just
+    never registered as a Jinja global now, since `serve_spa_shell()` calls it directly to embed
+    `window.__CSRF_TOKEN__`. **If this repo's CLAUDE.md, comments, or memory ever mention a
+    "dashboard sidebar," "Jinja admin pages," or a `/dashboard/configuration`,
+    `/dashboard/schema`, `/api-docs`, `authorize.html`, or `oauth_error.html` route/template
+    outside this item's own history, that reference is stale — none of it exists anymore.**
+
+Current test suite: **382 tests passing** (`python -m pytest tests/`).
 
 ## Not yet done / next steps
 

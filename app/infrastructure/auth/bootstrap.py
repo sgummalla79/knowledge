@@ -4,12 +4,19 @@ from app.config import config
 from app.constants import (
     DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
+    DEFAULT_DASHBOARD_APPLICATION_ID,
+    DEFAULT_DASHBOARD_APPLICATION_NAME,
+    DEFAULT_DASHBOARD_APPLICATION_SCOPES,
     DEFAULT_MCP_APPLICATION_ID,
     DEFAULT_MCP_APPLICATION_NAME,
     DEFAULT_MCP_APPLICATION_SCOPES,
 )
 from app.infrastructure.auth.passwords import hash_password
-from app.infrastructure.auth.secrets import derive_default_mcp_client_secret, hash_secret
+from app.infrastructure.auth.secrets import (
+    derive_default_dashboard_client_secret,
+    derive_default_mcp_client_secret,
+    hash_secret,
+)
 from app.infrastructure.repositories.application_repository import ApplicationRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 
@@ -34,6 +41,27 @@ def bootstrap_default_admin(session) -> None:
         session.rollback()
 
 
+def _bootstrap_service_application(session, application_id, name: str, scopes: list[str], secret: str) -> None:
+    """Shared by both built-in service-account Applications below: create the row if it doesn't
+    exist yet, then (whether just-created or pre-existing) make sure its stored allowed_scopes
+    matches the constant — otherwise a scope added to that constant after the row was first
+    bootstrapped would never take effect on an existing database, and every token mint would fail
+    scope validation until someone noticed and manually fixed the row."""
+    repository = ApplicationRepository(session)
+    application = repository.get(application_id)
+    if application is None:
+        try:
+            application = repository.create(name, hash_secret(secret), scopes, id=application_id)
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            application = repository.get(application_id)
+
+    if application is not None and set(application.allowed_scopes) != set(scopes):
+        repository.update_scopes(application_id, scopes)
+        session.commit()
+
+
 def bootstrap_default_mcp_application(session) -> None:
     """Idempotent: only creates the built-in MCP service-account Application if it doesn't exist
     yet (checked by its fixed id — see app/constants.py). This is what mcp_server/client.py
@@ -41,17 +69,25 @@ def bootstrap_default_mcp_application(session) -> None:
     See derive_default_mcp_client_secret for why its secret needs no separate storage or handoff
     between this process and mcp_server/server.py's separate process.
     """
-    repository = ApplicationRepository(session)
-    if repository.get(DEFAULT_MCP_APPLICATION_ID) is not None:
-        return
-    secret = derive_default_mcp_client_secret(config.secret_key)
-    try:
-        repository.create(
-            DEFAULT_MCP_APPLICATION_NAME,
-            hash_secret(secret),
-            DEFAULT_MCP_APPLICATION_SCOPES,
-            id=DEFAULT_MCP_APPLICATION_ID,
-        )
-        session.commit()
-    except IntegrityError:
-        session.rollback()
+    _bootstrap_service_application(
+        session,
+        DEFAULT_MCP_APPLICATION_ID,
+        DEFAULT_MCP_APPLICATION_NAME,
+        DEFAULT_MCP_APPLICATION_SCOPES,
+        derive_default_mcp_client_secret(config.secret_key),
+    )
+
+
+def bootstrap_default_dashboard_application(session) -> None:
+    """Idempotent: only creates the built-in dashboard/workspace service-account Application if it
+    doesn't exist yet. This is what app/presentation/routes/workspace.py's POST /dashboard/token
+    mints access tokens for, on behalf of an already-logged-in admin session — see
+    derive_default_dashboard_client_secret for why its secret needs no separate storage or handoff.
+    """
+    _bootstrap_service_application(
+        session,
+        DEFAULT_DASHBOARD_APPLICATION_ID,
+        DEFAULT_DASHBOARD_APPLICATION_NAME,
+        DEFAULT_DASHBOARD_APPLICATION_SCOPES,
+        derive_default_dashboard_client_secret(config.secret_key),
+    )

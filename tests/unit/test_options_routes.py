@@ -13,12 +13,12 @@ def client():
     return app.test_client()
 
 
-def _status(provider, enabled=False, configured=False, model=None):
+def _status(provider, enabled=False, configured=False, model=None, locked=False):
     return EmbeddingProviderConfigStatus(
         provider=provider,
         enabled=enabled,
         configured=configured,
-        locked=False,
+        locked=locked,
         locked_by_other=False,
         chunk_count=0,
         model=model,
@@ -32,7 +32,7 @@ def _status(provider, enabled=False, configured=False, model=None):
 
 
 def test_embedding_options_describes_provider_capabilities(client, auth_headers):
-    statuses = [_status("voyage"), _status("ollama"), _status("openai_compatible")]
+    statuses = [_status("voyage"), _status("ollama", locked=True), _status("openai_compatible")]
     with patch(
         "app.presentation.routes.options.EmbeddingProviderConfigService.list_status",
         return_value=statuses,
@@ -48,6 +48,8 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
 
     providers_by_name = {provider["name"]: provider for provider in body["providers"]}
     ollama = providers_by_name["ollama"]
+    assert ollama["display_name"] == "Ollama"
+    assert ollama["locked"] is True
     assert ollama["api_key_required"] is False
     assert ollama["base_url_required"] is False
     assert ollama["base_url_supported"] is True

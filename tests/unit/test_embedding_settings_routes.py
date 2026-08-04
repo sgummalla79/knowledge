@@ -110,12 +110,18 @@ def test_update_unsupported_provider_returns_structured_400(client, auth_headers
 
 
 def test_update_voyage_without_api_key_returns_structured_400(client, auth_headers):
-    # Real (unmocked) validate_provider_connection: voyage requires an api_key.
-    response = client.put(
-        "/embedding-settings/voyage",
-        json={"model": "voyage-3", "dimensions": 1024},
-        headers=auth_headers("embedding_settings:write"),
-    )
+    # Real (unmocked) validate_provider_connection: voyage requires an api_key. No prior config
+    # exists for this provider, so the blank-api-key-keeps-existing fallback finds nothing to
+    # reuse either — this is a genuinely missing key, not an omitted-on-purpose one.
+    with patch(
+        "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
+        return_value=None,
+    ):
+        response = client.put(
+            "/embedding-settings/voyage",
+            json={"model": "voyage-3", "dimensions": 1024},
+            headers=auth_headers("embedding_settings:write"),
+        )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "api_key"
@@ -124,9 +130,15 @@ def test_update_voyage_without_api_key_returns_structured_400(client, auth_heade
 def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
     # Ollama is self-hosted/keyless — proves api_key is genuinely optional end-to-end at the HTTP
     # layer, not just required-with-empty-string.
-    with patch(
-        "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-        return_value=_status("ollama", configured=True),
+    with (
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
+            return_value=None,
+        ),
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
+            return_value=_status("ollama", configured=True),
+        ),
     ):
         response = client.put(
             "/embedding-settings/ollama",
@@ -176,10 +188,40 @@ def test_update_bad_chunking_returns_structured_400(client, auth_headers):
     assert response.get_json()["error"]["field"] == "chunk_overlap"
 
 
+def test_update_blank_api_key_keeps_the_existing_one(client, auth_headers):
+    # GET /embedding-settings never returns the saved key (only `configured`), so a caller has no
+    # way to round-trip it — omitting api_key must reuse whatever is already saved, not clear it.
+    existing = type("Existing", (), {"api_key": "previously-saved-secret"})()
+    with (
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
+            return_value=existing,
+        ),
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
+            return_value=_status("voyage", configured=True),
+        ) as mock_update,
+    ):
+        response = client.put(
+            "/embedding-settings/voyage",
+            json={"model": "voyage-3", "dimensions": 1024},
+            headers=auth_headers("embedding_settings:write"),
+        )
+
+    assert response.status_code == 200
+    mock_update.assert_called_once_with("voyage", "voyage-3", "previously-saved-secret", None, 1024, 800, 100)
+
+
 def test_update_success_returns_configured_true(client, auth_headers):
-    with patch(
-        "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-        return_value=_status("ollama", configured=True),
+    with (
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
+            return_value=None,
+        ),
+        patch(
+            "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
+            return_value=_status("ollama", configured=True),
+        ),
     ):
         response = client.put(
             "/embedding-settings/ollama",

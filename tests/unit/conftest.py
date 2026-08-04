@@ -1,21 +1,9 @@
 import os
-from unittest.mock import patch
 
 import pytest
 from flask import Flask
 
 from app.infrastructure.auth.jwt_tokens import issue_access_token
-
-
-@pytest.fixture(autouse=True)
-def _mock_sidebar_embedding_provider_status():
-    """The dashboard sidebar queries embedding_provider_settings on every authenticated page
-    render (see auth_ui._inject_embedding_provider_nav_status), so any test that renders a full
-    dashboard page — not just embedding-settings tests — would otherwise need a real DB. Defaults
-    to "nothing configured" globally; tests that care about the sidebar's provider strip override
-    this locally with their own `with patch(...)`."""
-    with patch("app.presentation.routes.auth_ui.EmbeddingProviderSettingsRepository.list", return_value=[]):
-        yield
 
 
 @pytest.fixture()

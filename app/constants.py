@@ -126,6 +126,8 @@ SCOPE_EMBEDDING_SETTINGS_READ = "embedding_settings:read"
 SCOPE_EMBEDDING_SETTINGS_WRITE = "embedding_settings:write"
 SCOPE_SEARCH_SETTINGS_READ = "search_settings:read"
 SCOPE_SEARCH_SETTINGS_WRITE = "search_settings:write"
+SCOPE_WEB_CRAWL_SETTINGS_READ = "web_crawl_settings:read"
+SCOPE_WEB_CRAWL_SETTINGS_WRITE = "web_crawl_settings:write"
 SCOPE_OFFLINE_ACCESS = "offline_access"
 
 SUPPORTED_SCOPES = [
@@ -138,6 +140,8 @@ SUPPORTED_SCOPES = [
     SCOPE_EMBEDDING_SETTINGS_WRITE,
     SCOPE_SEARCH_SETTINGS_READ,
     SCOPE_SEARCH_SETTINGS_WRITE,
+    SCOPE_WEB_CRAWL_SETTINGS_READ,
+    SCOPE_WEB_CRAWL_SETTINGS_WRITE,
     SCOPE_OFFLINE_ACCESS,
 ]
 
@@ -166,3 +170,23 @@ DEFAULT_ADMIN_PASSWORD = "admin"
 DEFAULT_MCP_APPLICATION_ID = UUID("0d1a2b3c-4d5e-4f60-8a1b-2c3d4e5f6071")
 DEFAULT_MCP_APPLICATION_NAME = "mcp-server (built-in)"
 DEFAULT_MCP_APPLICATION_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_ACCESS]
+
+# Built-in service-account Application the /workspace SPA (app/presentation/routes/workspace.py)
+# authenticates as to call this same app's own REST API, the same pattern as
+# DEFAULT_MCP_APPLICATION_ID above — bootstrapped automatically, never registered by hand, secret
+# derived rather than stored (see derive_default_dashboard_client_secret). No offline_access: the
+# admin's browser session is the renewable credential here, so the SPA just re-mints a fresh access
+# token (POST /dashboard/token) rather than holding a refresh token.
+DEFAULT_DASHBOARD_APPLICATION_ID = UUID("b4480149-4880-4d8f-bf65-7f194275317b")
+DEFAULT_DASHBOARD_APPLICATION_NAME = "dashboard (built-in)"
+DEFAULT_DASHBOARD_APPLICATION_SCOPES = [
+    SCOPE_LIBRARIES_READ,
+    SCOPE_LIBRARIES_WRITE,
+    SCOPE_DOCUMENTS_READ,
+    SCOPE_DOCUMENTS_WRITE,
+    SCOPE_QUERY_EXECUTE,
+    SCOPE_EMBEDDING_SETTINGS_READ,
+    SCOPE_EMBEDDING_SETTINGS_WRITE,
+    SCOPE_WEB_CRAWL_SETTINGS_READ,
+    SCOPE_WEB_CRAWL_SETTINGS_WRITE,
+]
