@@ -239,29 +239,35 @@ verification step first. If you need to iterate quickly during development, iter
 
 ## Versioning
 
-The repo root `VERSION` file (plain text, single line, e.g. `1.0.0`) is the single source of truth
-for the app's release version, following semver (`MAJOR.MINOR.PATCH`). The first release is
-`1.0.0`, cut from a long-lived `releases/v1` branch (branched off `master`).
+The repo root `VERSION` file (plain text, single line, e.g. `2.0.0`) is the single source of truth
+for the app's release version, following semver (`MAJOR.MINOR.PATCH`).
 
-**`master` and `releases/v1` are protected — never commit directly to either, from any machine.**
-All work (bug fixes and, later, features) happens on a short-lived branch cut from `releases/v1`,
-then merged back via the workflow below. `master` only ever receives commits via cherry-pick from
-`releases/v1`, never direct commits. If a task would require committing straight to `master` or
-`releases/v1`, stop and cut a branch first instead.
+**Release history:**
+- `releases/v1` — the first release line, starting at `1.0.0`, cut from `master`. **Closed:
+  permanently locked, no further changes of any kind.** Kept only for historical reference — do
+  not branch off it, commit to it, or cherry-pick from it.
+- `releases/v2` — the active release line, cut from `master` at `2.0.0` after merging in the full
+  Jinja-to-React migration (`feature/workspace-ui`: retired the server-rendered admin UI entirely,
+  moved every page to the React SPA in `webui/`, added the toast notification system). This is the
+  current base for all work.
 
-**Bug fix workflow — follow exactly, from any machine:**
+**`master` and `releases/v2` are protected — never commit directly to either, from any machine.**
+All work (bug fixes and features) happens on a short-lived branch cut from `releases/v2`, then
+merged back via the workflow below. `master` only ever receives commits via cherry-pick from
+`releases/v2`, never direct commits. If a task would require committing straight to `master` or
+`releases/v2`, stop and cut a branch first instead.
 
-1. Branch off `releases/v1` for the fix (e.g. `releases/v1-fix-<short-description>`).
-2. Make and test the fix.
-3. Before committing the fix, bump the `PATCH` number in `VERSION` (e.g. `1.0.0` → `1.0.1`) and
-   include that bump in the same commit as the fix.
-4. Push the fix branch, verify it (see the Docker testing workflow above — never test against the
-   prod container), then merge into `releases/v1`.
-5. Tag the merge commit on `releases/v1` with `v<version>` (e.g. `v1.0.1`) and push the tag.
-6. Cherry-pick the fix commit only (not the `VERSION` bump) onto `master`. `master`'s `VERSION`
-   file is independent of `releases/v1`'s and is not kept in sync — `master` is expected to be
-   ahead in features, so its own version number is tracked separately whenever it cuts its own
-   release branch.
+**Fix/feature workflow — follow exactly, from any machine:**
 
-Patch bumps are for bug fixes only. Reserve minor bumps for backward-compatible feature additions
-and major bumps for breaking changes — neither is covered by this workflow yet.
+1. Branch off `releases/v2` for the work (e.g. `releases/v2-fix-<short-description>`).
+2. Make and test the change.
+3. Before committing, bump the appropriate number in `VERSION` (`PATCH` for bug fixes, `MINOR` for
+   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `2.0.0` → `2.0.1`)
+   and include that bump in the same commit as the change.
+4. Push the branch, verify it (see the Docker testing workflow above — never test against the
+   prod container), then merge into `releases/v2`.
+5. Tag the merge commit on `releases/v2` with `v<version>` (e.g. `v2.0.1`) and push the tag.
+6. Cherry-pick the fix/feature commit only (not the `VERSION` bump) onto `master`. `master`'s
+   `VERSION` file is independent of `releases/v2`'s and is not kept in sync — `master` is expected
+   to be ahead in features, so its own version number is tracked separately whenever it next cuts
+   its own release branch (`releases/v3`, and so on).
