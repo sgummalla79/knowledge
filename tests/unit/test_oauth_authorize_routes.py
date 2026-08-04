@@ -76,7 +76,20 @@ def test_authorize_get_requires_login(client):
     assert "%2Foauth%2Fauthorize" in response.headers["Location"] or "/oauth/authorize" in response.headers["Location"]
 
 
-def test_authorize_get_renders_consent_screen(client):
+def _stub_spa_shell(client, tmp_path):
+    # GET /oauth/authorize serves the built webui/ SPA shell (app/presentation/web/spa.py), which
+    # only exists on disk after `npm run build` — not the case on a fresh checkout (app/static/
+    # workspace/ is gitignored), so a real static_folder would 503 here. Mirrors
+    # tests/unit/test_workspace_routes.py's identical stub for /workspace and /settings.
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    (workspace_dir / "index.html").write_text("<html><head><title>Authorize</title></head><body></body></html>")
+    with client.application.app_context():
+        client.application.static_folder = str(tmp_path)
+
+
+def test_authorize_get_renders_consent_screen(client, tmp_path):
+    _stub_spa_shell(client, tmp_path)
     _logged_in(client)
     application = _application()
     with patch("app.presentation.routes.oauth.AuthorizeService.validate_request", return_value=application):
@@ -87,7 +100,8 @@ def test_authorize_get_renders_consent_screen(client):
     assert b"__OAUTH_AUTHORIZE__" in response.data
 
 
-def test_authorize_get_invalid_redirect_uri_injects_error_not_consent(client):
+def test_authorize_get_invalid_redirect_uri_injects_error_not_consent(client, tmp_path):
+    _stub_spa_shell(client, tmp_path)
     _logged_in(client)
     with patch(
         "app.presentation.routes.oauth.AuthorizeService.validate_request",
