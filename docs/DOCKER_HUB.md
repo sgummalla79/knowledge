@@ -291,9 +291,7 @@ needs to call the API:
 - **Not needed** if you're just using the app through the browser (`/workspace` to create
   libraries and ingest documents, `/settings` to configure providers). The SPA authenticates with
   your login session cookie, not a bearer token — nothing below this point is required for that.
-- **Not needed** for the bundled MCP server either (the one this image exposes for clients like
-  Claude Code) — it authenticates to the API automatically using a built-in service-account
-  Application created at first boot, with no credential you ever see or configure.
+- **Not needed** for the bundled MCP server either — see **Connecting Claude Code (MCP)** below.
 - **Needed** if you want to call the JSON API directly — `curl`/scripts/your own automation — or
   connect a separate external client (e.g. a different app entirely, not the bundled MCP server)
   that talks to this API over HTTP instead of through the browser. Every route outside `/login`
@@ -452,3 +450,40 @@ endpoint requires one, **Model** (e.g. `text-embedding-3-small`), and **Dimensio
 
 - `sgummalla/knowledge-api:<version>` — e.g. `2.0.1`, matching this repo's `VERSION` file
 - `sgummalla/knowledge-api:latest` — always the most recently published version
+
+## Connecting Claude Code (MCP)
+
+This image bundles an MCP (Model Context Protocol) server exposing `list_libraries` and
+`query_library` tools, so Claude Code — running on the same machine as the Docker host — can
+search your libraries directly. It's published loopback-only (`localhost:13103`, or
+`$MCP_HTTP_PORT`) and authenticates itself to the API automatically; there's no client id, secret,
+or token for you to create or paste anywhere.
+
+1. Register the server with Claude Code (run once, from any directory). By default this only
+   registers it for the current project (`local` scope, private to you); add `-s user` to make it
+   available globally, in every project you open on this machine:
+   ```bash
+   claude mcp add --transport http knowledge-api http://localhost:13103/mcp
+   ```
+   Globally, for every project:
+   ```bash
+   claude mcp add --transport http -s user knowledge-api http://localhost:13103/mcp
+   ```
+2. The first time Claude Code calls a tool, it opens your browser to this instance's login/consent
+   screen. Log in (`admin` / your changed password) and approve access. Claude Code stores the
+   resulting token and refreshes it automatically — you won't be prompted again unless you revoke
+   it.
+3. Confirm it connected:
+   ```bash
+   claude mcp list
+   ```
+   `knowledge-api` should show as connected. Try asking Claude Code something like "what libraries
+   do I have in knowledge-api?".
+
+Notes:
+- Only reachable from the same machine the Docker host runs on — this won't work if Claude Code
+  runs on a different machine than Docker itself.
+- Running Claude Code inside its own container (e.g. a devcontainer)? Point the URL at
+  `host.docker.internal:13103` instead of `localhost`, and confirm the MCP port is actually
+  published to the host (see **Ports & Volumes** above).
+- To remove it later: `claude mcp remove knowledge-api`.
