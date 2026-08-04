@@ -1,7 +1,8 @@
 # Publishes the knowledge-api image to Docker Hub.
 #
-# VERSION-BASED, not branch-based: a push to releases/v1 publishes ONLY when the repo-root
-# VERSION file changed in that push. The branch is the carrier; the version is the trigger. A
+# VERSION-BASED, not branch-based: a push to releases/v2 publishes ONLY when the repo-root
+# VERSION file changed in that push. The branch is the carrier; the version is the trigger.
+# releases/v1 is closed (see CLAUDE.md) and no longer triggers this workflow. A
 # manual run (Actions -> this workflow -> Run workflow, or `gh workflow run`) ALWAYS republishes
 # the current VERSION -- the override for when a multi-merge push left the VERSION bump in a
 # non-tip commit. This mirrors nexus-kit-api's .github/workflows/build-image.yml.
@@ -12,7 +13,7 @@
 #
 # Multi-arch (linux/amd64 + linux/arm64) so the image pulls natively on x86 hosts and Apple
 # Silicon. Tags published to Docker Hub:
-#   docker.io/sgummalla/knowledge-api:<VERSION>   (e.g. :1.0.1)
+#   docker.io/sgummalla/knowledge-api:<VERSION>   (e.g. :2.0.1)
 #   docker.io/sgummalla/knowledge-api:latest
 #
 # Requires repo secrets DOCKERHUB_USERNAME + DOCKERHUB_TOKEN (a Docker Hub access token with
@@ -24,7 +25,7 @@ name: Publish Image
 
 on:
   push:
-    branches: ["releases/v1"]
+    branches: ["releases/v2"]
   workflow_dispatch:
 
 env:
