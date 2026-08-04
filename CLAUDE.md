@@ -338,35 +338,39 @@ docker volume rm knowledge-dev-preview-ollama-data
 
 ## Versioning
 
-The repo root `VERSION` file (plain text, single line, e.g. `2.0.0`) is the single source of truth
+The repo root `VERSION` file (plain text, single line, e.g. `3.0.0`) is the single source of truth
 for the app's release version, following semver (`MAJOR.MINOR.PATCH`).
 
 **Release history:**
 - `releases/v1` — the first release line, starting at `1.0.0`, cut from `master`. **Closed:
   permanently locked, no further changes of any kind.** Kept only for historical reference — do
   not branch off it, commit to it, or cherry-pick from it.
-- `releases/v2` — the active release line, cut from `master` at `2.0.0` after merging in the full
+- `releases/v2` — the second release line, cut from `master` at `2.0.0` after merging in the full
   Jinja-to-React migration (`feature/workspace-ui`: retired the server-rendered admin UI entirely,
-  moved every page to the React SPA in `webui/`, added the toast notification system). This is the
-  current base for all work.
+  moved every page to the React SPA in `webui/`, added the toast notification system). **Closed as
+  of the `releases/v3` cutover: permanently locked, no further changes of any kind.** Kept only for
+  historical reference — do not branch off it, commit to it, or cherry-pick from it, same as
+  `releases/v1`.
+- `releases/v3` — the active release line, cut from `master` at `3.0.0`. This is the current base
+  for all work.
 
-**`master` and `releases/v2` are protected — never commit directly to either, from any machine.**
-All work (bug fixes and features) happens on a short-lived branch cut from `releases/v2`, then
+**`master` and `releases/v3` are protected — never commit directly to either, from any machine.**
+All work (bug fixes and features) happens on a short-lived branch cut from `releases/v3`, then
 merged back via the workflow below. `master` only ever receives commits via cherry-pick from
-`releases/v2`, never direct commits. If a task would require committing straight to `master` or
-`releases/v2`, stop and cut a branch first instead.
+`releases/v3`, never direct commits. If a task would require committing straight to `master` or
+`releases/v3`, stop and cut a branch first instead.
 
 **Fix/feature workflow — follow exactly, from any machine:**
 
-1. Branch off `releases/v2` for the work (e.g. `releases/v2-fix-<short-description>`).
+1. Branch off `releases/v3` for the work (e.g. `releases/v3-fix-<short-description>`).
 2. Make and test the change.
 3. Before committing, bump the appropriate number in `VERSION` (`PATCH` for bug fixes, `MINOR` for
-   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `2.0.0` → `2.0.1`)
+   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `3.0.0` → `3.0.1`)
    and include that bump in the same commit as the change.
 4. Push the branch, verify it (see the Docker testing workflow above — never test against the
-   prod container), then merge into `releases/v2`.
-5. Tag the merge commit on `releases/v2` with `v<version>` (e.g. `v2.0.1`) and push the tag.
+   prod container), then merge into `releases/v3`.
+5. Tag the merge commit on `releases/v3` with `v<version>` (e.g. `v3.0.1`) and push the tag.
 6. Cherry-pick the fix/feature commit only (not the `VERSION` bump) onto `master`. `master`'s
-   `VERSION` file is independent of `releases/v2`'s and is not kept in sync — `master` is expected
+   `VERSION` file is independent of `releases/v3`'s and is not kept in sync — `master` is expected
    to be ahead in features, so its own version number is tracked separately whenever it next cuts
-   its own release branch (`releases/v3`, and so on).
+   its own release branch (`releases/v4`, and so on).
