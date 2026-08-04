@@ -17,6 +17,9 @@ def _to_entity(model: DocumentModel) -> DocumentEntity:
         error_message=model.error_message,
         size_bytes=model.size_bytes,
         chunk_count=model.chunk_count,
+        split_group_id=model.split_group_id,
+        split_part=model.split_part,
+        split_total=model.split_total,
         ingested_at=model.ingested_at,
         created_at=model.created_at,
     )

@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 _html_parser = HtmlParser()
 
 
+def resolve_file_type(filename: str) -> str:
+    """Extracted so callers that already know the true file_type (e.g. PdfSplitIngestionService,
+    whose per-part filenames carry a "(part N of M)" display suffix that isn't a real extension)
+    can pass it explicitly to ingest() instead of it being silently mis-derived from the filename."""
+    return filename.rsplit(".", 1)[-1].lower()
+
+
 class IngestionService:
     def __init__(
         self,
@@ -36,15 +43,28 @@ class IngestionService:
         self._embedding_settings = embedding_settings_repo
 
     def ingest(
-        self, library: Library, filename: str, file_bytes: bytes, should_cancel: Callable[[], bool] | None = None
+        self,
+        library: Library,
+        filename: str,
+        file_bytes: bytes,
+        should_cancel: Callable[[], bool] | None = None,
+        file_type: str | None = None,
+        split_group_id=None,
+        split_part: int | None = None,
+        split_total: int | None = None,
     ) -> Document:
-        settings = self._require_embedding_settings()
+        """file_type/split_group_id/split_part/split_total are set explicitly by
+        PdfSplitIngestionService when this document is one part of an auto-split oversized PDF —
+        file_type must be passed as "pdf" there rather than derived from filename, since a part's
+        display filename carries a "(part N of M)" suffix that isn't a real extension. Every other
+        caller omits these and gets today's behavior unchanged."""
+        settings = self.require_embedding_settings()
 
         content_hash = hashlib.sha256(file_bytes).hexdigest()
         document = self._documents.create(
             library_id=library.id,
             source_filename=filename,
-            file_type=filename.rsplit(".", 1)[-1].lower(),
+            file_type=file_type if file_type is not None else resolve_file_type(filename),
             content_hash=content_hash,
             status="processing",
             # Kept only until this document reaches "completed" — see
@@ -52,6 +72,9 @@ class IngestionService:
             # the client re-sending the file.
             raw_file_bytes=file_bytes,
             size_bytes=len(file_bytes),
+            split_group_id=split_group_id,
+            split_part=split_part,
+            split_total=split_total,
         )
         return self._process(document, library, file_bytes, settings, should_cancel)
 
@@ -62,7 +85,7 @@ class IngestionService:
         uploaded. source_filename is the page's URL itself (for display/linking, not extension
         sniffing) and file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something
         derived from the URL, which frequently has no real file extension."""
-        settings = self._require_embedding_settings()
+        settings = self.require_embedding_settings()
 
         content_hash = hashlib.sha256(html_bytes).hexdigest()
         document = self._documents.create(
@@ -84,7 +107,7 @@ class IngestionService:
         ingestion never gets far enough to call ChunkRepository.bulk_create (see _process below —
         chunks are only written after every chunk has embedded successfully), so there's no
         partial-chunk cleanup needed here; retrying just runs the pipeline again from scratch."""
-        settings = self._require_embedding_settings()
+        settings = self.require_embedding_settings()
 
         file_bytes = self._documents.get_raw_bytes(document.id)
         if file_bytes is None:
@@ -97,7 +120,7 @@ class IngestionService:
         document = self._documents.update_status(document.id, "processing")
         return self._process(document, library, file_bytes, settings, should_cancel)
 
-    def _require_embedding_settings(self):
+    def require_embedding_settings(self):
         settings = self._embedding_settings.get()
         if settings is None:
             raise ValidationError(
