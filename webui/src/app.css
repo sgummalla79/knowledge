@@ -836,15 +836,24 @@ textarea {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: color-mix(in oklch, var(--destructive) 20%, var(--card));
-  border: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--background));
-  color: oklch(0.8368 0.0847 25.3259);
   padding: 12px 14px;
   border-radius: var(--radius);
   font-size: 13px;
   line-height: 1.5;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   animation: toast-in 0.15s ease-out;
+}
+.toast-error {
+  background: color-mix(in oklch, var(--destructive) 20%, var(--card));
+  border: 1px solid color-mix(in oklch, var(--destructive) 45%, var(--background));
+  color: oklch(0.8368 0.0847 25.3259);
+}
+/* Same green used for .badge.status-completed, for visual consistency with the rest of the app's
+   "this succeeded" color language. */
+.toast-success {
+  background: color-mix(in oklch, oklch(0.22 0.07 155) 60%, var(--card));
+  border: 1px solid color-mix(in oklch, oklch(0.22 0.07 155) 90%, var(--background));
+  color: oklch(0.86 0.14 155);
 }
 @keyframes toast-in {
   from {

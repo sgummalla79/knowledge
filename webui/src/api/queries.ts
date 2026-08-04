@@ -1,11 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
-  CrawlJobStatus,
   EmbeddingOptions,
   EmbeddingProviderStatus,
   EmbeddingProviderUpdateInput,
-  JobStatus,
   Library,
   LibraryDocument,
   WebCrawlSettings,
@@ -122,18 +120,6 @@ export function useDocuments(libraryId: string, limit: number, offset: number) {
   })
 }
 
-export function useUploadDocument(libraryId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (file: File) => {
-      const formData = new FormData()
-      formData.append('file', file)
-      return api.upload<{ job_id: string }>(`/libraries/${libraryId}/documents`, formData)
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraries', libraryId, 'documents'] }),
-  })
-}
-
 export function useDeleteDocument(libraryId: string) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -156,37 +142,3 @@ export function useRenameDocument(libraryId: string) {
   })
 }
 
-const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'cancelled'])
-
-export function useJobStatus(libraryId: string, jobId: string | null) {
-  return useQuery({
-    queryKey: ['libraries', libraryId, 'jobs', jobId],
-    queryFn: () => api.get<JobStatus>(`/libraries/${libraryId}/jobs/${jobId}`),
-    enabled: jobId !== null,
-    refetchInterval: (query) => (query.state.data && TERMINAL_JOB_STATUSES.has(query.state.data.status) ? false : 1500),
-  })
-}
-
-export function useCrawlDocuments(libraryId: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (input: { url: string; maxPages: number; scopePrefix: string | null }) =>
-      api.post<{ job_id: string }>(`/libraries/${libraryId}/documents/crawl`, {
-        url: input.url,
-        max_pages: input.maxPages,
-        scope_prefix: input.scopePrefix,
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraries', libraryId, 'documents'] }),
-  })
-}
-
-const TERMINAL_CRAWL_JOB_STATUSES = new Set(['completed', 'failed'])
-
-export function useCrawlJobStatus(libraryId: string, jobId: string | null) {
-  return useQuery({
-    queryKey: ['libraries', libraryId, 'crawl-jobs', jobId],
-    queryFn: () => api.get<CrawlJobStatus>(`/libraries/${libraryId}/crawl-jobs/${jobId}`),
-    enabled: jobId !== null,
-    refetchInterval: (query) => (query.state.data && TERMINAL_CRAWL_JOB_STATUSES.has(query.state.data.status) ? false : 1500),
-  })
-}

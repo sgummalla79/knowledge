@@ -1,9 +1,10 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
-import { ToastContext } from './toastContext'
+import { ToastContext, type ToastVariant } from './toastContext'
 
 interface Toast {
   id: number
   message: string
+  variant: ToastVariant
 }
 
 const AUTO_DISMISS_MS = 6000
@@ -17,9 +18,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const showToast = useCallback(
-    (message: string) => {
+    (message: string, variant: ToastVariant = 'error') => {
       const id = nextId.current++
-      setToasts((current) => [...current, { id, message }])
+      setToasts((current) => [...current, { id, message, variant }])
       setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
     },
     [dismiss],
@@ -30,7 +31,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-viewport">
         {toasts.map((toast) => (
-          <div key={toast.id} className="toast" role="alert">
+          <div key={toast.id} className={`toast toast-${toast.variant}`} role="alert">
             <span>{toast.message}</span>
             <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
               &times;
