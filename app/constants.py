@@ -64,6 +64,11 @@ DEFAULT_DENSE_K = 20
 DEFAULT_SPARSE_K = 20
 DEFAULT_RRF_K = 60
 
+# Router RAG defaults, used when no `router_settings` row exists yet (same "absent row is not an
+# error" convention as DEFAULT_DENSE_K/DEFAULT_SPARSE_K/DEFAULT_RRF_K above).
+DEFAULT_ROUTER_TOP_N = 3
+DEFAULT_ROUTER_MIN_SIMILARITY = 0.5
+
 # The outer WSGI-level cap on a single upload request's raw body size (app/__init__.py's
 # MAX_CONTENT_LENGTH) — anything over this is rejected by Werkzeug with a 413 before any route
 # code runs. Deliberately larger than MAX_UPLOAD_MB (below): it exists to let an oversized PDF's
@@ -163,6 +168,8 @@ SCOPE_SEARCH_SETTINGS_READ = "search_settings:read"
 SCOPE_SEARCH_SETTINGS_WRITE = "search_settings:write"
 SCOPE_WEB_CRAWL_SETTINGS_READ = "web_crawl_settings:read"
 SCOPE_WEB_CRAWL_SETTINGS_WRITE = "web_crawl_settings:write"
+SCOPE_ROUTER_SETTINGS_READ = "router_settings:read"
+SCOPE_ROUTER_SETTINGS_WRITE = "router_settings:write"
 SCOPE_OFFLINE_ACCESS = "offline_access"
 
 SUPPORTED_SCOPES = [
@@ -177,6 +184,8 @@ SUPPORTED_SCOPES = [
     SCOPE_SEARCH_SETTINGS_WRITE,
     SCOPE_WEB_CRAWL_SETTINGS_READ,
     SCOPE_WEB_CRAWL_SETTINGS_WRITE,
+    SCOPE_ROUTER_SETTINGS_READ,
+    SCOPE_ROUTER_SETTINGS_WRITE,
     SCOPE_OFFLINE_ACCESS,
 ]
 
