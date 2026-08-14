@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from app.application.library_service import LibraryService
 from app.auth import require_scope
 from app.container import get_session
+from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.presentation.schemas import LibraryCreateRequest, LibraryResponse, LibraryUpdateRequest, PaginationQuery
 
@@ -12,7 +13,8 @@ libraries_bp = Blueprint("libraries", __name__, url_prefix="/libraries")
 
 
 def _service() -> LibraryService:
-    return LibraryService(LibraryRepository(get_session()))
+    session = get_session()
+    return LibraryService(LibraryRepository(session), EmbeddingSettingsRepository(session))
 
 
 @libraries_bp.post("")
