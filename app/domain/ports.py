@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Protocol
 from uuid import UUID
 
@@ -13,7 +11,6 @@ from app.domain.entities import (
     EmbeddingSettings,
     Library,
     RefreshToken,
-    RouterSettings,
     ScoredChunk,
     SearchSettings,
     User,
@@ -38,16 +35,6 @@ class LibraryRepositoryPort(Protocol):
     def delete(self, library_id: UUID) -> None: ...
 
     def increment_counts(self, library_id: UUID, document_delta: int, chunk_delta: int) -> None: ...
-
-    def set_description_embedding(self, library_id: UUID, embedding: list[float] | None) -> None: ...
-
-    def list_all_with_description(self) -> list[Library]: ...
-
-    def clear_all_description_embeddings(self) -> None: ...
-
-    def search_by_description_similarity(
-        self, query_embedding: list[float], top_n: int, min_similarity: float
-    ) -> list[tuple[Library, float]]: ...
 
 
 class DocumentRepositoryPort(Protocol):
@@ -120,12 +107,6 @@ class SearchSettingsRepositoryPort(Protocol):
     def get(self) -> SearchSettings | None: ...
 
     def upsert(self, dense_k: int, sparse_k: int, rrf_k: int) -> SearchSettings: ...
-
-
-class RouterSettingsRepositoryPort(Protocol):
-    def get(self) -> RouterSettings | None: ...
-
-    def upsert(self, top_n: int, min_similarity: float) -> RouterSettings: ...
 
 
 class WebCrawlSettingsRepositoryPort(Protocol):

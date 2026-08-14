@@ -5,7 +5,7 @@ from uuid import UUID
 from app.application.rrf import reciprocal_rank_fusion
 from app.application.search_settings_service import default_search_settings
 from app.domain import error_codes
-from app.domain.entities import ScoredChunk, SearchSettings
+from app.domain.entities import ScoredChunk
 from app.domain.errors import NotFoundError, ValidationError
 from app.domain.ports import (
     ChunkRepositoryPort,
@@ -31,40 +31,27 @@ class RetrievalService:
         self._embedding_settings = embedding_settings_repo
         self._search_settings = search_settings_repo
 
-    def query(
-        self,
-        library_id: UUID,
-        query_text: str,
-        top_k: int,
-        *,
-        query_embedding: list[float] | None = None,
-        search_settings: SearchSettings | None = None,
-    ) -> list[ScoredChunk]:
-        """`query_embedding`/`search_settings` let a caller that's already resolved both (e.g.
-        LibraryRouterService, fanning this out across several libraries for one logical query)
-        skip the redundant embed call and settings lookup — every other caller leaves them unset
-        and gets the original single-library behavior unchanged."""
+    def query(self, library_id: UUID, query_text: str, top_k: int) -> list[ScoredChunk]:
         logger.info("Query started", extra={"library_id": str(library_id), "top_k": top_k})
         library = self._libraries.get(library_id)
         if library is None:
             raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
 
-        if query_embedding is None:
-            embedding_settings = self._embedding_settings.get()
-            if embedding_settings is None:
-                raise ValidationError(
-                    error_codes.EMBEDDINGS_NOT_CONFIGURED,
-                    "Embeddings are not configured. Set an API key in Configuration.",
-                )
-            provider = EmbeddingProviderRegistry.resolve(
-                embedding_settings.provider,
-                embedding_settings.model,
-                embedding_settings.api_key,
-                embedding_settings.base_url,
+        embedding_settings = self._embedding_settings.get()
+        if embedding_settings is None:
+            raise ValidationError(
+                error_codes.EMBEDDINGS_NOT_CONFIGURED,
+                "Embeddings are not configured. Set an API key in Configuration.",
             )
-            query_embedding = provider.embed_query(query_text)
-        if search_settings is None:
-            search_settings = self._search_settings.get() or default_search_settings()
+        search_settings = self._search_settings.get() or default_search_settings()
+
+        provider = EmbeddingProviderRegistry.resolve(
+            embedding_settings.provider,
+            embedding_settings.model,
+            embedding_settings.api_key,
+            embedding_settings.base_url,
+        )
+        query_embedding = provider.embed_query(query_text)
 
         # Hybrid retrieval is always on: dense + sparse, fused by RRF — cheap, same Postgres, no
         # extra external calls.

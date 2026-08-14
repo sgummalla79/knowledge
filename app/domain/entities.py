@@ -83,20 +83,6 @@ class SearchSettings:
 
 
 @dataclass(frozen=True)
-class RouterSettings:
-    top_n: int
-    min_similarity: float
-    updated_at: datetime | None
-
-
-@dataclass(frozen=True)
-class RoutedScoredChunk:
-    library_id: UUID
-    library_name: str
-    chunk: ScoredChunk
-
-
-@dataclass(frozen=True)
 class WebCrawlSettings:
     user_agent: str
     updated_at: datetime | None

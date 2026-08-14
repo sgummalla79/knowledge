@@ -23,7 +23,6 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
-from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from app.infrastructure.repositories.user_repository import UserRepository
 from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
@@ -58,9 +57,7 @@ def _application_service() -> ApplicationService:
 
 def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
     session_ = get_session()
-    return EmbeddingProviderConfigService(
-        EmbeddingProviderSettingsRepository(session_), ChunkRepository(session_), LibraryRepository(session_)
-    )
+    return EmbeddingProviderConfigService(EmbeddingProviderSettingsRepository(session_), ChunkRepository(session_))
 
 
 @auth_ui_bp.context_processor

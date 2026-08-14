@@ -61,7 +61,7 @@ def db_session(postgres_url):
         session.execute(
             text(
                 "TRUNCATE TABLE chunks, documents, libraries, embedding_provider_settings, search_settings, "
-                "router_settings, users, applications, refresh_tokens CASCADE"
+                "users, applications, refresh_tokens CASCADE"
             )
         )
         session.commit()

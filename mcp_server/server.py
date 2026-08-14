@@ -167,18 +167,6 @@ def query_library(library_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> li
         reset_request_id(token)
 
 
-@mcp.tool()
-def query(query: str, top_k: int = DEFAULT_TOP_K) -> list[dict]:
-    """Search across all knowledge libraries and automatically route to the most relevant ones —
-    use this instead of query_library when you don't already know which library to search."""
-    token = set_request_id(str(uuid.uuid4())[:8])
-    try:
-        logger.info("MCP tool call: query", extra={"top_k": top_k})
-        return _client.query(query, top_k)
-    finally:
-        reset_request_id(token)
-
-
 if __name__ == "__main__":
     import uvicorn
 

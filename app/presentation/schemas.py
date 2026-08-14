@@ -10,7 +10,7 @@ from app.constants import (
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
-from app.domain.entities import Document, Library, RoutedScoredChunk, RouterSettings, ScoredChunk, SearchSettings
+from app.domain.entities import Document, Library, ScoredChunk, SearchSettings
 
 
 class LibraryCreateRequest(BaseModel):
@@ -146,28 +146,6 @@ class ScoredChunkResponse(BaseModel):
         )
 
 
-class RoutedScoredChunkResponse(BaseModel):
-    library_id: UUID
-    library_name: str
-    id: UUID
-    document_id: UUID
-    chunk_index: int
-    content: str
-    score: float
-
-    @classmethod
-    def from_entity(cls, routed: RoutedScoredChunk) -> "RoutedScoredChunkResponse":
-        return cls(
-            library_id=routed.library_id,
-            library_name=routed.library_name,
-            id=routed.chunk.id,
-            document_id=routed.chunk.document_id,
-            chunk_index=routed.chunk.chunk_index,
-            content=routed.chunk.content,
-            score=routed.chunk.score,
-        )
-
-
 class EmbeddingModelListRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,26 +219,5 @@ class SearchSettingsResponse(BaseModel):
             dense_k=settings.dense_k,
             sparse_k=settings.sparse_k,
             rrf_k=settings.rrf_k,
-            updated_at=settings.updated_at,
-        )
-
-
-class RouterSettingsUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    top_n: int = Field(gt=0, le=50)
-    min_similarity: float = Field(ge=0, le=1)
-
-
-class RouterSettingsResponse(BaseModel):
-    top_n: int
-    min_similarity: float
-    updated_at: datetime | None
-
-    @classmethod
-    def from_entity(cls, settings: RouterSettings) -> "RouterSettingsResponse":
-        return cls(
-            top_n=settings.top_n,
-            min_similarity=settings.min_similarity,
             updated_at=settings.updated_at,
         )
