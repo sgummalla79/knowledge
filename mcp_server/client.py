@@ -129,3 +129,7 @@ class RagApiClient:
     def query_library(self, library_id: str, query: str, top_k: int) -> list[dict]:
         response = self._post(f"/libraries/{library_id}/query", json={"query": query, "top_k": top_k})
         return response.json()["chunks"]
+
+    def query(self, query: str, top_k: int) -> list[dict]:
+        response = self._post("/query", json={"query": query, "top_k": top_k})
+        return response.json()["chunks"]
