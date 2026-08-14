@@ -1,5 +1,6 @@
 import uuid
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -12,6 +13,12 @@ class Library(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False, unique=True)
     description = Column(String, nullable=True)
+    # Cached embedding of `description`, used to route a library-less query to the most relevant
+    # library/libraries (LibraryRouterService). Nullable (unlike chunks.embedding): a library can
+    # legitimately have no description, or predate any active embedding provider. Dimensionless
+    # for the same reason chunks.embedding is (see that column's comment) — see migration 0017 for
+    # why this one additionally skips the HNSW-index/fixed-width dance chunks.embedding has.
+    description_embedding = Column(Vector(), nullable=True)
     document_count = Column(Integer, nullable=False, default=0)
     chunk_count = Column(Integer, nullable=False, default=0)
     last_ingested_at = Column(DateTime(timezone=True), nullable=True)
