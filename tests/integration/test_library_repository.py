@@ -186,9 +186,11 @@ def test_search_by_description_similarity_respects_min_similarity_and_top_n(db_s
     excluded = _create_library(repo, name="excluded", description="excluded")
     db_session.commit()
 
-    # An exact match (similarity 1.0), a near match, and one deliberately excluded by threshold.
+    # An exact match (similarity 1.0), a near match (~0.99 — a small second component, not spread
+    # across every remaining dimension, which would dilute cosine similarity via magnitude), and
+    # one deliberately excluded by threshold (orthogonal, similarity 0.0).
     query_vector = [1.0] + [0.0] * (EMBEDDING_DIM - 1)
-    near_vector = [0.9] + [0.1] * (EMBEDDING_DIM - 1)
+    near_vector = [0.9, 0.1] + [0.0] * (EMBEDDING_DIM - 2)
     orthogonal_vector = [0.0, 1.0] + [0.0] * (EMBEDDING_DIM - 2)
     repo.set_description_embedding(close.id, query_vector)
     repo.set_description_embedding(far.id, near_vector)

@@ -102,6 +102,11 @@ def test_enable_switch_reembeds_real_library_description_embeddings(db_session, 
     libraries row, not just against mocks (see test_embedding_provider_settings_service.py's
     mocked equivalent)."""
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
+    # voyage's config must exist *before* ollama becomes the active provider — update_config()
+    # refuses to configure any provider other than whichever one is currently active, so it can't
+    # be configured after the fact here; this mirrors a provider that was set up once and later
+    # switched away from, not one being configured for the first time mid-switch.
+    provider_settings_repo.upsert_config("voyage", "voyage-4-lite", "test-key", None, 1024, 800, 100)
     provider_settings_repo.upsert_config("ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100)
     provider_settings_repo.set_enabled("ollama", True)
     db_session.commit()
@@ -123,10 +128,9 @@ def test_enable_switch_reembeds_real_library_description_embeddings(db_session, 
         "app.application.embedding_provider_settings_service.EmbeddingProviderRegistry.resolve",
         return_value=provider,
     ):
-        embedding_provider_service.update_config(
-            "voyage", "voyage-4-lite", "test-key", None, new_dimension, 800, 100
-        )
-        db_session.commit()
+        # The real switch-away path: ollama is active, voyage is only configured — enable()
+        # disables ollama (chunk_count == 0), resizes chunks.embedding, and must resync every
+        # library's description_embedding against the newly-active provider.
         embedding_provider_service.enable("voyage")
     db_session.commit()
 
