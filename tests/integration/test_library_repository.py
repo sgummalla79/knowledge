@@ -139,3 +139,67 @@ def test_delete_cascades_to_documents_and_chunks(db_session):
     ).scalar()
     assert document_count == 0
     assert chunk_count == 0
+
+
+def test_set_description_embedding_round_trip(db_session):
+    repo = LibraryRepository(db_session)
+    library = _create_library(repo, description="a library")
+    db_session.commit()
+
+    vector = [0.1] * EMBEDDING_DIM
+    repo.set_description_embedding(library.id, vector)
+    db_session.commit()
+
+    candidates = repo.search_by_description_similarity(vector, top_n=10, min_similarity=0.0)
+    assert [candidate.id for candidate, _similarity in candidates] == [library.id]
+
+
+def test_list_all_with_description_excludes_libraries_without_one(db_session):
+    repo = LibraryRepository(db_session)
+    with_description = _create_library(repo, name="with-description", description="has one")
+    _create_library(repo, name="without-description", description=None)
+    db_session.commit()
+
+    results = repo.list_all_with_description()
+
+    assert [library.id for library in results] == [with_description.id]
+
+
+def test_clear_all_description_embeddings(db_session):
+    repo = LibraryRepository(db_session)
+    library = _create_library(repo, description="a library")
+    db_session.commit()
+    repo.set_description_embedding(library.id, [0.1] * EMBEDDING_DIM)
+    db_session.commit()
+
+    repo.clear_all_description_embeddings()
+    db_session.commit()
+
+    candidates = repo.search_by_description_similarity([0.1] * EMBEDDING_DIM, top_n=10, min_similarity=0.0)
+    assert candidates == []
+
+
+def test_search_by_description_similarity_respects_min_similarity_and_top_n(db_session):
+    repo = LibraryRepository(db_session)
+    close = _create_library(repo, name="close", description="close")
+    far = _create_library(repo, name="far", description="far")
+    excluded = _create_library(repo, name="excluded", description="excluded")
+    db_session.commit()
+
+    # An exact match (similarity 1.0), a near match (~0.99 — a small second component, not spread
+    # across every remaining dimension, which would dilute cosine similarity via magnitude), and
+    # one deliberately excluded by threshold (orthogonal, similarity 0.0).
+    query_vector = [1.0] + [0.0] * (EMBEDDING_DIM - 1)
+    near_vector = [0.9, 0.1] + [0.0] * (EMBEDDING_DIM - 2)
+    orthogonal_vector = [0.0, 1.0] + [0.0] * (EMBEDDING_DIM - 2)
+    repo.set_description_embedding(close.id, query_vector)
+    repo.set_description_embedding(far.id, near_vector)
+    repo.set_description_embedding(excluded.id, orthogonal_vector)
+    db_session.commit()
+
+    top_n_limited = repo.search_by_description_similarity(query_vector, top_n=1, min_similarity=0.0)
+    assert [candidate.id for candidate, _similarity in top_n_limited] == [close.id]
+
+    threshold_filtered = repo.search_by_description_similarity(query_vector, top_n=10, min_similarity=0.5)
+    assert {candidate.id for candidate, _similarity in threshold_filtered} == {close.id, far.id}
+    assert excluded.id not in {candidate.id for candidate, _similarity in threshold_filtered}

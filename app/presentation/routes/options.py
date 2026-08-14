@@ -18,6 +18,7 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
+from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.presentation.schemas import EmbeddingModelListRequest
 from app.rate_limit import limiter
 
@@ -26,7 +27,9 @@ options_bp = Blueprint("options", __name__)
 
 def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
     session = get_session()
-    return EmbeddingProviderConfigService(EmbeddingProviderSettingsRepository(session), ChunkRepository(session))
+    return EmbeddingProviderConfigService(
+        EmbeddingProviderSettingsRepository(session), ChunkRepository(session), LibraryRepository(session)
+    )
 
 
 @options_bp.get("/embedding-options")
