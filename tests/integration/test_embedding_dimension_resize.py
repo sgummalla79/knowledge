@@ -23,6 +23,7 @@ from sqlalchemy import text
 
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from app.constants import EMBEDDING_DIM
+from app.infrastructure.auth.bootstrap import bootstrap_default_organization
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
@@ -55,6 +56,7 @@ def restore_embedding_dim(db_session):
 
 
 def test_resize_to_non_default_dimension_then_real_insert_succeeds(db_session, restore_embedding_dim):
+    bootstrap_default_organization(db_session)
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
     embedding_provider_service = EmbeddingProviderConfigService(
         provider_settings_repo, ChunkRepository(db_session), LibraryRepository(db_session)
@@ -101,6 +103,7 @@ def test_enable_switch_reembeds_real_library_description_embeddings(db_session, 
     EmbeddingProviderConfigService.enable() actually nulls-then-recomputes it against a real
     libraries row, not just against mocks (see test_embedding_provider_settings_service.py's
     mocked equivalent)."""
+    bootstrap_default_organization(db_session)
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
     # voyage's config must exist *before* ollama becomes the active provider — update_config()
     # refuses to configure any provider other than whichever one is currently active, so it can't

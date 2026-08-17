@@ -16,8 +16,9 @@ class ChunkRepository:
 
     def resize_embedding_column(self, dimensions: int) -> None:
         """Only ever called when count_all() == 0 (enforced by EmbeddingProviderConfigService's
-        model-switch lock) — mirrors the one-time 1024->768 cutover migration 0007 did by hand,
-        generalized into a runtime operation.
+        model-switch lock) — a runtime operation since `chunks.embedding` is dimensionless (see
+        the ORM class docstring: per-org "bring your own model" means a single fixed-width column
+        can't represent every org's chosen dimensions).
 
         `vector(N)` is a type modifier, not a data value — Postgres doesn't accept a bind
         parameter there, so `dimensions` is interpolated directly. Safe only because it's an
@@ -31,16 +32,20 @@ class ChunkRepository:
             text("CREATE INDEX ix_chunks_embedding_hnsw ON chunks USING hnsw (embedding vector_cosine_ops)")
         )
 
-    def bulk_create(self, document_id, library_id, chunks: list[tuple[int, str, list[float]]]) -> None:
+    def bulk_create(
+        self, document_id, org_id, embedding_model_id, chunks: list[tuple[int, str, int, list[float]]]
+    ) -> None:
         models = [
             Chunk(
                 document_id=document_id,
-                library_id=library_id,
-                chunk_index=chunk_index,
+                org_id=org_id,
+                embedding_model_id=embedding_model_id,
+                ordinal=ordinal,
                 content=content,
+                token_count=token_count,
                 embedding=embedding,
             )
-            for chunk_index, content, embedding in chunks
+            for ordinal, content, token_count, embedding in chunks
         ]
         # A SAVEPOINT, not the outer transaction directly. A flush failure here (e.g. content
         # Postgres rejects outright, like an embedded NUL byte) otherwise poisons the *entire*
@@ -56,11 +61,11 @@ class ChunkRepository:
             self._session.add_all(models)
             self._session.flush()
 
-    def similarity_search(self, library_id, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
+    def similarity_search(self, org_id, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
         distance = Chunk.embedding.cosine_distance(query_embedding)
         rows = (
             self._session.query(Chunk, distance.label("distance"))
-            .filter(Chunk.library_id == library_id)
+            .filter(Chunk.org_id == org_id)
             .order_by(distance)
             .limit(top_k)
             .all()
@@ -71,19 +76,19 @@ class ChunkRepository:
             ScoredChunk(
                 id=chunk.id,
                 document_id=chunk.document_id,
-                chunk_index=chunk.chunk_index,
+                ordinal=chunk.ordinal,
                 content=chunk.content,
                 score=1 - distance,
             )
             for chunk, distance in rows
         ]
 
-    def sparse_search(self, library_id, query_text: str, top_k: int) -> list[ScoredChunk]:
+    def sparse_search(self, org_id, query_text: str, top_k: int) -> list[ScoredChunk]:
         tsquery = func.plainto_tsquery("english", query_text)
         rank = func.ts_rank_cd(Chunk.content_tsv, tsquery)
         rows = (
             self._session.query(Chunk, rank.label("rank"))
-            .filter(Chunk.library_id == library_id)
+            .filter(Chunk.org_id == org_id)
             .filter(Chunk.content_tsv.op("@@")(tsquery))
             .order_by(rank.desc())
             .limit(top_k)
@@ -93,7 +98,7 @@ class ChunkRepository:
             ScoredChunk(
                 id=chunk.id,
                 document_id=chunk.document_id,
-                chunk_index=chunk.chunk_index,
+                ordinal=chunk.ordinal,
                 content=chunk.content,
                 score=rank,
             )

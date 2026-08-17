@@ -5,7 +5,7 @@ from uuid import uuid4
 from app.application.ingestion_service import IngestionService, resolve_file_type
 from app.constants import MAX_UPLOAD_MB
 from app.domain import error_codes
-from app.domain.entities import Document, Library
+from app.domain.entities import Document
 from app.domain.errors import IngestionCancelled, ValidationError
 from app.infrastructure.parsing.pdf_splitter import PdfSplitter
 
@@ -31,7 +31,7 @@ class PdfSplitIngestionService:
 
     def ingest(
         self,
-        library: Library,
+        library,
         filename: str,
         file_bytes: bytes,
         should_cancel: Callable[[], bool] | None = None,

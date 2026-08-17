@@ -9,7 +9,7 @@ import requests
 
 from app.application.ingestion_service import IngestionService
 from app.constants import WEB_CRAWL_PAGE_DELAY_SECONDS, WEB_CRAWL_REQUEST_TIMEOUT_SECONDS
-from app.domain.entities import Document, Library
+from app.domain.entities import Document
 from app.infrastructure.web.fetcher import WebPageFetcher
 from app.infrastructure.web.link_extractor import extract_in_scope_links, seed_scope_prefix
 from app.infrastructure.web.url_safety import assert_public_url
@@ -58,7 +58,7 @@ class WebCrawlService:
 
     def crawl(
         self,
-        library: Library,
+        library,
         seed_url: str,
         max_pages: int,
         scope_prefix: str | None = None,

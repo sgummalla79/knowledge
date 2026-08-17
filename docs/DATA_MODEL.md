@@ -1,89 +1,239 @@
 # knowledge Data Model
 
 Postgres schema (via `pgvector`), managed by Alembic migrations in `migrations/versions/`.
-ORM source of truth: `app/infrastructure/orm/`. Migration history: `0001` → `0010` (see
-`CLAUDE.md` for the narrative behind each one).
+ORM source of truth: `app/infrastructure/orm/`. As of `0001_initial_schema.py` this is a **single
+clean baseline** — this app has no production deployment yet, so rather than carry an incremental
+migration history transforming the old single-tenant "libraries" schema into this multi-tenant
+one, the whole schema was squashed into one migration that creates the target shape directly.
+There is no `libraries` table anywhere in history.
+
+Design source: the "Knowledge data library pages" `DataModel-Spec.dc.html`/`schema.sql` mockup
+this app was designed against, with deliberate, documented deviations — see
+[Deviations from the design spec](#deviations-from-the-design-spec) below. That mockup lives
+outside this repo (gitignored, untracked) and is not itself a build artifact — this document is
+the durable reference.
+
+**Backend status:** the *database* layer (schema, ORM, domain entities, repositories) fully
+reflects this document. The *application* layer (`app/application/*` services,
+`app/presentation/routes/*`, `mcp_server/`) does **not** yet — it still largely assumes the old
+library-based shape (`library_id` path params, `LibraryService`, etc.) and needs a dedicated
+rewrite pass. See [Known gap: application layer](#known-gap-application-layer).
 
 ## Entity-relationship overview
 
 ```mermaid
 erDiagram
-    LIBRARIES ||--o{ DOCUMENTS : contains
-    LIBRARIES ||--o{ CHUNKS : contains
-    DOCUMENTS ||--o{ CHUNKS : "split into"
-    APPLICATIONS ||--o{ REFRESH_TOKENS : issues
+    ORGANIZATIONS ||--o{ USERS : has
+    ORGANIZATIONS ||--o{ EMBEDDING_MODELS : has
+    ORGANIZATIONS ||--o{ SOURCES : has
+    ORGANIZATIONS ||--o{ CATEGORIES : has
+    ORGANIZATIONS ||--o{ SHELVES : has
+    ORGANIZATIONS ||--o{ DOCUMENTS : has
+    ORGANIZATIONS ||--o{ TAGS : has
+    ORGANIZATIONS ||--o{ INGESTION_JOBS : has
+    ORGANIZATIONS ||--o{ QUERIES : has
+    ORGANIZATIONS ||--o{ APPLICATIONS : has
 
-    LIBRARIES {
+    USERS }o--o{ USER_SHELF_ACCESS : granted
+    SHELVES ||--o{ USER_SHELF_ACCESS : "grants access to"
+    SHELVES ||--o{ DOCUMENT_SHELVES : contains
+    DOCUMENTS ||--o{ DOCUMENT_SHELVES : "placed on"
+
+    CATEGORIES ||--o{ CATEGORIES : "parent of"
+    CATEGORIES ||--o{ DOCUMENTS : contains
+
+    SOURCES ||--o{ DOCUMENTS : produces
+    SOURCES ||--o{ INGESTION_JOBS : "processed by"
+    USERS ||--o{ DOCUMENTS : owns
+
+    DOCUMENTS ||--o{ CHUNKS : "split into"
+    DOCUMENTS ||--o{ INGESTION_JOBS : "processed by"
+    DOCUMENTS }o--o{ DOCUMENT_TAGS : tagged
+    TAGS ||--o{ DOCUMENT_TAGS : applied
+
+    EMBEDDING_MODELS ||--o{ CHUNKS : embeds
+
+    QUERIES ||--o{ QUERY_RESULTS : returned
+    CHUNKS ||--o{ QUERY_RESULTS : "retrieved as"
+
+    APPLICATIONS ||--o{ REFRESH_TOKENS : issues
+    APPLICATIONS ||--o{ AUTHORIZATION_CODES : issues
+
+    ORGANIZATIONS {
         uuid id PK
-        string name UK
-        string description
-        int document_count
-        int chunk_count
-        timestamptz last_ingested_at
+        string name
+        string slug UK
+        enum plan
+        uuid created_by FK
+        uuid last_modified_by FK
         timestamptz created_at
-        timestamptz updated_at
+        timestamptz last_modified_at
+    }
+    USERS {
+        uuid id PK
+        uuid org_id FK
+        string email "unique per org"
+        string name
+        enum role
+        uuid invited_by FK
+        uuid last_modified_by FK
+        timestamptz created_at
+        timestamptz last_modified_at
+        timestamptz last_active_at
+    }
+    EMBEDDING_MODELS {
+        uuid id PK
+        uuid org_id FK
+        enum provider
+        string name
+        string model_identifier
+        int dimensions
+        string endpoint_url
+        string api_key
+        bool is_default
+        enum status "active/retired/disabled"
+        int chunk_size
+        int chunk_overlap
+        uuid created_by FK
+        uuid last_modified_by FK
+        timestamptz created_at
+        timestamptz last_modified_at
+    }
+    SOURCES {
+        uuid id PK
+        uuid org_id FK
+        enum type
+        string name
+        jsonb config
+        string api_key_hash
+        enum status
+        uuid created_by FK
+        uuid last_modified_by FK
+        timestamptz created_at
+        timestamptz last_modified_at
+        timestamptz last_synced_at
+    }
+    CATEGORIES {
+        uuid id PK
+        uuid org_id FK
+        uuid parent_id FK "self"
+        string name
+        string slug
+        string description
+        vector description_embedding
+        uuid created_by FK
+        uuid last_modified_by FK
+        timestamptz created_at
+        timestamptz last_modified_at
+    }
+    SHELVES {
+        uuid id PK
+        uuid org_id FK
+        string name
+        string slug
+        string description
+        bool is_default
+        uuid created_by FK
+        uuid last_modified_by FK
+        timestamptz created_at
+        timestamptz last_modified_at
+    }
+    DOCUMENT_SHELVES {
+        uuid document_id PK_FK
+        uuid shelf_id PK_FK
+    }
+    USER_SHELF_ACCESS {
+        uuid user_id PK_FK
+        uuid shelf_id PK_FK
+        uuid granted_by FK
+        timestamptz granted_at
     }
     DOCUMENTS {
         uuid id PK
-        uuid library_id FK
-        string source_filename
-        string file_type
+        uuid org_id FK
+        uuid source_id FK
+        uuid category_id FK
+        uuid owner_id FK
+        string title
+        enum type "classification"
+        string file_type "parser dispatch"
+        string content_uri
+        string description
+        enum status
         string content_hash
-        string status
         bytea raw_file_bytes
         string error_message
-        timestamptz ingested_at
+        int size_bytes
+        int chunk_count
+        uuid split_group_id
+        int split_part
+        int split_total
+        uuid created_by FK
+        uuid last_modified_by FK
         timestamptz created_at
+        timestamptz last_modified_at
+        timestamptz indexed_at
+    }
+    INGESTION_JOBS {
+        uuid id PK
+        uuid org_id FK
+        uuid source_id FK
+        uuid document_id FK
+        enum type
+        enum status
+        string error_message
+        int items_processed
+        uuid triggered_by FK
+        timestamptz created_at
+        timestamptz started_at
+        timestamptz finished_at
+    }
+    TAGS {
+        uuid id PK
+        uuid org_id FK
+        string name
+        uuid created_by FK
+        timestamptz created_at
+    }
+    DOCUMENT_TAGS {
+        uuid document_id PK_FK
+        uuid tag_id PK_FK
     }
     CHUNKS {
         uuid id PK
         uuid document_id FK
-        uuid library_id FK
-        int chunk_index
+        uuid org_id FK "denormalized"
+        int ordinal
         string content
         tsvector content_tsv
+        int token_count
         vector embedding
+        uuid embedding_model_id FK
         timestamptz created_at
     }
-    EMBEDDING_SETTINGS {
+    QUERIES {
         uuid id PK
-        string provider
-        string model
-        string api_key
-        string base_url
-        int dimensions
-        int chunk_size
-        int chunk_overlap
+        uuid org_id FK
+        uuid user_id FK
+        string query_text
+        int latency_ms
+        int result_count
         timestamptz created_at
-        timestamptz updated_at
     }
-    EMBEDDING_PROVIDER_SETTINGS {
-        uuid id PK
-        string provider UK
-        bool enabled
-        timestamptz updated_at
-    }
-    SEARCH_SETTINGS {
-        uuid id PK
-        int dense_k
-        int sparse_k
-        int rrf_k
-        timestamptz created_at
-        timestamptz updated_at
-    }
-    USERS {
-        uuid id PK
-        string username UK
-        string password_hash
-        bool must_change_password
-        timestamptz created_at
-        timestamptz updated_at
+    QUERY_RESULTS {
+        bigint id PK
+        uuid query_id FK
+        uuid chunk_id FK
+        int rank
+        float similarity_score
     }
     APPLICATIONS {
         uuid id PK
         string name UK
         string client_secret_hash
         string allowed_scopes
+        string redirect_uris
+        uuid org_id FK "nullable"
         timestamptz created_at
     }
     REFRESH_TOKENS {
@@ -96,203 +246,380 @@ erDiagram
         timestamptz last_used_at
         timestamptz revoked_at
     }
+    AUTHORIZATION_CODES {
+        uuid id PK
+        uuid application_id FK
+        string code_hash UK
+        string redirect_uri
+        string code_challenge
+        string code_challenge_method
+        string scope
+        timestamptz created_at
+        timestamptz expires_at
+        timestamptz used_at
+    }
+    SEARCH_SETTINGS {
+        uuid id PK
+        int dense_k
+        int sparse_k
+        int rrf_k
+        uuid org_id FK "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    WEB_CRAWL_SETTINGS {
+        uuid id PK
+        string user_agent
+        uuid org_id FK "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    ROUTER_SETTINGS {
+        uuid id PK
+        int top_n
+        float min_similarity
+        uuid org_id FK "nullable"
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
-`EMBEDDING_SETTINGS`, `EMBEDDING_PROVIDER_SETTINGS`, and `SEARCH_SETTINGS` have no foreign keys
-to anything else — they're global, application-wide configuration (single-row or small
-lookup tables), not scoped to a library.
+`SEARCH_SETTINGS`/`WEB_CRAWL_SETTINGS`/`ROUTER_SETTINGS` aren't shown wired to `ORGANIZATIONS`
+above only for diagram clarity — each does carry a nullable `org_id` (see their tables below).
 
 ---
 
-## `libraries`
+## Tenancy & access
 
-A named collection of documents. Chunking/embedding config is **not** per-library — it's global
-(`embedding_settings`), so this table only tracks identity and running counts.
+### `organizations`
 
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `name` | `string` | no | — | **unique** |
-| `description` | `string` | yes | — | |
-| `document_count` | `integer` | no | `0` | maintained by `LibraryRepository.increment_counts` |
-| `chunk_count` | `integer` | no | `0` | maintained by `LibraryRepository.increment_counts` |
-| `last_ingested_at` | `timestamptz` | yes | — | |
-| `created_at` | `timestamptz` | no | `now()` | |
-| `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
+The tenant boundary. Every org-scoped table below carries a NOT NULL `org_id` FK to this table
+(except the OAuth2/settings tables, which predate multi-tenancy — see
+[OAuth2 & global settings](#oauth2--global-settings-outside-the-design-spec)).
 
-Originally (migration `0001`) also carried `embedding_provider` / `embedding_model` /
-`chunk_size` / `chunk_overlap`; migration `0005` dropped all four in favor of the single global
-`embedding_settings` row — there was never a real per-library override use case.
-
-## `documents`
-
-One row per uploaded file within a library.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `library_id` | `uuid` | no | — | FK → `libraries.id`, `ON DELETE CASCADE`, indexed (`ix_documents_library_id`) |
-| `source_filename` | `string` | no | — | |
-| `file_type` | `string` | no | — | extension, e.g. `pdf`, `md`, `txt` |
-| `content_hash` | `string` | no | — | SHA-256 of the uploaded bytes |
-| `status` | `string` | no | `"pending"` | `pending` \| `processing` \| `completed` \| `failed` |
-| `raw_file_bytes` | `bytea` | yes | — | added in `0008`; deferred-loaded (not fetched on list queries); kept only until ingestion completes, so a failed document can be retried without re-upload |
-| `error_message` | `string` | yes | — | added in `0008`; failure reason, surfaced to retry callers |
-| `ingested_at` | `timestamptz` | yes | — | set on successful completion |
-| `created_at` | `timestamptz` | no | `now()` | |
-
-## `chunks`
-
-The retrieval unit: one row per chunk produced from a document, holding both its dense vector
-and (via a generated column) its sparse/keyword representation.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `document_id` | `uuid` | no | — | FK → `documents.id`, `ON DELETE CASCADE`, indexed (`ix_chunks_document_id`) |
-| `library_id` | `uuid` | no | — | FK → `libraries.id`, `ON DELETE CASCADE`, indexed (`ix_chunks_library_id`); denormalized from `document_id` so similarity/sparse search never needs a join |
-| `chunk_index` | `integer` | no | — | position within the source document |
-| `content` | `string` | no | — | chunk text |
-| `content_tsv` | `tsvector` | no | **generated**: `to_tsvector('english', content)` | added in `0003`, GIN-indexed (`ix_chunks_content_tsv_gin`) for sparse/keyword search; Postgres keeps it in sync automatically, no app code ever writes it |
-| `embedding` | `vector(N)` | no | — | dense embedding; `N` = whatever `embedding_settings.dimensions` currently is. HNSW-indexed (`ix_chunks_embedding_hnsw`, cosine ops). **Dynamically resized at runtime** (`ChunkRepository.resize_embedding_column`) when the configured embedding model changes with zero existing chunks — see `embedding_settings` below |
-| `created_at` | `timestamptz` | no | `now()` | |
-
-Column history: created at a fixed `Vector(1024)` (Voyage) in `0001`; migrations `0006`/`0007`
-did a one-time hand-rolled cutover to `Vector(768)` (Ollama) via a nullable shadow column +
-backfill + rename; as of the "bring your own embeddings model" change, the column is resized
-in-place via `ALTER TABLE ... TYPE vector(N)` whenever the admin selects a new model — no shadow
-column/backfill needed since a resize is only ever allowed while the table has zero rows (see
-`embedding_settings` below).
-
-## `embedding_settings`
-
-**Single global row** (application-level singleton — no DB-level `UNIQUE`/check constraint
-enforcing exactly one row, just always queried with `.first()`). Configures which embedding
-provider/model every library uses; there is no per-library embedding config.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `provider` | `string` | no | — | must be a name registered in `EmbeddingProviderRegistry` (`voyage`, `ollama`, `openai_compatible`) |
-| `model` | `string` | no | — | free text — no whitelist; any model name the provider accepts |
-| `api_key` | `string` | yes | — | nullable since `0006` (self-hosted providers need none) |
-| `base_url` | `string` | yes | — | added in `0006`; required for `openai_compatible`, optional override for `ollama` |
-| `dimensions` | `integer` | no | — | added in `0009`; caller-declared, verified live against the provider's actual output at save time. Source of truth for `chunks.embedding`'s current column width |
-| `chunk_size` | `integer` | no | `800` | added in `0005` (moved from `libraries`) |
-| `chunk_overlap` | `integer` | no | `100` | added in `0005` (moved from `libraries`) |
-| `created_at` | `timestamptz` | no | `now()` | |
-| `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
-
-Changing `provider`/`model`/`base_url`/`dimensions` is **rejected** (`embedding_model_locked`) if
-any row exists in `chunks` — embeddings from different models are never comparable, even at
-matching dimensions, so switching mid-flight would silently corrupt search. Rotating `api_key`
-alone is always allowed. A first-time save or an allowed model change triggers a live
-verification call to the provider (checking the returned vector's length matches `dimensions`)
-and a `chunks.embedding` column resize before the new settings are persisted.
-
-## `embedding_provider_settings`
-
-Per-provider enable/disable toggle, independent of `embedding_settings`. Added so an admin can
-switch off a specific provider adapter (e.g. hide `openai_compatible` in a locked-down
-deployment) without touching whichever provider/model is currently configured and in use.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `provider` | `string` | no | — | **unique** — the registry key itself (`voyage`, `ollama`, `openai_compatible`, ...); every lookup/route addresses a row by this, not by `id` |
-| `enabled` | `boolean` | no | `true` | |
-| `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
-
-Seeded idempotently at app startup (`bootstrap_embedding_provider_settings`) — every provider in
-`EmbeddingProviderRegistry.known_providers()` gets a row if it doesn't already have one, so a
-newly-added provider adapter is reachable by default without a fresh migration. Disabling a
-provider only affects `GET /embedding-options` (hidden from the list) and future
-`PUT /embedding-settings` calls (rejected with `embedding_provider_disabled`) — it does **not**
-touch `embedding_settings` or block already-configured ingestion/retrieval from working.
-
-## `search_settings`
-
-**Single global row**, same singleton pattern as `embedding_settings`. Tunes hybrid
-(dense + sparse) retrieval. An absent row is not an error — unlike `embedding_settings`,
-retrieval falls back to defaults in `app/constants.py`. Reranking (rerank_enabled/provider/model/
-candidates) was removed entirely in migration `0014` — it had no working, reachable configuration
-via this API even before that (see `CLAUDE.md`).
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `dense_k` | `integer` | no | — | candidates pulled from pgvector similarity search |
-| `sparse_k` | `integer` | no | — | candidates pulled from keyword/tsvector search |
-| `rrf_k` | `integer` | no | — | reciprocal rank fusion constant |
-| `created_at` | `timestamptz` | no | `now()` | |
-| `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
-
-## `users`
-
-Single default admin (dashboard login), bootstrapped on first `create_app()` call.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `username` | `string` | no | — | **unique**; bootstrapped as `admin` |
-| `password_hash` | `string` | no | — | |
-| `must_change_password` | `boolean` | no | `true` | forces a real password change on first login |
-| `created_at` | `timestamptz` | no | `now()` | |
-| `updated_at` | `timestamptz` | no | `now()`, on update `now()` | |
-
-## `applications`
-
-Registered OAuth2 clients (`client_credentials` grant). Registered exclusively via the
-server-rendered admin dashboard — no JSON API for creating one.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK — doubles as the OAuth2 `client_id` |
-| `name` | `string` | no | — | **unique** |
-| `client_secret_hash` | `string` | no | — | shown once at registration/regeneration, hashed at rest |
-| `allowed_scopes` | `string` | no | — | space-separated scope string, OAuth2 convention |
-| `created_at` | `timestamptz` | no | `now()` | |
-
-## `refresh_tokens`
-
-Opaque, DB-backed, **reusable** (not rotated on use) refresh tokens for the `refresh_token`
-grant.
-
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | `uuid` | no | — | PK |
-| `application_id` | `uuid` | no | — | FK → `applications.id`, `ON DELETE CASCADE`, indexed (`ix_refresh_tokens_application_id`) |
-| `token_hash` | `string` | no | — | SHA-256 hash of the opaque token; **unique** |
-| `scope` | `string` | no | — | granted at issuance, reissued as-is on refresh — never re-negotiated/escalated |
-| `created_at` | `timestamptz` | no | `now()` | |
-| `expires_at` | `timestamptz` | yes | — | |
-| `last_used_at` | `timestamptz` | yes | — | |
-| `revoked_at` | `timestamptz` | yes | — | |
-
----
-
-## Indexes
-
-| Index | Table | Columns / method | Purpose |
+| Column | Type | Nullable | Notes |
 |---|---|---|---|
-| `ix_documents_library_id` | `documents` | btree(`library_id`) | list documents per library |
-| `ix_chunks_document_id` | `chunks` | btree(`document_id`) | delete/count chunks per document |
-| `ix_chunks_library_id` | `chunks` | btree(`library_id`) | scope dense/sparse search to a library |
-| `ix_chunks_embedding_hnsw` | `chunks` | hnsw(`embedding` vector_cosine_ops) | approximate nearest-neighbor dense search; dropped/recreated whenever the column is resized |
-| `ix_chunks_content_tsv_gin` | `chunks` | gin(`content_tsv`) | sparse/keyword search |
-| `ix_refresh_tokens_application_id` | `refresh_tokens` | btree(`application_id`) | look up an application's current refresh token |
+| `id` | `uuid` | no | PK |
+| `name` | `string` | no | |
+| `slug` | `string` | no | **unique** |
+| `plan` | `org_plan` enum | no | `free` \| `team` \| `enterprise`, default `free` |
+| `created_by` / `last_modified_by` | `uuid` | yes | FK → `users.id`; added via `ALTER TABLE` after `users` exists (circular FK — see migration) |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
 
-## Migration history
+One bootstrap row (`slug='default'`) is created automatically on first app start
+(`app/infrastructure/auth/bootstrap.py:bootstrap_default_organization`).
 
-| # | Summary |
-|---|---|
-| `0001` | Initial schema: `libraries`, `documents`, `chunks` + pgvector extension, HNSW index |
-| `0002` | `embedding_settings` table |
-| `0003` | `content_tsv` generated column + GIN index (hybrid search), `search_settings` table |
-| `0004` | `users`, `applications`, `refresh_tokens` (OAuth2) |
-| `0005` | Moved `chunk_size`/`chunk_overlap` to `embedding_settings`; dropped per-library embedding columns |
-| `0006` | Added nullable `chunks.embedding_new` (768-dim) + `embedding_settings.base_url`; made `api_key` nullable — step 1 of the Voyage→Ollama cutover |
-| `0007` | Cut `chunks.embedding` over to 768-dim (drop old, promote `embedding_new`); step 2 of the cutover |
-| `0008` | `documents.raw_file_bytes` + `documents.error_message` (retry support) |
-| `0009` | `embedding_settings.dimensions` (bring-your-own embeddings model) |
-| `0010` | `embedding_provider_settings` (per-provider enable/disable toggle) |
+### `users`
+
+A person inside an org. Role gates write access: contributors add/edit their own documents,
+admins manage sources and members, viewers only browse and search — enforcement of that isn't
+wired up yet (see the known gap below).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `email` | `string` | no | **unique per org** (`uq_users_org_id_email`) |
+| `name` | `string` | no | |
+| `role` | `user_role` enum | no | `admin` \| `contributor` \| `viewer`, default `viewer` |
+| `password_hash` | `string` | no | |
+| `must_change_password` | `bool` | no | default `true` |
+| `invited_by` / `last_modified_by` | `uuid` | yes | FK → `users.id` (self) |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
+| `last_active_at` | `timestamptz` | yes | |
+
+The bootstrap admin (`admin`/`admin`, forced password change) is created under the bootstrap org
+on first app start.
+
+---
+
+## Embedding models — bring your own, per org
+
+### `embedding_models`
+
+An org's registered embedders — many rows per org, unlike the old single global active provider.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `provider` | `embed_provider` enum | no | `voyage` \| `ollama` \| `openai_compatible` — **this app's actual registry values**, not the design spec's literal `openai`/`cohere`/`voyage`/`self_hosted`/`custom` list, which doesn't match what `EmbeddingProviderRegistry` can construct a client for |
+| `name` | `string` | no | display name |
+| `model_identifier` | `string` | no | provider's model name |
+| `dimensions` | `int` | no | verified live against the provider's actual output at save time |
+| `endpoint_url` | `string` | yes | set for self-hosted/custom |
+| `api_key` | `string` | yes | plaintext, not a hash — deviation from the spec's `api_key_hash`; this app calls the provider's API with it directly on every embed, unlike an OAuth2 client secret that's never needed again after issuance |
+| `is_default` | `bool` | no | the one model new ingestion uses; can only be `true` when `status='active'` (`embedding_models_default_is_active` check constraint) |
+| `status` | `embed_model_status` enum | no | `active` \| `retired` \| `disabled`, default `disabled` |
+| `chunk_size` / `chunk_overlap` | `int` | no | **kept here**, not moved to `sources` as the design spec implied — chunking config is resolved alongside provider/model/dimensions in one repository call; splitting it across two tables would be a real ingestion-service behavior change, not a schema decision |
+| `created_by` / `last_modified_by` | `uuid` | yes | FK → `users.id` |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
+
+**Constraints:**
+- `embedding_models_one_active_per_org` — partial unique index on `org_id` `WHERE status = 'active'`: at most one active model per org.
+- `embedding_models_default_is_active` — check constraint: `is_default` implies `status = 'active'`.
+- **`embedding_models_guard` trigger** (`guard_embedding_model_change()`): blocks deleting a model that still has chunks, and blocks moving a model with chunks to `disabled` — the only transition left for it is `retired` (kept, read-only, for those chunks' provenance). A model with zero chunks can be freely deleted or disabled. This is the first DB-level trigger in this app (everything else validates in application code) — added because the invariant ("never lose provenance for chunks still in use") is cheap to enforce at the data layer and easy to violate accidentally from application code.
+
+---
+
+## Sources, categories & shelves
+
+### `sources`
+
+Where content comes from: a manual upload, a URL, or a connected system.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `type` | `source_type` enum | no | `upload` \| `url` \| `connector` |
+| `name` | `string` | no | |
+| `config` | `jsonb` | no | connector-specific settings, default `{}` |
+| `api_key_hash` | `string` | yes | connectors that pull from an external API store only the hash |
+| `status` | `source_status` enum | no | `active` \| `paused` \| `error`, default `active` |
+| `created_by` / `last_modified_by` | `uuid` | yes | FK → `users.id` |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
+| `last_synced_at` | `timestamptz` | yes | |
+
+### `categories`
+
+A self-referencing tree — subcategories are just categories with a `parent_id`. This is the
+direct successor of the old `libraries` table for *browsing/organizing* documents (see
+[Deviations](#deviations-from-the-design-spec)).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `parent_id` | `uuid` | yes | FK → `categories.id` (self), `ON DELETE SET NULL` |
+| `name` | `string` | no | |
+| `slug` | `string` | no | unique per org (`uq_categories_org_id_slug`) |
+| `description` | `string` | yes | |
+| `description_embedding` | `vector` (dimensionless) | yes | router RAG — the direct successor of `libraries.description_embedding`: routes a category-less query to the most relevant category by cosine similarity. No HNSW index (small counts, sequential `ORDER BY ... <=>` scan is trivial); dimension-safety enforced in application code, not the schema, same as its predecessor. Nothing reads/writes this yet. |
+| `created_by` / `last_modified_by` | `uuid` | yes | FK → `users.id` |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
+
+### `shelves`, `document_shelves`, `user_shelf_access`
+
+Access-controlled groupings, independent of the category tree — a category is about
+browsing/taxonomy, a shelf is about *who can see what*. Not in any prior iteration of this app;
+introduced when the design spec added this concept.
+
+**`shelves`**: `id` PK, `org_id` FK (CASCADE), `name`/`slug` (unique per org), `description`,
+`is_default` bool (the shelf every new document lands on and every member can see unless
+narrowed), `created_by`/`last_modified_by` FK → users, `created_at`/`last_modified_at`.
+
+**`document_shelves`**: `document_id` FK (CASCADE) + `shelf_id` FK (CASCADE), composite PK — a
+document can sit on several shelves. Indexed on `shelf_id` (`ix_document_shelves_shelf_id`) for
+"given a shelf, list its documents" lookups (the PK alone only serves "given a document, list its
+shelves" efficiently).
+
+**`user_shelf_access`**: `user_id` FK (CASCADE) + `shelf_id` FK (CASCADE), composite PK,
+`granted_by` FK → users (nullable), `granted_at`. A member sees only documents on a shelf they've
+been granted — enforced by the `shelf_gated_read` RLS policy (see
+[Row-level security](#row-level-security)), not yet by application code.
+
+---
+
+## Content
+
+### `documents`
+
+The browsable unit.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `source_id` | `uuid` | yes | FK → `sources.id`, `ON DELETE SET NULL` |
+| `category_id` | `uuid` | yes | FK → `categories.id`, `ON DELETE SET NULL` |
+| `owner_id` | `uuid` | no | FK → `users.id` |
+| `title` | `string` | no | display/editable name — replaces the old `source_filename` (`DocumentRepository.rename` still renames this field) |
+| `type` | `document_type` enum | no | `article` \| `dataset` \| `guide` \| `report` \| `faq` \| `media` — **classification**, distinct from `file_type` below |
+| `file_type` | `string` | no | technical upload format (`pdf`/`md`/`txt`/`html`) driving parser selection (`app/infrastructure/parsing/registry.py`) — an extension beyond the design spec, which has no equivalent concept |
+| `content_uri` | `string` | yes | pointer to blob storage — nullable and unpopulated for now, no blob storage exists yet; uploads still live in `raw_file_bytes` |
+| `description` | `string` | yes | |
+| `status` | `document_status` enum | no | `processing` \| `indexed` \| `failed` \| `archived`, default `processing` — **different value set** than the pre-squash app's free-string status (`pending`/`processing`/`completed`/`failed`/`cancelled`); mapping isn't wired up in application code yet |
+| `content_hash` | `string` | no | SHA-256 of the uploaded bytes, for dedup — extension beyond the spec |
+| `raw_file_bytes` | `bytea` | yes | deferred-loaded (not fetched on plain list/get queries); kept only until a document reaches `indexed`, so a failed ingestion can be retried without re-upload |
+| `error_message` | `string` | yes | failure reason, surfaced to retry callers |
+| `size_bytes` | `int` | yes | set at upload time |
+| `chunk_count` | `int` | yes | set once ingestion completes; `NULL` means "not available yet" vs. `0` meaning "completed with zero chunks" |
+| `split_group_id` / `split_part` / `split_total` | `uuid` / `int` / `int` | yes | set together, only for a document that's one part of an auto-split oversized PDF (`PdfSplitIngestionService`) |
+| `created_by` / `last_modified_by` | `uuid` | yes | FK → `users.id` |
+| `created_at` / `last_modified_at` | `timestamptz` | no | |
+| `indexed_at` | `timestamptz` | yes | set on successful completion — replaces the old `ingested_at` |
+
+### `tags` / `document_tags`
+
+**`tags`**: `id` PK, `org_id` FK (CASCADE), `name` (unique per org: `uq_tags_org_id_name`),
+`created_by` FK → users, `created_at`.
+
+**`document_tags`**: `document_id` FK (CASCADE) + `tag_id` FK (CASCADE), composite PK — many-to-many
+folksonomy independent of the category tree.
+
+### `ingestion_jobs`
+
+One row per processing run: an upload, a crawl, a resync, or a manual reindex. Persisted history —
+replaces the pre-squash app's in-memory-only `JobStore`/`CrawlJobStore` (lost on process restart).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `source_id` | `uuid` | yes | FK → `sources.id`, `ON DELETE SET NULL` |
+| `document_id` | `uuid` | yes | FK → `documents.id`, `ON DELETE SET NULL` — null while the job covers a whole source |
+| `type` | `ingestion_type` enum | no | `upload` \| `crawl` \| `resync` \| `reindex` |
+| `status` | `ingestion_status` enum | no | `queued` \| `processing` \| `indexed` \| `failed`, default `queued` |
+| `error_message` | `string` | yes | |
+| `items_processed` | `int` | no | default `0` |
+| `triggered_by` | `uuid` | yes | FK → `users.id` — null for scheduled/system resyncs |
+| `created_at` / `started_at` / `finished_at` | `timestamptz` | no / yes / yes | |
+
+Nothing writes to this table yet — the in-memory job stores are still what `DocumentService`
+actually uses (see the known gap below).
+
+---
+
+## Retrieval
+
+### `chunks`
+
+The retrieval grain — immutable, single-write rows (no `last_modified_*`; a re-embed writes a new
+row via a `reindex` ingestion job).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK |
+| `document_id` | `uuid` | no | FK → `documents.id`, `ON DELETE CASCADE` |
+| `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` — denormalized from the parent document so RLS/ANN filters never need a join |
+| `ordinal` | `int` | no | position within the source document — replaces the old `chunk_index` |
+| `content` | `string` | no | |
+| `content_tsv` | `tsvector` | no | **generated column** (`to_tsvector('english', content)`), GIN-indexed (`ix_chunks_content_tsv_gin`) — not in the design spec at all; it's the sparse half of this app's hybrid (dense+sparse RRF) search |
+| `token_count` | `int` | no | |
+| `embedding` | `vector` (dimensionless) | no | **deliberately no fixed width** — a genuine deviation from the design spec's `vector(1536)`. Per-org "bring your own embedding model" means different orgs (and a mid-reindex org) can have different `dimensions`; a single fixed-width column can't represent that. `ChunkRepository.resize_embedding_column()` changes the real column's width with raw SQL at runtime, the same mechanism the pre-squash app used for its one-time Voyage→Ollama cutover, generalized. **No HNSW index is created until a model is actually configured** — pgvector requires a fixed-width column to build one; `resize_embedding_column()` creates `ix_chunks_embedding_hnsw` (`DROP INDEX IF EXISTS` + `CREATE INDEX`, idempotent) the first time an org enables a model. |
+| `embedding_model_id` | `uuid` | no | FK → `embedding_models.id` — which model actually produced this vector |
+| `created_at` | `timestamptz` | no | |
+
+**Known hard problem, not solved by this schema:** a single HNSW index is only efficient for one
+dimension family. With multiple orgs on different-dimension models sharing this one physical
+table, either (a) all orgs are constrained to the same embedding dimension for now, or (b)
+per-dimension partial HNSW indexes get built dynamically as new dimensions appear. Neither is
+implemented — this is real follow-up work, not yet blocking because there's only ever been one
+org with one configured model in practice so far.
+
+### `queries` / `query_results`
+
+Persisted search log — replaces the pre-squash app's `logging.info()`-only query tracking.
+
+**`queries`**: `id` PK, `org_id` FK (CASCADE), `user_id` FK → users (`ON DELETE SET NULL`, nullable
+— API callers may be unauthenticated service accounts), `query_text`, `latency_ms`, `result_count`,
+`created_at`. Indexed on `(org_id, created_at)`.
+
+**`query_results`**: `id` bigserial PK, `query_id` FK → queries (`ON DELETE CASCADE`), `chunk_id`
+FK → chunks (`ON DELETE CASCADE` — a deviation from the design spec's unspecified/implicit-RESTRICT
+reference, matching this app's cascade-everywhere convention elsewhere), `rank`, `similarity_score`.
+Indexed on `query_id`.
+
+Nothing writes to either table yet — `RetrievalService`/`LibraryRouterService` still only log,
+they don't persist (see the known gap below).
+
+---
+
+## OAuth2 & global settings (outside the design spec)
+
+These predate multi-tenancy and aren't described by the design spec at all — kept as they were,
+with a **nullable** `org_id` added to the four settings/registry tables (not `refresh_tokens`/
+`authorization_codes`, which hang off `applications` and need no org of their own).
+
+### `applications`
+
+Registered OAuth2 clients (`client_credentials`/`authorization_code` grants).
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `uuid` | no | PK — doubles as the OAuth2 `client_id` |
+| `name` | `string` | no | **unique** |
+| `client_secret_hash` | `string` | no | shown once at registration/regeneration, hashed at rest |
+| `allowed_scopes` | `string` | no | space-separated |
+| `redirect_uris` | `string` | yes | space-separated allowlist for the `authorization_code` grant |
+| `org_id` | `uuid` | yes | FK → `organizations.id`, `ON DELETE CASCADE` — not yet set by `ApplicationRepository.create()`/bootstrap |
+| `created_at` | `timestamptz` | no | |
+
+Two built-in service-account rows (`mcp-server (built-in)`, `dashboard (built-in)`) are
+bootstrapped automatically at fixed, non-secret ids.
+
+### `refresh_tokens` / `authorization_codes`
+
+Unchanged from the pre-squash app — opaque, DB-backed, reusable (not rotated) refresh tokens; and
+single-use, short-lived, hash-only authorization codes for the PKCE flow. Both FK to
+`applications.id` (`ON DELETE CASCADE`), indexed on `application_id`.
+
+### `search_settings` / `web_crawl_settings` / `router_settings`
+
+Each a **singleton by convention** (0 or 1 row; absent row is normal, application code falls back
+to defaults in `app/constants.py`), now with a nullable `org_id`. `search_settings` tunes hybrid
+retrieval (`dense_k`/`sparse_k`/`rrf_k`); `web_crawl_settings` holds the outbound crawl
+User-Agent; `router_settings` holds `top_n`/`min_similarity` for router RAG (currently still
+pointed at whatever the eventual category-routing implementation will use).
+
+---
+
+## Row-level security
+
+RLS is **enabled with policies created**, matching the design spec's list of tables (`users`,
+`embedding_models`, `sources`, `categories`, `documents`, `ingestion_jobs`, `tags`, `chunks`,
+`queries`, `shelves`, `document_shelves`, `user_shelf_access`) — but **still practically inert**.
+This app's single Postgres role (`POSTGRES_USER`, default `rag`) both runs migrations (so it owns
+every table) and serves every app query, and Postgres exempts table owners from their own RLS
+policies unless `FORCE ROW LEVEL SECURITY` is also set (it isn't, matching the design spec). Real
+enforcement needs a later phase that introduces a restricted, non-owner role and wires a
+session-scoped `app.org_id`/`app.user_id` (via `SET LOCAL` per request).
+
+Every RLS table has a `tenant_isolation` policy (`org_id = current_setting('app.org_id')::uuid`;
+`document_shelves`/`user_shelf_access` don't carry `org_id` directly, so theirs check through the
+parent `documents`/`shelves` row instead).
+
+**One deliberate fix over the design spec's literal policies**: `documents` also has a
+`shelf_gated_read` policy, written as a single **RESTRICTIVE** policy (`admin` role OR has shelf
+access via `document_shelves`/`user_shelf_access`) rather than the spec's three separate
+PERMISSIVE policies (`tenant_isolation`/`admin_bypass_shelf_gate`/`shelf_gated_read`). Postgres
+ORs permissive policies together, so as literally spec'd, satisfying `tenant_isolation` alone
+(same org) would already be sufficient to see a document — the shelf checks would never actually
+restrict anything, contradicting the spec's own stated intent ("a document is only retrievable by
+a user who has access to at least one of its shelves"). The RESTRICTIVE policy ANDs against
+`tenant_isolation` instead, so a row is visible only when *both* hold: same org, **and** (admin or
+granted shelf access).
+
+---
+
+## Deviations from the design spec
+
+Consolidated list — see inline notes above for the full rationale on each:
+
+1. `embed_provider` enum uses this app's actual three registry values, not the spec's literal five.
+2. `chunks.embedding` is dimensionless, not a fixed `vector(1536)`.
+3. `chunks.content_tsv` exists (sparse search); the spec has no equivalent.
+4. `documents` keeps `file_type`, `content_hash`, `size_bytes`, `chunk_count`, `raw_file_bytes`,
+   `split_group_id`/`split_part`/`split_total`, `error_message` alongside the spec's `content_uri`.
+5. `embedding_models.chunk_size`/`chunk_overlap` stay on that table, not moved to `sources`.
+6. `embedding_models.api_key` is plaintext, not `api_key_hash` — this app needs the real key to
+   call the provider, unlike an OAuth2 secret.
+7. The `shelf_gated_read` RLS policy is RESTRICTIVE, not three OR'd PERMISSIVE policies.
+8. `applications`/`refresh_tokens`/`authorization_codes`/`search_settings`/`web_crawl_settings`/
+   `router_settings` aren't part of the spec at all — this app's own machinery, kept as-is plus a
+   nullable `org_id` on the four non-token tables.
+9. `libraries` is gone entirely, replaced by `categories` (browsing/taxonomy) — the spec never had
+   a `libraries` table to begin with; this is this app's own migration path, not a spec deviation.
+
+## Known gap: application layer
+
+The database/ORM/domain/repository layers fully implement the schema above. `app/application/*`,
+`app/presentation/routes/*`, and `mcp_server/` do not yet — they still reference the old
+library-based shape in many places (`library_id` route params, `LibraryService`,
+`list_for_library`/`count_for_library`-shaped calls, `JobStore`/`CrawlJobStore` in-memory job
+tracking instead of `ingestion_jobs`, no query/query_results persistence, no shelf-gating
+enforcement, no per-request org/role resolution). Imports were patched just enough for the app to
+boot (`create_app()` succeeds, `flask run` serves requests) without raising import-time errors, but
+many routes will fail at runtime until that layer is rewritten. This is the next planned phase of
+work, tracked separately from this document.

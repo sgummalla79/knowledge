@@ -5,7 +5,7 @@ from app import create_app
 
 @pytest.fixture()
 def client():
-    app = create_app(testing=True, bootstrap_admin=False, bootstrap_embedding_settings=False)
+    app = create_app(testing=True, bootstrap_admin=False)
     return app.test_client()
 
 

@@ -7,7 +7,7 @@ from app.constants import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from app.domain import error_codes
 from app.domain.entities import EmbeddingProviderConfig
 from app.domain.errors import ValidationError
-from app.domain.ports import ChunkRepositoryPort, EmbeddingProviderSettingsRepositoryPort, LibraryRepositoryPort
+from app.domain.ports import CategoryRepositoryPort, ChunkRepositoryPort, EmbeddingProviderSettingsRepositoryPort
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -52,11 +52,11 @@ class EmbeddingProviderConfigService:
         self,
         repository: EmbeddingProviderSettingsRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
-        library_repo: LibraryRepositoryPort,
+        category_repo: CategoryRepositoryPort,
     ):
         self._repository = repository
         self._chunks = chunk_repo
-        self._libraries = library_repo
+        self._categories = category_repo
 
     def list_status(self) -> list[EmbeddingProviderConfigStatus]:
         configs = {config.provider: config for config in self._repository.list()}
@@ -148,7 +148,10 @@ class EmbeddingProviderConfigService:
         # was computed with the *old* model and is now stale/wrong-dimension. Reuses the
         # provider_instance already resolved above for the connection test, no second HTTP call.
         if existing is not None and existing.enabled and identity_changed:
-            self._resync_library_description_embeddings(provider_instance)
+            # org_id not threaded through this service yet (no per-request org resolution exists —
+            # see the multi-tenant migration plan's Phase B) — passing None means this resync is
+            # currently a safe no-op (no category has org_id=None) rather than raising.
+            self._resync_category_description_embeddings(None, provider_instance)
         return self._status(config, provider, chunk_count, active_provider)
 
     def enable(self, provider: str) -> EmbeddingProviderConfigStatus:
@@ -183,7 +186,10 @@ class EmbeddingProviderConfigService:
         # embedding was computed against whichever provider was active before, so it's now
         # stale/wrong-dimension for this new one.
         provider_instance = EmbeddingProviderRegistry.resolve(provider, config.model, config.api_key, config.base_url)
-        self._resync_library_description_embeddings(provider_instance)
+        # org_id not threaded through this service yet (no per-request org resolution exists —
+        # see the multi-tenant migration plan's Phase B) — passing None means this resync is
+        # currently a safe no-op (no category has org_id=None) rather than raising.
+        self._resync_category_description_embeddings(None, provider_instance)
         updated = self._repository.set_enabled(provider, True)
         return self._status(updated, provider, chunk_count, provider)
 
@@ -205,9 +211,9 @@ class EmbeddingProviderConfigService:
         updated = self._repository.set_enabled(provider, False)
         return self._status(updated, provider, chunk_count, None)
 
-    def _resync_library_description_embeddings(self, provider_instance) -> None:
+    def _resync_category_description_embeddings(self, org_id, provider_instance) -> None:
         """Called whenever the active embedding provider or its identity (model/base_url/
-        dimensions) changes — the only two ways a library's description_embedding can go stale or
+        dimensions) changes — the only two ways a category's description_embedding can go stale or
         wrong-dimension, mirroring the invariant this class already enforces for chunks.embedding
         (never leave vector data around from a different model). Unlike chunks, there's no
         "delete everything and retry" escape hatch for descriptions — they're meant to survive a
@@ -215,25 +221,25 @@ class EmbeddingProviderConfigService:
         safe, zero window where a stale-dimension vector could be queried) and then makes one
         best-effort batched attempt to recompute them all with the new provider. A failure here
         (rate limit, transient network error) is logged and left null rather than blocking the
-        provider switch itself — those libraries are simply excluded from router queries (same
-        non-error fallback as a library with no description at all) until saved again or a retry
+        provider switch itself — those categories are simply excluded from router queries (same
+        non-error fallback as a category with no description at all) until saved again or a retry
         succeeds.
         """
-        libraries = self._libraries.list_all_with_description()
-        self._libraries.clear_all_description_embeddings()
-        if not libraries:
+        categories = self._categories.list_all_with_description(org_id)
+        self._categories.clear_all_description_embeddings(org_id)
+        if not categories:
             return
         try:
-            vectors = provider_instance.embed_documents([library.description for library in libraries])
+            vectors = provider_instance.embed_documents([category.description for category in categories])
         except Exception:
             logger.warning(
-                "Failed to re-embed library descriptions after embedding provider change; "
-                "affected libraries are excluded from router queries until saved again.",
+                "Failed to re-embed category descriptions after embedding provider change; "
+                "affected categories are excluded from router queries until saved again.",
                 exc_info=True,
             )
             return
-        for library, vector in zip(libraries, vectors):
-            self._libraries.set_description_embedding(library.id, vector)
+        for category, vector in zip(categories, vectors):
+            self._categories.set_description_embedding(category.id, vector)
 
     def _active_provider(self, configs) -> str | None:
         active = next((c for c in configs if c.enabled), None)

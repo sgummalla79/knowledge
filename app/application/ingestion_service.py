@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from app.domain import error_codes
-from app.domain.entities import Document, Library
+from app.domain.entities import Document
 from app.domain.errors import IngestionCancelled, ValidationError
-from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, EmbeddingSettingsRepositoryPort, LibraryRepositoryPort
+from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, EmbeddingSettingsRepositoryPort
 from app.infrastructure.chunking.chunker import TextChunker
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.parsing.html_parser import HtmlParser
@@ -32,7 +32,7 @@ def resolve_file_type(filename: str) -> str:
 class IngestionService:
     def __init__(
         self,
-        library_repo: LibraryRepositoryPort,
+        library_repo,
         document_repo: DocumentRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
         embedding_settings_repo: EmbeddingSettingsRepositoryPort,
@@ -44,7 +44,7 @@ class IngestionService:
 
     def ingest(
         self,
-        library: Library,
+        library,
         filename: str,
         file_bytes: bytes,
         should_cancel: Callable[[], bool] | None = None,
@@ -79,7 +79,7 @@ class IngestionService:
         return self._process(document, library, file_bytes, settings, should_cancel)
 
     def ingest_html(
-        self, library: Library, url: str, html_bytes: bytes, should_cancel: Callable[[], bool] | None = None
+        self, library, url: str, html_bytes: bytes, should_cancel: Callable[[], bool] | None = None
     ) -> Document:
         """Same pipeline as ingest(), for a page fetched from the web (WebCrawlService) instead of
         uploaded. source_filename is the page's URL itself (for display/linking, not extension
@@ -100,7 +100,7 @@ class IngestionService:
         return self._process(document, library, html_bytes, settings, should_cancel)
 
     def retry(
-        self, document: Document, library: Library, should_cancel: Callable[[], bool] | None = None
+        self, document: Document, library, should_cancel: Callable[[], bool] | None = None
     ) -> Document:
         """Re-runs the exact same pipeline as ingest(), against an existing document row instead
         of creating a new one, using the raw bytes stored at the original upload. A failed
@@ -137,7 +137,7 @@ class IngestionService:
     def _process(
         self,
         document: Document,
-        library: Library,
+        library,
         file_bytes: bytes,
         settings,
         should_cancel: Callable[[], bool] | None = None,

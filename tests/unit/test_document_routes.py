@@ -23,18 +23,27 @@ def _document(**overrides):
     now = datetime.now(timezone.utc)
     fields = dict(
         id=uuid4(),
-        library_id=uuid4(),
-        source_filename="notes.md",
+        org_id=uuid4(),
+        source_id=None,
+        category_id=None,
+        owner_id=uuid4(),
+        title="notes.md",
+        type="article",
         file_type="md",
-        status="completed",
+        content_uri=None,
+        description=None,
+        status="indexed",
         error_message=None,
         size_bytes=1024,
         chunk_count=3,
         split_group_id=None,
         split_part=None,
         split_total=None,
-        ingested_at=now,
+        created_by=None,
+        last_modified_by=None,
         created_at=now,
+        last_modified_at=now,
+        indexed_at=now,
     )
     fields.update(overrides)
     return Document(**fields)
@@ -325,7 +334,7 @@ def test_get_crawl_job_status_returns_body(client, auth_headers):
 
 
 def test_rename_document_returns_updated_document(client, auth_headers):
-    renamed = _document(source_filename="new-name.md")
+    renamed = _document(title="new-name.md")
     with patch(
         "app.presentation.routes.documents.DocumentService.rename_document",
         return_value=renamed,
@@ -337,7 +346,7 @@ def test_rename_document_returns_updated_document(client, auth_headers):
         )
 
     assert response.status_code == 200
-    assert response.get_json()["source_filename"] == "new-name.md"
+    assert response.get_json()["title"] == "new-name.md"
     assert mock_rename.call_args[0][2] == "new-name.md"
 
 

@@ -12,7 +12,6 @@ from app.constants import (
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
 from app.domain.entities import (
     Document,
-    Library,
     RoutedScoredChunk,
     RouterSettings,
     ScoredChunk,
@@ -54,7 +53,7 @@ class LibraryResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_entity(cls, library: Library) -> "LibraryResponse":
+    def from_entity(cls, library) -> "LibraryResponse":
         return cls(
             id=library.id,
             name=library.name,
@@ -69,8 +68,8 @@ class LibraryResponse(BaseModel):
 
 class DocumentResponse(BaseModel):
     id: UUID
-    library_id: UUID
-    source_filename: str
+    org_id: UUID
+    title: str
     file_type: str
     status: str
     error_message: str | None
@@ -79,15 +78,15 @@ class DocumentResponse(BaseModel):
     split_group_id: UUID | None = None
     split_part: int | None = None
     split_total: int | None = None
-    ingested_at: datetime | None
+    indexed_at: datetime | None
     created_at: datetime
 
     @classmethod
     def from_entity(cls, document: Document) -> "DocumentResponse":
         return cls(
             id=document.id,
-            library_id=document.library_id,
-            source_filename=document.source_filename,
+            org_id=document.org_id,
+            title=document.title,
             file_type=document.file_type,
             status=document.status,
             error_message=document.error_message,
@@ -96,7 +95,7 @@ class DocumentResponse(BaseModel):
             split_group_id=document.split_group_id,
             split_part=document.split_part,
             split_total=document.split_total,
-            ingested_at=document.ingested_at,
+            indexed_at=document.indexed_at,
             created_at=document.created_at,
         )
 
@@ -153,7 +152,7 @@ class QueryRequest(BaseModel):
 class ScoredChunkResponse(BaseModel):
     id: UUID
     document_id: UUID
-    chunk_index: int
+    ordinal: int
     content: str
     score: float
 
@@ -162,29 +161,29 @@ class ScoredChunkResponse(BaseModel):
         return cls(
             id=chunk.id,
             document_id=chunk.document_id,
-            chunk_index=chunk.chunk_index,
+            ordinal=chunk.ordinal,
             content=chunk.content,
             score=chunk.score,
         )
 
 
 class RoutedScoredChunkResponse(BaseModel):
-    library_id: UUID
-    library_name: str
+    category_id: UUID
+    category_name: str
     id: UUID
     document_id: UUID
-    chunk_index: int
+    ordinal: int
     content: str
     score: float
 
     @classmethod
     def from_entity(cls, routed: RoutedScoredChunk) -> "RoutedScoredChunkResponse":
         return cls(
-            library_id=routed.library_id,
-            library_name=routed.library_name,
+            category_id=routed.category_id,
+            category_name=routed.category_name,
             id=routed.chunk.id,
             document_id=routed.chunk.document_id,
-            chunk_index=routed.chunk.chunk_index,
+            ordinal=routed.chunk.ordinal,
             content=routed.chunk.content,
             score=routed.chunk.score,
         )

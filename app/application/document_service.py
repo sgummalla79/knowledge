@@ -11,12 +11,12 @@ from app.application.web_crawl_settings_service import WebCrawlSettingsService
 from app.domain import error_codes
 from app.domain.entities import Document
 from app.domain.errors import IngestionCancelled, NotFoundError, ValidationError
-from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, LibraryRepositoryPort
+from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort
 from app.infrastructure.orm import SessionLocal
+from app.infrastructure.repositories.category_repository import CategoryRepository
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
-from app.infrastructure.repositories.library_repository import LibraryRepository
 from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
 from app.infrastructure.web.fetcher import WebPageFetcher
 from app.logging_config import clear_job_id, set_job_id
@@ -28,7 +28,7 @@ class DocumentService:
     def __init__(
         self,
         document_repo: DocumentRepositoryPort,
-        library_repo: LibraryRepositoryPort,
+        library_repo,
         chunk_repo: ChunkRepositoryPort,
     ):
         self._documents = document_repo
@@ -163,7 +163,7 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
     session = SessionLocal()
     try:
         JobStore.mark_running(job_id)
-        library_repo = LibraryRepository(session)
+        library_repo = CategoryRepository(session)
         library = library_repo.get(library_id)
         ingestion_service = IngestionService(
             library_repo,
@@ -252,7 +252,7 @@ def _run_retry_job(job_id: str, library_id: UUID, document_id: UUID):
     session = SessionLocal()
     try:
         JobStore.mark_running(job_id)
-        library_repo = LibraryRepository(session)
+        library_repo = CategoryRepository(session)
         document_repo = DocumentRepository(session)
         library = library_repo.get(library_id)
         document = document_repo.get(document_id)
@@ -293,7 +293,7 @@ def _run_crawl_job(job_id: str, library_id: UUID, url: str, max_pages: int, scop
     session = SessionLocal()
     try:
         CrawlJobStore.mark_running(job_id)
-        library_repo = LibraryRepository(session)
+        library_repo = CategoryRepository(session)
         library = library_repo.get(library_id)
         ingestion_service = IngestionService(
             library_repo, DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)

@@ -1,19 +1,21 @@
 from app.domain.entities import EmbeddingSettings as EmbeddingSettingsEntity
-from app.infrastructure.orm import EmbeddingProviderSetting
+from app.infrastructure.orm import EmbeddingModel
+from app.infrastructure.repositories.default_org import get_default_org_id
 
 
 class EmbeddingSettingsRepository:
-    """Read-only view of whichever provider is currently enabled — ingestion and retrieval only
-    ever need "the active settings", never the full per-provider config/toggle machinery (see
+    """Read-only view of whichever model is currently the org's default — ingestion and retrieval
+    only ever need "the active settings", never the full per-provider config/toggle machinery (see
     EmbeddingProviderSettingsRepository for that)."""
 
     def __init__(self, session):
         self._session = session
 
     def get(self) -> EmbeddingSettingsEntity | None:
+        org_id = get_default_org_id(self._session)
         row = (
-            self._session.query(EmbeddingProviderSetting)
-            .filter(EmbeddingProviderSetting.enabled.is_(True))
+            self._session.query(EmbeddingModel)
+            .filter(EmbeddingModel.org_id == org_id, EmbeddingModel.is_default.is_(True))
             .first()
         )
         if row is None:
@@ -21,12 +23,12 @@ class EmbeddingSettingsRepository:
         return EmbeddingSettingsEntity(
             id=row.id,
             provider=row.provider,
-            model=row.model,
+            model=row.model_identifier,
             api_key=row.api_key,
-            base_url=row.base_url,
+            base_url=row.endpoint_url,
             dimensions=row.dimensions,
             chunk_size=row.chunk_size,
             chunk_overlap=row.chunk_overlap,
             created_at=row.created_at,
-            updated_at=row.updated_at,
+            updated_at=row.last_modified_at,
         )

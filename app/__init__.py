@@ -10,7 +10,6 @@ from app.infrastructure.auth.bootstrap import (
     bootstrap_default_dashboard_application,
     bootstrap_default_mcp_application,
 )
-from app.infrastructure.embeddings.bootstrap import bootstrap_embedding_provider_settings
 from app.infrastructure.orm import SessionLocal
 from app.logging_config import configure_logging, reset_request_id, set_request_id
 from app.presentation.error_handlers import register_error_handlers
@@ -22,7 +21,6 @@ def create_app(
     testing: bool = False,
     rate_limit_default: str = RATE_LIMIT_DEFAULT,
     bootstrap_admin: bool | None = None,
-    bootstrap_embedding_settings: bool | None = None,
 ) -> Flask:
     configure_logging(config.log_level)
 
@@ -74,15 +72,6 @@ def create_app(
             bootstrap_default_admin(session)
             bootstrap_default_mcp_application(session)
             bootstrap_default_dashboard_application(session)
-        finally:
-            session.close()
-
-    if bootstrap_embedding_settings is None:
-        bootstrap_embedding_settings = not testing
-    if bootstrap_embedding_settings:
-        session = SessionLocal()
-        try:
-            bootstrap_embedding_provider_settings(session)
         finally:
             session.close()
 

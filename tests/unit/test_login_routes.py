@@ -23,11 +23,17 @@ def client():
 def _user(**overrides):
     fields = dict(
         id=uuid4(),
-        username="admin",
+        org_id=uuid4(),
+        email="admin",
+        name="Admin",
+        role="admin",
         password_hash="hashed",
         must_change_password=True,
+        invited_by=None,
+        last_modified_by=None,
         created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        last_modified_at=datetime.now(timezone.utc),
+        last_active_at=None,
     )
     fields.update(overrides)
     return User(**fields)

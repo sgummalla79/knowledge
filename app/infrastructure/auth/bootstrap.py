@@ -1,7 +1,9 @@
 from sqlalchemy.exc import IntegrityError
 
 from app.config import config
+from app.domain.errors import ConflictError
 from app.constants import (
+    DEFAULT_ADMIN_NAME,
     DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
     DEFAULT_DASHBOARD_APPLICATION_ID,
@@ -10,6 +12,8 @@ from app.constants import (
     DEFAULT_MCP_APPLICATION_ID,
     DEFAULT_MCP_APPLICATION_NAME,
     DEFAULT_MCP_APPLICATION_SCOPES,
+    DEFAULT_ORGANIZATION_NAME,
+    DEFAULT_ORGANIZATION_SLUG,
 )
 from app.infrastructure.auth.passwords import hash_password
 from app.infrastructure.auth.secrets import (
@@ -18,7 +22,27 @@ from app.infrastructure.auth.secrets import (
     hash_secret,
 )
 from app.infrastructure.repositories.application_repository import ApplicationRepository
+from app.infrastructure.repositories.organization_repository import OrganizationRepository
 from app.infrastructure.repositories.user_repository import UserRepository
+
+
+def bootstrap_default_organization(session):
+    """Idempotent: returns the default org, creating it first if this is a fresh database.
+    Looked up by slug (not "any org exists") since a later phase may let orgs be created through
+    the API — this only ever needs to find/create the one specific bootstrap org. Public (not just
+    an internal helper for bootstrap_default_admin below) since several repositories/tests need to
+    ensure the default org exists independently of bootstrapping an admin user."""
+    repository = OrganizationRepository(session)
+    organization = repository.get_by_slug(DEFAULT_ORGANIZATION_SLUG)
+    if organization is not None:
+        return organization
+    try:
+        organization = repository.create(DEFAULT_ORGANIZATION_NAME, DEFAULT_ORGANIZATION_SLUG)
+        session.commit()
+        return organization
+    except ConflictError:
+        session.rollback()
+        return repository.get_by_slug(DEFAULT_ORGANIZATION_SLUG)
 
 
 def bootstrap_default_admin(session) -> None:
@@ -34,8 +58,14 @@ def bootstrap_default_admin(session) -> None:
     repository = UserRepository(session)
     if repository.get() is not None:
         return
+    organization = bootstrap_default_organization(session)
     try:
-        repository.create_default(DEFAULT_ADMIN_USERNAME, hash_password(DEFAULT_ADMIN_PASSWORD))
+        repository.create_default(
+            DEFAULT_ADMIN_USERNAME,
+            hash_password(DEFAULT_ADMIN_PASSWORD),
+            org_id=organization.id,
+            name=DEFAULT_ADMIN_NAME,
+        )
         session.commit()
     except IntegrityError:
         session.rollback()

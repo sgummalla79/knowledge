@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.infrastructure.orm.base import Base
@@ -18,3 +18,6 @@ class Application(Base):
     # Space-separated allowlist for the authorization_code grant's redirect_uri, same delimiter
     # convention as allowed_scopes. Null/empty for client_credentials-only applications.
     redirect_uris = Column(String, nullable=True)
+    # Additive multi-tenant-migration column (migration 0024) — nullable and unused by
+    # ApplicationRepository/ApplicationService yet. See that migration's docstring.
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)

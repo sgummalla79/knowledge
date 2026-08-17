@@ -10,7 +10,6 @@ from app.domain.entities import RoutedScoredChunk
 from app.domain.errors import ValidationError
 from app.domain.ports import (
     EmbeddingSettingsRepositoryPort,
-    LibraryRepositoryPort,
     RouterSettingsRepositoryPort,
     SearchSettingsRepositoryPort,
 )
@@ -32,7 +31,7 @@ class LibraryRouterService:
 
     def __init__(
         self,
-        library_repo: LibraryRepositoryPort,
+        library_repo,
         embedding_settings_repo: EmbeddingSettingsRepositoryPort,
         router_settings_repo: RouterSettingsRepositoryPort,
         search_settings_repo: SearchSettingsRepositoryPort,
@@ -90,8 +89,8 @@ class LibraryRouterService:
         )
         return [
             RoutedScoredChunk(
-                library_id=chunks_by_id[chunk_id][0].id,
-                library_name=chunks_by_id[chunk_id][0].name,
+                category_id=chunks_by_id[chunk_id][0].id,
+                category_name=chunks_by_id[chunk_id][0].name,
                 chunk=replace(chunks_by_id[chunk_id][1], score=fused_score),
             )
             for chunk_id, fused_score in fused[:top_k]

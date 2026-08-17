@@ -10,7 +10,7 @@ from app.domain import error_codes
 from app.domain.errors import ValidationError
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
-from app.infrastructure.repositories.library_repository import LibraryRepository
+from app.infrastructure.repositories.category_repository import CategoryRepository
 from app.presentation.schemas import (
     CrawlJobStatusResponse,
     CrawlRequest,
@@ -26,7 +26,7 @@ documents_bp = Blueprint("documents", __name__, url_prefix="/libraries/<uuid:lib
 
 def _service() -> DocumentService:
     session = get_session()
-    return DocumentService(DocumentRepository(session), LibraryRepository(session), ChunkRepository(session))
+    return DocumentService(DocumentRepository(session), CategoryRepository(session), ChunkRepository(session))
 
 
 @documents_bp.post("/documents")

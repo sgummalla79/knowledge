@@ -49,9 +49,9 @@ def test_query_no_library_clears_threshold_returns_empty_list(client, auth_heade
 
 
 def test_query_returns_routed_scored_chunks(client, auth_headers):
-    library_id = uuid4()
-    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), chunk_index=0, content="hello world", score=0.9)
-    routed = RoutedScoredChunk(library_id=library_id, library_name="docs", chunk=chunk)
+    category_id = uuid4()
+    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
+    routed = RoutedScoredChunk(category_id=category_id, category_name="docs", chunk=chunk)
     with patch("app.presentation.routes.router_query.LibraryRouterService.query", return_value=[routed]):
         response = client.post("/query", json={"query": "hello"}, headers=auth_headers("query:execute"))
 
@@ -59,8 +59,8 @@ def test_query_returns_routed_scored_chunks(client, auth_headers):
     body = response.get_json()
     assert body["chunks"][0]["content"] == "hello world"
     assert body["chunks"][0]["score"] == 0.9
-    assert body["chunks"][0]["library_id"] == str(library_id)
-    assert body["chunks"][0]["library_name"] == "docs"
+    assert body["chunks"][0]["category_id"] == str(category_id)
+    assert body["chunks"][0]["category_name"] == "docs"
 
 
 def test_missing_auth_returns_401(client):

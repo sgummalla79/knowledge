@@ -10,7 +10,6 @@ from app.domain.errors import NotFoundError, ValidationError
 from app.domain.ports import (
     ChunkRepositoryPort,
     EmbeddingSettingsRepositoryPort,
-    LibraryRepositoryPort,
     SearchSettingsRepositoryPort,
 )
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 class RetrievalService:
     def __init__(
         self,
-        library_repo: LibraryRepositoryPort,
+        library_repo,
         chunk_repo: ChunkRepositoryPort,
         embedding_settings_repo: EmbeddingSettingsRepositoryPort,
         search_settings_repo: SearchSettingsRepositoryPort,

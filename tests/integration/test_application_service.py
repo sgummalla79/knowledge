@@ -19,7 +19,7 @@ def test_bootstrap_creates_exactly_one_user_and_is_idempotent(db_session):
 
     user = UserRepository(db_session).get()
     assert user is not None
-    assert user.username == "admin"
+    assert user.email == "admin"
     assert user.must_change_password is True
 
 
@@ -29,7 +29,7 @@ def test_login_with_correct_and_incorrect_password(db_session):
     service = AuthService(UserRepository(db_session))
 
     user = service.login("admin", "admin")
-    assert user.username == "admin"
+    assert user.email == "admin"
 
     with pytest.raises(AuthenticationError):
         service.login("admin", "wrong-password")

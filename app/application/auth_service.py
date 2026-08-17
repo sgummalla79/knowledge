@@ -14,7 +14,7 @@ class AuthService:
         user = self._repository.get()
         # Deliberately the same error for "no such user" and "wrong password" — standard practice,
         # doesn't tell an attacker which half was wrong.
-        if user is None or user.username != username or not verify_password(password, user.password_hash):
+        if user is None or user.email != username or not verify_password(password, user.password_hash):
             raise AuthenticationError("Invalid username or password.")
         return user
 

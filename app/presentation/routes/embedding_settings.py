@@ -7,7 +7,7 @@ from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
-from app.infrastructure.repositories.library_repository import LibraryRepository
+from app.infrastructure.repositories.category_repository import CategoryRepository
 from app.presentation.schemas import EmbeddingProviderConfigResponse, EmbeddingProviderConfigUpdateRequest
 
 embedding_settings_bp = Blueprint("embedding_settings", __name__)
@@ -18,7 +18,7 @@ def _service() -> EmbeddingProviderConfigService:
     return EmbeddingProviderConfigService(
         EmbeddingProviderSettingsRepository(session),
         ChunkRepository(session),
-        LibraryRepository(session),
+        CategoryRepository(session),
     )
 
 

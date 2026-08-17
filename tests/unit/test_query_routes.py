@@ -48,7 +48,7 @@ def test_query_missing_library_returns_404(client, auth_headers):
 
 
 def test_query_returns_scored_chunks(client, auth_headers):
-    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), chunk_index=0, content="hello world", score=0.9)
+    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
     with patch("app.presentation.routes.query.RetrievalService.query", return_value=[chunk]):
         response = client.post(
             f"/libraries/{uuid4()}/query",

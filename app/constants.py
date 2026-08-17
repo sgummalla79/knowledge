@@ -11,7 +11,7 @@ EMBEDDING_DIM = 768
 # `embedding_model` columns' server_default (those columns were dropped in migration 0005 — see
 # its docstring). Migrations are a historical record replayed from scratch on every fresh
 # database, so these stay here for that import even though no active application code reads them
-# anymore (bootstrap_embedding_provider_settings / GET /embedding-options don't use them).
+# anymore (GET /embedding-options doesn't use them).
 DEFAULT_EMBEDDING_PROVIDER = "ollama"
 DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
 
@@ -47,8 +47,8 @@ EMBEDDING_PROVIDER_DISPLAY_NAMES = {
 
 # Kept as the registry's fallback base_url for the "ollama" adapter (app/infrastructure/embeddings/
 # registry.py) — only used if/when a caller configures ollama and doesn't supply their own
-# base_url; every provider starts disabled out of the box (bootstrap_embedding_provider_settings),
-# so this isn't a runtime dependency by itself.
+# base_url; no embedding_models row exists until an admin actually configures one, so this isn't a
+# runtime dependency by itself.
 DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
 # Fallback chunking parameters used only when a library is created without explicit values;
@@ -204,6 +204,14 @@ DCR_DEFAULT_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_A
 
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin"
+DEFAULT_ADMIN_NAME = "Admin"
+
+# Bootstrapped alongside the default admin on a fresh database (migration 0018 does the same for
+# any pre-existing single-admin database) — this app has never had multiple organizations, so
+# there is exactly one sane org for the first admin to land in until real org creation/invites
+# exist (Phase B of the multi-tenant migration).
+DEFAULT_ORGANIZATION_NAME = "Default Organization"
+DEFAULT_ORGANIZATION_SLUG = "default"
 
 # Built-in service-account Application mcp_server/server.py's outbound RagApiClient authenticates
 # as, to call this same app's own REST API — bootstrapped automatically (bootstrap.py), never

@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.infrastructure.orm.base import Base
@@ -15,3 +15,6 @@ class WebCrawlSettings(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    # Additive multi-tenant-migration column (migration 0024) — nullable and unused by
+    # WebCrawlSettingsRepository yet. See that migration's docstring.
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)

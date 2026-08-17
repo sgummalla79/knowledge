@@ -10,3 +10,6 @@ venv/
 # committed source. webui/package-lock.json IS committed (npm ci needs it).
 webui/node_modules/
 app/static/workspace/
+
+# Local scratch content, not part of the app
+Knowledge data library pages/
