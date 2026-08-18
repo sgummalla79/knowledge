@@ -275,7 +275,7 @@ export function DataModelPage() {
               Single global row — the same singleton pattern the embedding config used before
               migration 0015 merged it into per-provider rows. Tunes hybrid (dense + sparse)
               retrieval. An absent row is not an error — retrieval falls back to defaults in{' '}
-              <code>app/constants.py</code>. Reranking was removed (migration 0014) — it was
+              <code>api/constants.py</code>. Reranking was removed (migration 0014) — it was
               already unreachable via the API before that.
             </p>
             <div className="table-scroll">

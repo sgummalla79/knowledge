@@ -1,16 +1,15 @@
 """End-to-end smoke check against the isolated test stack (docker-compose.test.yml, port 13199).
 
 Drives the real HTTP surface exactly as a human would: log in via the React login page's JSON API
-(app/presentation/routes/auth_ui.py) and complete the forced first-login password change — proving
+(api/presentation/routes/auth_ui.py) and complete the forced first-login password change — proving
 the DB, migrations, and session-login machinery all work, not just that /health responds.
 
-Deliberately stops there for now: OAuth2/application registration was removed (auth is being
-redesigned as a separate standalone identity service, not yet built — see docs/DATA_MODEL.md), so
-every content route (documents/categories/query) is currently unauthenticated and org-scoped only
-via container.get_default_org_id() — there's no per-user identity yet worth smoke-testing against a
-real login session. Once the standalone auth service lands, extend this to cover content CRUD too,
-the same way tests/integration/test_ingestion_service.py and test_retrieval_service.py cover
-ingest/query once an embedding provider is configured.
+Deliberately stops there for now: this app owns its own identity/org model
+(api/domain/entities.py's Identity/OrgMember — see docs/DATA_MODEL.md), and every content route
+(documents/categories/query) requires a real session via require_org_session, but there's no
+smoke-test coverage yet of signup/org-switching/content CRUD against that session — extend this to
+cover that too, the same way api/tests/integration/test_ingestion_service.py and
+test_retrieval_service.py cover ingest/query once an embedding provider is configured.
 
 Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against the prod stack.
@@ -24,7 +23,7 @@ BASE_URL = "http://localhost:13199"
 _ADMIN_USERNAME = "admin"
 _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
-# /login and /change-password both serve the React SPA shell (app/presentation/web/spa.py), which
+# /login and /change-password both serve the React SPA shell (api/presentation/web/spa.py), which
 # carries its CSRF token as a JS global — every JSON POST in this app sends it back via the
 # X-CSRF-Token header, not a form field.
 _CSRF_JS_RE = re.compile(r'window\.__CSRF_TOKEN__="([^"]+)"')
@@ -46,7 +45,7 @@ def main() -> None:
 
     login_response = session.post(
         f"{BASE_URL}/login",
-        json={"username": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
+        json={"email": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
         headers={"X-CSRF-Token": csrf},
     )
     login_response.raise_for_status()

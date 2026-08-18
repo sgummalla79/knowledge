@@ -10,7 +10,8 @@ echo "==> Promoting: rebuilding and restarting the prod api container (knowledge
 # directory now (deploy/ -> "deploy"), not the repo root dirname ("knowledge") it used to
 # derive implicitly — without this it stands up a second, parallel "deploy" project instead of
 # recognizing this as the same stack, and collides on the fixed container_names either way.
-# --env-file explicit for the same reason: the default .env lookup follows that same directory.
-docker compose -p knowledge -f deploy/docker-compose.yml --env-file .env up -d --build api
+# No --env-file needed: .env lives in deploy/, right next to docker-compose.yml, which is
+# exactly where compose looks by default.
+docker compose -p knowledge -f deploy/docker-compose.yml up -d --build api
 
 echo "==> Prod api container updated"

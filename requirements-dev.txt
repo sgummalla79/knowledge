@@ -1,7 +1,0 @@
--r requirements.txt
-pytest==8.3.3
-pytest-cov==5.0.0
-testcontainers[postgres]==4.8.1
-# Test-only: builds synthetic multi-page PDFs with real extractable text for PdfSplitter's tests
-# (tests/unit/test_pdf_splitter.py) — never imported by application code.
-reportlab==5.0.0

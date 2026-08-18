@@ -42,9 +42,9 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+          pip install --no-cache-dir -r api/requirements.txt -r api/requirements-dev.txt
       - name: Run test suite
-        run: python -m pytest tests/
+        run: python -m pytest api/tests/
 
   publish:
     name: Publish image (on VERSION change)

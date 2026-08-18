@@ -3,7 +3,7 @@ import { csrfToken } from './shell'
 import type { Application, ScopeGroup } from './types'
 
 // Session+CSRF authenticated, not bearer-token — application registration is deliberately never
-// part of the bearer-token OAuth2 API surface (see app/presentation/routes/auth_ui.py's
+// part of the bearer-token OAuth2 API surface (see api/presentation/routes/auth_ui.py's
 // _require_csrf_header): a delegable credential able to mint or delete other credentials would be
 // a privilege-escalation vector. Mirrors api/auth.ts's fetch pattern rather than client.ts's.
 async function request<T>(path: string, method: string = 'GET'): Promise<T> {

@@ -18,8 +18,8 @@ COMPOSE="docker compose -p knowledge-test -f deploy/docker-compose.test.yml"
 
 echo "==> Running pytest (unit + integration; integration tests use ephemeral testcontainers, not this compose stack)"
 PYTHON=python3
-[ -x .venv/bin/python ] && PYTHON=.venv/bin/python
-"$PYTHON" -m pytest tests/
+[ -x api/.venv/bin/python ] && PYTHON=api/.venv/bin/python
+"$PYTHON" -m pytest api/tests/
 
 echo "==> Building isolated test image + booting knowledge-test / knowledge-db-test"
 $COMPOSE up -d --build

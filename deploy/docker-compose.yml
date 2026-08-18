@@ -21,7 +21,7 @@ services:
 
   api:
     # This compose file lives in deploy/, but the build needs the repo root (Dockerfile COPYs
-    # app/, migrations/, etc.) — context is relative to this file's own directory, dockerfile is
+    # api/, VERSION, etc.) — context is relative to this file's own directory, dockerfile is
     # relative to that context.
     build:
       context: ..

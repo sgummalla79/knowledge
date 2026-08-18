@@ -2,7 +2,7 @@ import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
 
 // Bridges the admin's session-cookie login (already established by the Flask dashboard) to a real
-// OAuth2 bearer token for this app's own REST API — see app/presentation/routes/workspace.py's
+// OAuth2 bearer token for this app's own REST API — see api/presentation/routes/workspace.py's
 // POST /dashboard/token. Held in memory only, never persisted, mirroring the retry-once-on-401
 // shape mcp_server/client.py's RagApiClient uses for its own (separate) service-account credential.
 let accessToken: string | null = null
@@ -59,7 +59,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 // For list endpoints that report their total row count via X-Total-Count (see PaginationQuery in
-// app/presentation/schemas.py) rather than in the JSON body itself.
+// api/presentation/schemas.py) rather than in the JSON body itself.
 async function requestPaginated<T>(path: string): Promise<{ items: T[]; total: number }> {
   const response = await rawRequest(path)
   const items = (await response.json()) as T[]

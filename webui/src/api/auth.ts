@@ -19,8 +19,8 @@ async function post(path: string, json: unknown): Promise<{ redirect: string }> 
   return (await response.json()) as { redirect: string }
 }
 
-export function login(username: string, password: string) {
-  return post('/login', { username, password })
+export function login(email: string, password: string) {
+  return post('/login', { email, password })
 }
 
 export function changePassword(newPassword: string, confirmPassword: string) {

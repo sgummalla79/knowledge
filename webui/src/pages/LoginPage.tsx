@@ -6,7 +6,7 @@ import { login } from '../api/auth'
 
 export function LoginPage() {
   const { showToast } = useToast()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [pending, setPending] = useState(false)
 
@@ -14,7 +14,7 @@ export function LoginPage() {
     event.preventDefault()
     setPending(true)
     try {
-      const result = await login(username, password)
+      const result = await login(email, password)
       // Full navigation, not client-side routing — the target may be a server-rendered dashboard
       // page outside this SPA, or /change-password/​/workspace inside it; either way Flask needs
       // to serve a fresh shell with its own fresh CSRF token for wherever we land.
@@ -30,14 +30,14 @@ export function LoginPage() {
       <form onSubmit={handleSubmit}>
         <input
           className="field-pill"
-          type="text"
-          placeholder="Username"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
           autoFocus
         />
         <PasswordField id="password" placeholder="Password" value={password} onChange={setPassword} />
-        <button type="submit" className="btn-block" disabled={pending || !username || !password}>
+        <button type="submit" className="btn-block" disabled={pending || !email || !password}>
           Sign in
         </button>
       </form>
