@@ -1,7 +1,6 @@
 from app.constants import EMBEDDING_PROVIDER_DISPLAY_NAMES
 from app.domain.entities import EmbeddingProviderConfig
 from app.infrastructure.orm import EmbeddingModel
-from app.infrastructure.repositories.default_org import get_default_org_id
 
 
 def _to_entity(model: EmbeddingModel) -> EmbeddingProviderConfig:
@@ -29,15 +28,14 @@ class EmbeddingProviderSettingsRepository:
     repository keeps `is_default` and `status` moving in lockstep (see EmbeddingModel's docstring)
     since nothing yet needs them to diverge.
 
-    Still scoped to a single implicit organization (get_default_org_id) — real per-request org
-    resolution is a later phase of the multi-tenant migration, not this one.
+    Every method takes an explicit org_id — the caller (EmbeddingProviderConfigService) resolves
+    it from the request's authenticated identity (flask.g.org_id).
     """
 
     def __init__(self, session):
         self._session = session
 
-    def list(self) -> list[EmbeddingProviderConfig]:
-        org_id = get_default_org_id(self._session)
+    def list(self, org_id) -> list[EmbeddingProviderConfig]:
         rows = (
             self._session.query(EmbeddingModel)
             .filter(EmbeddingModel.org_id == org_id)
@@ -46,8 +44,7 @@ class EmbeddingProviderSettingsRepository:
         )
         return [_to_entity(row) for row in rows]
 
-    def get(self, provider: str) -> EmbeddingProviderConfig | None:
-        org_id = get_default_org_id(self._session)
+    def get(self, org_id, provider: str) -> EmbeddingProviderConfig | None:
         row = (
             self._session.query(EmbeddingModel)
             .filter(EmbeddingModel.org_id == org_id, EmbeddingModel.provider == provider)
@@ -57,6 +54,7 @@ class EmbeddingProviderSettingsRepository:
 
     def upsert_config(
         self,
+        org_id,
         provider: str,
         model: str,
         api_key: str | None,
@@ -65,7 +63,6 @@ class EmbeddingProviderSettingsRepository:
         chunk_size: int,
         chunk_overlap: int,
     ) -> EmbeddingProviderConfig:
-        org_id = get_default_org_id(self._session)
         existing = (
             self._session.query(EmbeddingModel)
             .filter(EmbeddingModel.org_id == org_id, EmbeddingModel.provider == provider)
@@ -89,11 +86,10 @@ class EmbeddingProviderSettingsRepository:
         self._session.flush()
         return _to_entity(existing)
 
-    def set_enabled(self, provider: str, enabled: bool) -> EmbeddingProviderConfig:
+    def set_enabled(self, org_id, provider: str, enabled: bool) -> EmbeddingProviderConfig:
         # Only ever called (by EmbeddingProviderConfigService) for a provider that already has a
         # configured row — enable() requires config.model/.dimensions to be set first, and
         # disable() only reaches here after confirming config.enabled is already true.
-        org_id = get_default_org_id(self._session)
         existing = (
             self._session.query(EmbeddingModel)
             .filter(EmbeddingModel.org_id == org_id, EmbeddingModel.provider == provider)

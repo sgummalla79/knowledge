@@ -18,7 +18,8 @@ job_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("job_id"
 # system ever logs. Cost: every new call-site `extra` key must be added here, or it's silently
 # dropped from the JSON output.
 _EXTRA_ALLOWLIST = (
-    "library_id",
+    "org_id",
+    "category_id",
     "document_id",
     "source_filename",
     "provider",
@@ -67,14 +68,9 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure_logging(level: str) -> None:
-    """Idempotent: safe to call from every create_app() (including the many per-test calls) and
-    from mcp_server's module-level import without ever attaching duplicate handlers.
-
-    Writes to stderr, universally — including for mcp_server, where stdout is the actual
-    JSON-RPC protocol channel for its stdio transport. One rule everywhere removes an entire class
-    of "accidentally corrupted the MCP protocol stream" bugs, and Docker's `docker logs` merges
-    stdout+stderr for the Flask app regardless, so nothing is lost there.
-    """
+    """Idempotent: safe to call from every create_app() (including the many per-test calls)
+    without ever attaching duplicate handlers. Writes to stderr; Docker's `docker logs` merges
+    stdout+stderr regardless, so nothing is lost there."""
     root = logging.getLogger()
     if any(getattr(handler, _HANDLER_MARKER, False) for handler in root.handlers):
         root.setLevel(level)

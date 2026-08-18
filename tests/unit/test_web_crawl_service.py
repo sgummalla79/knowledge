@@ -2,12 +2,11 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from app.application.web_crawl_service import WebCrawlService
-from app.domain.entities import Library
 from app.infrastructure.web.fetcher import FetchedPage
 
 
-def _library():
-    return MagicMock(spec=Library, id=uuid4())
+def _ids():
+    return uuid4(), uuid4()  # org_id, owner_id
 
 
 def _fake_fetcher(pages_by_url: dict[str, tuple[bytes, list[str]]]):
@@ -34,7 +33,8 @@ def test_max_pages_one_never_calls_link_extractor(monkeypatch):
     monkeypatch.setattr("app.application.web_crawl_service.extract_in_scope_links", extractor)
 
     service = WebCrawlService(ingestion_service, fetcher)
-    service.crawl(_library(), "https://example.com/a", max_pages=1)
+    org_id, owner_id = _ids()
+    service.crawl(org_id, owner_id, "https://example.com/a", max_pages=1)
 
     extractor.assert_not_called()
     ingestion_service.ingest_html.assert_called_once()
@@ -42,7 +42,9 @@ def test_max_pages_one_never_calls_link_extractor(monkeypatch):
 
 def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
     ingestion_service = MagicMock()
-    ingestion_service.ingest_html.side_effect = lambda library, url, html: MagicMock(id=uuid4())
+    ingestion_service.ingest_html.side_effect = (
+        lambda org_id, owner_id, url, html, category_id=None: MagicMock(id=uuid4())
+    )
 
     pages = {
         "https://example.com/a": b"<html>a</html>",
@@ -63,9 +65,11 @@ def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
     )
 
     service = WebCrawlService(ingestion_service, fetcher)
+    org_id, owner_id = _ids()
     results = []
     service.crawl(
-        _library(),
+        org_id,
+        owner_id,
         "https://example.com/a",
         max_pages=2,
         on_page_result=lambda url, doc, err: results.append((url, doc, err)),
@@ -81,7 +85,7 @@ def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
 def test_one_failed_page_does_not_abort_the_crawl(monkeypatch):
     ingestion_service = MagicMock()
 
-    def ingest_html(library, url, html):
+    def ingest_html(org_id, owner_id, url, html, category_id=None):
         if url == "https://example.com/b":
             raise RuntimeError("embedding failed")
         return MagicMock(id=uuid4())
@@ -103,9 +107,11 @@ def test_one_failed_page_does_not_abort_the_crawl(monkeypatch):
     )
 
     service = WebCrawlService(ingestion_service, fetcher)
+    org_id, owner_id = _ids()
     results = []
     service.crawl(
-        _library(),
+        org_id,
+        owner_id,
         "https://example.com/a",
         max_pages=2,
         on_page_result=lambda url, doc, err: results.append((url, doc, err)),
@@ -126,6 +132,7 @@ def test_seed_url_is_ssrf_checked_before_crawling():
     ingestion_service = MagicMock()
     service = WebCrawlService(ingestion_service, MagicMock())
 
+    org_id, owner_id = _ids()
     with pytest.raises(ValidationError):
-        service.crawl(_library(), "https://127.0.0.1/admin", max_pages=1)
+        service.crawl(org_id, owner_id, "https://127.0.0.1/admin", max_pages=1)
     ingestion_service.ingest_html.assert_not_called()

@@ -15,15 +15,14 @@ def client():
     return app.test_client()
 
 
-def test_list_models_returns_models(client, auth_headers):
+def test_list_models_returns_models(client):
     with patch(
         "app.presentation.routes.options.EmbeddingModelListingService.list_models",
-        return_value=["nomic-embed-text", "mxbai-embed-large"],
+        return_value=["nomic-embed-text", "mxbai-embed-large"]
     ) as mock_list_models:
         response = client.post(
             "/embedding-options/models",
-            json={"provider": "ollama", "base_url": "http://ollama:11434"},
-            headers=auth_headers("embedding_settings:write"),
+            json={"provider": "ollama", "base_url": "http://ollama:11434"}
         )
 
     assert response.status_code == 200
@@ -31,41 +30,25 @@ def test_list_models_returns_models(client, auth_headers):
     mock_list_models.assert_called_once_with("ollama", None, "http://ollama:11434")
 
 
-def test_list_models_propagates_validation_error(client, auth_headers):
+def test_list_models_propagates_validation_error(client):
     with patch(
         "app.presentation.routes.options.EmbeddingModelListingService.list_models",
         side_effect=ValidationError(
             "embedding_model_listing_unsupported", "not supported", field="provider"
-        ),
+        )
     ):
         response = client.post(
             "/embedding-options/models",
-            json={"provider": "voyage", "api_key": "a-key"},
-            headers=auth_headers("embedding_settings:write"),
+            json={"provider": "voyage", "api_key": "a-key"}
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "embedding_model_listing_unsupported"
 
 
-def test_list_models_missing_provider_rejected_by_schema(client, auth_headers):
+def test_list_models_missing_provider_rejected_by_schema(client):
     response = client.post(
         "/embedding-options/models",
-        json={},
-        headers=auth_headers("embedding_settings:write"),
+        json={}
     )
     assert response.status_code == 400
-
-
-def test_list_models_requires_write_scope(client, auth_headers):
-    response = client.post(
-        "/embedding-options/models",
-        json={"provider": "ollama", "base_url": "http://ollama:11434"},
-        headers=auth_headers("embedding_settings:read"),
-    )
-    assert response.status_code == 403
-
-
-def test_list_models_requires_auth(client):
-    response = client.post("/embedding-options/models", json={"provider": "ollama"})
-    assert response.status_code == 401

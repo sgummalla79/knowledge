@@ -90,8 +90,8 @@ def test_json_formatter_includes_exception_traceback():
 
 
 def test_json_formatter_includes_allowlisted_extra_field():
-    payload = _format(_make_record(extra={"library_id": "lib-1"}))
-    assert payload["library_id"] == "lib-1"
+    payload = _format(_make_record(extra={"category_id": "cat-1"}))
+    assert payload["category_id"] == "cat-1"
 
 
 def test_json_formatter_drops_non_allowlisted_extra_field():

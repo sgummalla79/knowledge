@@ -9,13 +9,9 @@ _VERSION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 class Config:
     def __init__(self):
         self.database_url = self._require("DATABASE_URL")
-        # Signs both JWT access tokens and the admin dashboard's session cookies — one secret, not
-        # two, is proportional at this scale (single local deployment, single admin).
+        # Signs the admin dashboard's session cookies.
         self.secret_key = self._require("SECRET_KEY")
         self.port = int(os.environ.get("PORT", "13102"))
-        # deploy/docker-compose.yml publishes this port loopback-only (127.0.0.1:...) — never intended to
-        # be reachable off this machine, unlike `port` above which fronts the actual Flask API.
-        self.mcp_http_port = int(os.environ.get("MCP_HTTP_PORT", "13103"))
         self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))
         self.version = self._read_version()
 

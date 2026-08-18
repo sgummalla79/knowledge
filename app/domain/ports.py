@@ -3,11 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from datetime import datetime
-
 from app.domain.entities import (
-    Application,
-    AuthorizationCode,
     Category,
     Document,
     EmbeddingProviderConfig,
@@ -16,15 +12,11 @@ from app.domain.entities import (
     Organization,
     Query,
     QueryResult,
-    RefreshToken,
-    RouterSettings,
     ScoredChunk,
-    SearchSettings,
     Shelf,
     Source,
     Tag,
     User,
-    WebCrawlSettings,
 )
 
 # Protocol (structural typing), not ABC — infra classes satisfy these by shape alone, no
@@ -65,9 +57,13 @@ class ChunkRepositoryPort(Protocol):
         chunks: list[tuple[int, str, int, list[float]]],
     ) -> None: ...
 
-    def similarity_search(self, org_id: UUID, query_embedding: list[float], top_k: int) -> list[ScoredChunk]: ...
+    def similarity_search(
+        self, org_id: UUID, query_embedding: list[float], top_k: int, category_id: UUID | None = None
+    ) -> list[ScoredChunk]: ...
 
-    def sparse_search(self, org_id: UUID, query_text: str, top_k: int) -> list[ScoredChunk]: ...
+    def sparse_search(
+        self, org_id: UUID, query_text: str, top_k: int, category_id: UUID | None = None
+    ) -> list[ScoredChunk]: ...
 
     def count_for_document(self, document_id: UUID) -> int: ...
 
@@ -81,16 +77,17 @@ class EmbeddingSettingsRepositoryPort(Protocol):
     retrieval ever need. Writes go through EmbeddingProviderSettingsRepositoryPort instead, since
     "active" now means one row among several per-provider configs, not a single global row."""
 
-    def get(self) -> EmbeddingSettings | None: ...
+    def get(self, org_id: UUID) -> EmbeddingSettings | None: ...
 
 
 class EmbeddingProviderSettingsRepositoryPort(Protocol):
-    def list(self) -> list[EmbeddingProviderConfig]: ...
+    def list(self, org_id: UUID) -> list[EmbeddingProviderConfig]: ...
 
-    def get(self, provider: str) -> EmbeddingProviderConfig | None: ...
+    def get(self, org_id: UUID, provider: str) -> EmbeddingProviderConfig | None: ...
 
     def upsert_config(
         self,
+        org_id: UUID,
         provider: str,
         model: str,
         api_key: str | None,
@@ -100,25 +97,7 @@ class EmbeddingProviderSettingsRepositoryPort(Protocol):
         chunk_overlap: int,
     ) -> EmbeddingProviderConfig: ...
 
-    def set_enabled(self, provider: str, enabled: bool) -> EmbeddingProviderConfig: ...
-
-
-class SearchSettingsRepositoryPort(Protocol):
-    def get(self) -> SearchSettings | None: ...
-
-    def upsert(self, dense_k: int, sparse_k: int, rrf_k: int) -> SearchSettings: ...
-
-
-class RouterSettingsRepositoryPort(Protocol):
-    def get(self) -> RouterSettings | None: ...
-
-    def upsert(self, top_n: int, min_similarity: float) -> RouterSettings: ...
-
-
-class WebCrawlSettingsRepositoryPort(Protocol):
-    def get(self) -> WebCrawlSettings | None: ...
-
-    def upsert(self, user_agent: str) -> WebCrawlSettings: ...
+    def set_enabled(self, org_id: UUID, provider: str, enabled: bool) -> EmbeddingProviderConfig: ...
 
 
 class OrganizationRepositoryPort(Protocol):
@@ -142,9 +121,8 @@ class CategoryRepositoryPort(Protocol):
 
     def delete(self, category_id: UUID) -> None: ...
 
-    # Router RAG (routes a category-less query to the most relevant category by cosine
-    # similarity) — the direct successor of what LibraryRepositoryPort's equivalent methods did
-    # against libraries.description_embedding before categories replaced libraries.
+    # Router RAG: routes a category-less query to the most relevant category by cosine similarity
+    # between the query embedding and each category's cached description_embedding.
     def set_description_embedding(self, category_id: UUID, embedding: list[float] | None) -> None: ...
 
     def list_all_with_description(self, org_id: UUID) -> list[Category]: ...
@@ -221,6 +199,8 @@ class IngestionJobRepositoryPort(Protocol):
 class UserRepositoryPort(Protocol):
     def get(self) -> User | None: ...
 
+    def get_by_id(self, user_id: UUID) -> User | None: ...
+
     def get_by_org(self, org_id: UUID) -> list[User]: ...
 
     def get_by_email(self, org_id: UUID, email: str) -> User | None: ...
@@ -228,57 +208,3 @@ class UserRepositoryPort(Protocol):
     def create_default(self, email: str, password_hash: str, *, org_id: UUID, name: str) -> User: ...
 
     def update_password(self, user_id: UUID, password_hash: str) -> None: ...
-
-
-class ApplicationRepositoryPort(Protocol):
-    def create(
-        self,
-        name: str,
-        client_secret_hash: str,
-        allowed_scopes: list[str],
-        redirect_uris: list[str] | None = None,
-        id: UUID | None = None,
-    ) -> Application: ...
-
-    def list(self) -> list[Application]: ...
-
-    def get(self, application_id: UUID) -> Application | None: ...
-
-    def get_by_name(self, name: str) -> Application | None: ...
-
-    def find_by_credentials(self, application_id: UUID, client_secret_hash: str) -> Application | None: ...
-
-    def update_secret(self, application_id: UUID, client_secret_hash: str) -> None: ...
-
-    def delete(self, application_id: UUID) -> None: ...
-
-
-class RefreshTokenRepositoryPort(Protocol):
-    def create(
-        self, application_id: UUID, token_hash: str, scope: list[str], expires_at
-    ) -> RefreshToken: ...
-
-    def find_valid_by_hash(self, token_hash: str) -> RefreshToken | None: ...
-
-    def find_current_for_application(self, application_id: UUID) -> RefreshToken | None: ...
-
-    def revoke(self, token_id: UUID) -> None: ...
-
-    def touch_last_used(self, token_id: UUID) -> None: ...
-
-
-class AuthorizationCodeRepositoryPort(Protocol):
-    def create(
-        self,
-        application_id: UUID,
-        code_hash: str,
-        redirect_uri: str,
-        code_challenge: str,
-        code_challenge_method: str,
-        scope: list[str],
-        expires_at: datetime,
-    ) -> AuthorizationCode: ...
-
-    def find_valid_by_hash(self, code_hash: str) -> AuthorizationCode | None: ...
-
-    def mark_used(self, code_id: UUID) -> None: ...

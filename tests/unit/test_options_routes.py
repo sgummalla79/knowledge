@@ -27,17 +27,17 @@ def _status(provider, enabled=False, configured=False, model=None, locked=False)
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc) if configured else None,
-        active_provider=provider if enabled else None,
+        active_provider=provider if enabled else None
     )
 
 
-def test_embedding_options_describes_provider_capabilities(client, auth_headers):
+def test_embedding_options_describes_provider_capabilities(client):
     statuses = [_status("voyage"), _status("ollama", locked=True), _status("openai_compatible")]
     with patch(
         "app.presentation.routes.options.EmbeddingProviderConfigService.list_status",
-        return_value=statuses,
+        return_value=statuses
     ):
-        response = client.get("/embedding-options", headers=auth_headers())
+        response = client.get("/embedding-options")
 
     assert response.status_code == 200
     body = response.get_json()
@@ -68,15 +68,15 @@ def test_embedding_options_describes_provider_capabilities(client, auth_headers)
     assert voyage["supports_model_listing"] is False
 
 
-def test_embedding_options_lists_every_known_provider_regardless_of_state(client, auth_headers):
+def test_embedding_options_lists_every_known_provider_regardless_of_state(client):
     # There's no more "selectable in a dropdown" toggle gating this list — every provider is
     # always listed, whether configured/enabled or not, since the dashboard renders a fixed page
     # per provider instead of picking from a filtered list.
     with patch(
         "app.presentation.routes.options.EmbeddingProviderConfigService.list_status",
-        return_value=[_status("voyage"), _status("ollama", enabled=True, configured=True, model="nomic-embed-text"), _status("openai_compatible")],
+        return_value=[_status("voyage"), _status("ollama", enabled=True, configured=True, model="nomic-embed-text"), _status("openai_compatible")]
     ):
-        response = client.get("/embedding-options", headers=auth_headers())
+        response = client.get("/embedding-options")
 
     body = response.get_json()
     provider_names = {provider["name"] for provider in body["providers"]}

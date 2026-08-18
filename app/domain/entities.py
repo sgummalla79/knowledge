@@ -77,31 +77,10 @@ class EmbeddingProviderConfig:
 
 
 @dataclass(frozen=True)
-class SearchSettings:
-    dense_k: int
-    sparse_k: int
-    rrf_k: int
-    updated_at: datetime | None
-
-
-@dataclass(frozen=True)
-class RouterSettings:
-    top_n: int
-    min_similarity: float
-    updated_at: datetime | None
-
-
-@dataclass(frozen=True)
 class RoutedScoredChunk:
     category_id: UUID
     category_name: str
     chunk: ScoredChunk
-
-
-@dataclass(frozen=True)
-class WebCrawlSettings:
-    user_agent: str
-    updated_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -227,36 +206,3 @@ class User:
     created_at: datetime
     last_modified_at: datetime
     last_active_at: datetime | None
-
-
-@dataclass(frozen=True)
-class Application:
-    id: UUID
-    name: str
-    allowed_scopes: list[str]
-    created_at: datetime
-    redirect_uris: list[str]
-
-
-@dataclass(frozen=True)
-class RefreshToken:
-    id: UUID
-    application_id: UUID
-    scope: list[str]
-    created_at: datetime
-    expires_at: datetime | None
-    last_used_at: datetime | None
-    revoked_at: datetime | None
-
-
-@dataclass(frozen=True)
-class AuthorizationCode:
-    id: UUID
-    application_id: UUID
-    redirect_uri: str
-    code_challenge: str
-    code_challenge_method: str
-    scope: list[str]
-    created_at: datetime
-    expires_at: datetime
-    used_at: datetime | None

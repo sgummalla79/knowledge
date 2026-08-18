@@ -77,8 +77,8 @@ class JobStore:
         with _lock:
             _jobs[job_id]["parts_failed"] += 1
             # Last error wins — enough for a client to know something went wrong; per-part detail
-            # is available by listing the library's documents and inspecting each failed part's
-            # own error_message.
+            # is available by listing the org's documents and inspecting each failed part's own
+            # error_message.
             _jobs[job_id]["error"] = str(error)
 
     @staticmethod

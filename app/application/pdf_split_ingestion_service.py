@@ -1,6 +1,6 @@
 import logging
 from typing import Callable
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.application.ingestion_service import IngestionService, resolve_file_type
 from app.constants import MAX_UPLOAD_MB
@@ -31,9 +31,11 @@ class PdfSplitIngestionService:
 
     def ingest(
         self,
-        library,
+        org_id: UUID,
+        owner_id: UUID,
         filename: str,
         file_bytes: bytes,
+        category_id: UUID | None = None,
         should_cancel: Callable[[], bool] | None = None,
         on_part_result: OnPartResult | None = None,
     ) -> None:
@@ -49,17 +51,25 @@ class PdfSplitIngestionService:
                     f"File exceeds the {MAX_UPLOAD_MB}MB size limit.",
                     field="file",
                 )
-            document = self._ingestion_service.ingest(library, filename, file_bytes, should_cancel=should_cancel)
+            document = self._ingestion_service.ingest(
+                org_id, owner_id, filename, file_bytes, category_id=category_id, should_cancel=should_cancel
+            )
             if on_part_result:
                 on_part_result(1, 1, document, None)
             return
 
-        settings = self._ingestion_service.require_embedding_settings()
+        settings = self._ingestion_service.require_embedding_settings(org_id)
         parts = self._splitter.split(file_bytes, settings.chunk_size, settings.chunk_overlap)
 
         if len(parts) == 1:
             document = self._ingestion_service.ingest(
-                library, filename, parts[0], should_cancel=should_cancel, file_type=PDF_FILE_TYPE
+                org_id,
+                owner_id,
+                filename,
+                parts[0],
+                category_id=category_id,
+                should_cancel=should_cancel,
+                file_type=PDF_FILE_TYPE,
             )
             if on_part_result:
                 on_part_result(1, 1, document, None)
@@ -74,9 +84,11 @@ class PdfSplitIngestionService:
             part_filename = f"{filename} (part {index} of {total})"
             try:
                 document = self._ingestion_service.ingest(
-                    library,
+                    org_id,
+                    owner_id,
                     part_filename,
                     part_bytes,
+                    category_id=category_id,
                     should_cancel=should_cancel,
                     file_type=PDF_FILE_TYPE,
                     split_group_id=split_group_id,
@@ -91,7 +103,7 @@ class PdfSplitIngestionService:
                 logger.warning(
                     "Failed to ingest PDF split part",
                     extra={
-                        "library_id": str(library.id),
+                        "org_id": str(org_id),
                         "source_filename": part_filename,
                         "split_part": index,
                         "split_total": total,

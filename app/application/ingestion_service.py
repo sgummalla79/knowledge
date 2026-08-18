@@ -2,6 +2,7 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Callable
+from uuid import UUID
 
 from app.domain import error_codes
 from app.domain.entities import Document
@@ -17,6 +18,16 @@ from app.infrastructure.parsing.registry import ParserRegistry
 # _resolve_parser uses to route to HtmlParser instead of ParserRegistry's extension lookup.
 HTML_SOURCE_FILE_TYPE = "html"
 
+# No tokenizer is bundled (this app supports multiple embedding providers, each with its own
+# tokenizer — pinning to one wouldn't be accurate for the others anyway), so token_count is a
+# rough chars/4 estimate, the standard rule-of-thumb for English text. Informational only —
+# nothing in the retrieval pipeline depends on this being exact.
+_CHARS_PER_TOKEN_ESTIMATE = 4
+
+# Documents don't get classified into the target spec's article/dataset/guide/report/faq/media
+# taxonomy by anything yet — every ingested document defaults to this until that's built.
+_DEFAULT_DOCUMENT_TYPE = "article"
+
 logger = logging.getLogger(__name__)
 
 _html_parser = HtmlParser()
@@ -29,24 +40,28 @@ def resolve_file_type(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower()
 
 
+def _estimate_token_count(text: str) -> int:
+    return max(1, len(text) // _CHARS_PER_TOKEN_ESTIMATE)
+
+
 class IngestionService:
     def __init__(
         self,
-        library_repo,
         document_repo: DocumentRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
         embedding_settings_repo: EmbeddingSettingsRepositoryPort,
     ):
-        self._libraries = library_repo
         self._documents = document_repo
         self._chunks = chunk_repo
         self._embedding_settings = embedding_settings_repo
 
     def ingest(
         self,
-        library,
+        org_id: UUID,
+        owner_id: UUID,
         filename: str,
         file_bytes: bytes,
+        category_id: UUID | None = None,
         should_cancel: Callable[[], bool] | None = None,
         file_type: str | None = None,
         split_group_id=None,
@@ -58,16 +73,19 @@ class IngestionService:
         file_type must be passed as "pdf" there rather than derived from filename, since a part's
         display filename carries a "(part N of M)" suffix that isn't a real extension. Every other
         caller omits these and gets today's behavior unchanged."""
-        settings = self.require_embedding_settings()
+        settings = self.require_embedding_settings(org_id)
 
         content_hash = hashlib.sha256(file_bytes).hexdigest()
         document = self._documents.create(
-            library_id=library.id,
-            source_filename=filename,
+            org_id=org_id,
+            owner_id=owner_id,
+            category_id=category_id,
+            title=filename,
+            type=_DEFAULT_DOCUMENT_TYPE,
             file_type=file_type if file_type is not None else resolve_file_type(filename),
             content_hash=content_hash,
             status="processing",
-            # Kept only until this document reaches "completed" — see
+            # Kept only until this document reaches "indexed" — see
             # DocumentRepository.update_status — so a failed ingestion can be retried without
             # the client re-sending the file.
             raw_file_bytes=file_bytes,
@@ -76,38 +94,45 @@ class IngestionService:
             split_part=split_part,
             split_total=split_total,
         )
-        return self._process(document, library, file_bytes, settings, should_cancel)
+        return self._process(document, org_id, file_bytes, settings, should_cancel)
 
     def ingest_html(
-        self, library, url: str, html_bytes: bytes, should_cancel: Callable[[], bool] | None = None
+        self,
+        org_id: UUID,
+        owner_id: UUID,
+        url: str,
+        html_bytes: bytes,
+        category_id: UUID | None = None,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> Document:
         """Same pipeline as ingest(), for a page fetched from the web (WebCrawlService) instead of
-        uploaded. source_filename is the page's URL itself (for display/linking, not extension
-        sniffing) and file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something
-        derived from the URL, which frequently has no real file extension."""
-        settings = self.require_embedding_settings()
+        uploaded. title is the page's URL itself (for display/linking, not extension sniffing) and
+        file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something derived from the
+        URL, which frequently has no real file extension."""
+        settings = self.require_embedding_settings(org_id)
 
         content_hash = hashlib.sha256(html_bytes).hexdigest()
         document = self._documents.create(
-            library_id=library.id,
-            source_filename=url,
+            org_id=org_id,
+            owner_id=owner_id,
+            category_id=category_id,
+            title=url,
+            type=_DEFAULT_DOCUMENT_TYPE,
             file_type=HTML_SOURCE_FILE_TYPE,
             content_hash=content_hash,
             status="processing",
             raw_file_bytes=html_bytes,
             size_bytes=len(html_bytes),
         )
-        return self._process(document, library, html_bytes, settings, should_cancel)
+        return self._process(document, org_id, html_bytes, settings, should_cancel)
 
-    def retry(
-        self, document: Document, library, should_cancel: Callable[[], bool] | None = None
-    ) -> Document:
+    def retry(self, document: Document, should_cancel: Callable[[], bool] | None = None) -> Document:
         """Re-runs the exact same pipeline as ingest(), against an existing document row instead
         of creating a new one, using the raw bytes stored at the original upload. A failed
         ingestion never gets far enough to call ChunkRepository.bulk_create (see _process below —
         chunks are only written after every chunk has embedded successfully), so there's no
         partial-chunk cleanup needed here; retrying just runs the pipeline again from scratch."""
-        settings = self.require_embedding_settings()
+        settings = self.require_embedding_settings(document.org_id)
 
         file_bytes = self._documents.get_raw_bytes(document.id)
         if file_bytes is None:
@@ -118,10 +143,10 @@ class IngestionService:
                 field="document_id",
             )
         document = self._documents.update_status(document.id, "processing")
-        return self._process(document, library, file_bytes, settings, should_cancel)
+        return self._process(document, document.org_id, file_bytes, settings, should_cancel)
 
-    def require_embedding_settings(self):
-        settings = self._embedding_settings.get()
+    def require_embedding_settings(self, org_id: UUID):
+        settings = self._embedding_settings.get(org_id)
         if settings is None:
             raise ValidationError(
                 error_codes.EMBEDDINGS_NOT_CONFIGURED,
@@ -137,7 +162,7 @@ class IngestionService:
     def _process(
         self,
         document: Document,
-        library,
+        org_id: UUID,
         file_bytes: bytes,
         settings,
         should_cancel: Callable[[], bool] | None = None,
@@ -174,20 +199,25 @@ class IngestionService:
                     f"{len(vectors[0])}-dimension vector, not the configured {settings.dimensions}.",
                 )
 
-            chunks = [(index, piece, vector) for index, (piece, vector) in enumerate(zip(pieces, vectors))]
-            self._chunks.bulk_create(document.id, library.id, chunks)
+            chunks = [
+                (ordinal, piece, _estimate_token_count(piece), vector)
+                for ordinal, (piece, vector) in enumerate(zip(pieces, vectors))
+            ]
+            self._chunks.bulk_create(document.id, org_id, settings.id, chunks)
 
             document = self._documents.update_status(
-                document.id, "completed", ingested_at=datetime.now(timezone.utc), chunk_count=len(chunks)
+                document.id, "indexed", indexed_at=datetime.now(timezone.utc), chunk_count=len(chunks)
             )
-            self._libraries.increment_counts(library.id, document_delta=1, chunk_delta=len(chunks))
             logger.info(
                 "Ingestion persisted", extra={"document_id": str(document.id), "chunk_count": len(chunks)}
             )
         except IngestionCancelled as error:
             # Distinct from "failed" — this document didn't error out, a user stopped it. Kept
-            # (not deleted) and retryable later exactly like a failed document.
-            self._documents.update_status(document.id, "cancelled", error_message=str(error))
+            # (not deleted) and retryable later exactly like a failed document. There's no
+            # "cancelled" state in the target document_status enum (processing/indexed/failed/
+            # archived) — "failed" is the closest fit, with the cancellation reason preserved in
+            # error_message so a caller can still tell the two apart if needed.
+            self._documents.update_status(document.id, "failed", error_message=str(error))
             raise
         except Exception as error:
             # No exception logging here — document_service._run_ingestion_job's outer catch is

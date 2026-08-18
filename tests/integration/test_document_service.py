@@ -12,10 +12,11 @@ from app.application.job_store import JobStore
 from app.constants import EMBEDDING_DIM
 from app.domain import error_codes
 from app.domain.errors import NotFoundError, ValidationError
+from app.infrastructure.auth.bootstrap import bootstrap_default_admin
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
-from app.infrastructure.repositories.library_repository import LibraryRepository
+from app.infrastructure.repositories.user_repository import UserRepository
 from app.logging_config import configure_logging
 from tests.integration.conftest import seed_active_embedding_provider
 
@@ -34,14 +35,19 @@ def session_factory(postgres_url):
     engine.dispose()
 
 
+def _owner(db_session):
+    bootstrap_default_admin(db_session)
+    return UserRepository(db_session).get()
+
+
 def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_factory, caplog):
     # configure_logging is idempotent and safe to call here regardless of whether some earlier
     # test already did — guarantees the ContextFilter that attaches job_id to LogRecords is
     # actually wired up, so this test doesn't depend on suite-wide execution order.
     configure_logging("INFO")
 
-    library = LibraryRepository(db_session).create(name="log-fail-test", description=None)
-    seed_active_embedding_provider(
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
@@ -54,7 +60,7 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
                 "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 side_effect=RuntimeError("embedding API unavailable"),
             ):
-                _run_ingestion_job(job_id, library.id, "notes.txt", b"hello world")
+                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     failure_records = [
         record
@@ -72,8 +78,8 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
 def test_ingestion_job_success_logs_started_and_completed(db_session, session_factory, caplog):
     configure_logging("INFO")
 
-    library = LibraryRepository(db_session).create(name="log-success-test", description=None)
-    seed_active_embedding_provider(
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
@@ -87,7 +93,7 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
                 "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=fake_provider,
             ):
-                _run_ingestion_job(job_id, library.id, "notes.txt", b"hello world")
+                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     job_records = [
         record for record in caplog.records if record.name == "app.application.document_service"
@@ -111,153 +117,126 @@ def _fake_provider():
     return provider
 
 
-def _ingest(library_repo, document_repo, chunk_repo, db_session, library, filename="notes.txt"):
+def _ingest(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
     ingestion_service = IngestionService(
-        library_repo, document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
     )
     text = "abcdefghijklmnopqrstuvwxyz" * 3
     with patch(
         "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = ingestion_service.ingest(library, filename, text.encode())
+        document = ingestion_service.ingest(org_id, owner_id, filename, text.encode())
     db_session.commit()
     return document
 
 
-def test_delete_document_removes_chunks_and_decrements_library_counts(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_delete_document_removes_chunks(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="delete-doc-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library)
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    assert chunk_repo.count_for_document(document.id) > 0
 
-    ingested_library = library_repo.get(library.id)
-    assert ingested_library.document_count == 1
-    assert ingested_library.chunk_count > 0
-
-    DocumentService(document_repo, library_repo, chunk_repo).delete_document(library.id, document.id)
+    DocumentService(document_repo, chunk_repo).delete_document(org_id, document.id)
     db_session.commit()
 
     assert document_repo.get(document.id) is None
     assert chunk_repo.count_for_document(document.id) == 0
 
-    final_library = library_repo.get(library.id)
-    assert final_library.document_count == 0
-    assert final_library.chunk_count == 0
 
-
-def test_delete_document_from_wrong_library_raises_document_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_delete_document_from_wrong_org_raises_document_not_found(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library_a = library_repo.create(name="delete-doc-lib-a", description=None)
-    library_b = library_repo.create(name="delete-doc-lib-b", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library_a)
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).delete_document(library_b.id, document.id)
+        DocumentService(document_repo, chunk_repo).delete_document(uuid4(), document.id)
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
-    # Nothing should have been touched — still exists, still belongs to library_a.
+    # Nothing should have been touched — still exists, still belongs to org_id.
     assert document_repo.get(document.id) is not None
 
 
-def test_delete_document_missing_library_raises_library_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
-    document_repo = DocumentRepository(db_session)
-    chunk_repo = ChunkRepository(db_session)
-
-    with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).delete_document(uuid4(), uuid4())
-    assert exc_info.value.code == error_codes.LIBRARY_NOT_FOUND
-
-
 def test_delete_document_missing_document_raises_document_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="delete-doc-missing-test", description=None)
-    db_session.commit()
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).delete_document(library.id, uuid4())
+        DocumentService(document_repo, chunk_repo).delete_document(uuid4(), uuid4())
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
-def _ingest_failing(library_repo, document_repo, chunk_repo, db_session, library, filename="notes.txt"):
+def _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
     ingestion_service = IngestionService(
-        library_repo, document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
     )
     with patch(
         "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         with pytest.raises(RuntimeError):
-            ingestion_service.ingest(library, filename, b"hello world")
+            ingestion_service.ingest(org_id, owner_id, filename, b"hello world")
     db_session.commit()
-    return document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
+    return document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
 
 
 def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_session):
-    library_repo = LibraryRepository(db_session)
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="retry-not-failed-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library)  # completed
-    assert document.status == "completed"
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)  # indexed
+    assert document.status == "indexed"
 
     with pytest.raises(ValidationError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).start_retry(library.id, document.id)
+        DocumentService(document_repo, chunk_repo).start_retry(org_id, document.id)
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_RETRYABLE
 
 
-def test_start_retry_from_wrong_library_raises_document_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library_a = library_repo.create(name="retry-lib-a", description=None)
-    library_b = library_repo.create(name="retry-lib-b", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    failed_document = _ingest_failing(library_repo, document_repo, chunk_repo, db_session, library_a)
+    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).start_retry(library_b.id, failed_document.id)
+        DocumentService(document_repo, chunk_repo).start_retry(uuid4(), failed_document.id)
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
 def test_retry_job_success_logs_and_completes(db_session, session_factory, caplog):
     configure_logging("INFO")
 
-    library_repo = LibraryRepository(db_session)
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="retry-job-success-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    failed_document = _ingest_failing(library_repo, document_repo, chunk_repo, db_session, library)
+    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     job_id = JobStore.create()
     with caplog.at_level(logging.INFO):
@@ -266,7 +245,7 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
                 "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=_fake_provider(),
             ):
-                _run_retry_job(job_id, library.id, failed_document.id)
+                _run_retry_job(job_id, org_id, failed_document.id)
 
     job_records = [
         record for record in caplog.records if record.name == "app.application.document_service"
@@ -280,126 +259,101 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
     assert status["status"] == "completed"
 
     final_document = document_repo.get(failed_document.id)
-    assert final_document.status == "completed"
-    final_library = library_repo.get(library.id)
-    assert final_library.document_count == 1
-    assert final_library.chunk_count > 0
+    assert final_document.status == "indexed"
+    assert chunk_repo.count_for_document(final_document.id) > 0
 
 
-def test_rename_document_updates_source_filename(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_rename_document_updates_title(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="rename-doc-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library)
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
 
-    renamed = DocumentService(document_repo, library_repo, chunk_repo).rename_document(
-        library.id, document.id, "renamed.txt"
-    )
+    renamed = DocumentService(document_repo, chunk_repo).rename_document(org_id, document.id, "renamed.txt")
     db_session.commit()
 
-    assert renamed.source_filename == "renamed.txt"
-    assert document_repo.get(document.id).source_filename == "renamed.txt"
+    assert renamed.title == "renamed.txt"
+    assert document_repo.get(document.id).title == "renamed.txt"
 
 
-def test_rename_document_from_wrong_library_raises_document_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_rename_document_from_wrong_org_raises_document_not_found(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library_a = library_repo.create(name="rename-lib-a", description=None)
-    library_b = library_repo.create(name="rename-lib-b", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document = _ingest(library_repo, document_repo, chunk_repo, db_session, library_a)
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).rename_document(
-            library_b.id, document.id, "renamed.txt"
-        )
+        DocumentService(document_repo, chunk_repo).rename_document(uuid4(), document.id, "renamed.txt")
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
-    assert document_repo.get(document.id).source_filename != "renamed.txt"
-
-
-def test_rename_document_missing_library_raises_library_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
-    document_repo = DocumentRepository(db_session)
-    chunk_repo = ChunkRepository(db_session)
-
-    with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).rename_document(uuid4(), uuid4(), "x.txt")
-    assert exc_info.value.code == error_codes.LIBRARY_NOT_FOUND
+    assert document_repo.get(document.id).title != "renamed.txt"
 
 
 def test_rename_document_missing_document_raises_document_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="rename-missing-doc-test", description=None)
-    db_session.commit()
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).rename_document(library.id, uuid4(), "x.txt")
+        DocumentService(document_repo, chunk_repo).rename_document(uuid4(), uuid4(), "x.txt")
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
 def test_cancel_job_missing_job_raises_job_not_found(db_session):
-    library_repo = LibraryRepository(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, library_repo, chunk_repo).cancel_job("does-not-exist")
+        DocumentService(document_repo, chunk_repo).cancel_job("does-not-exist")
     assert exc_info.value.code == error_codes.JOB_NOT_FOUND
 
 
-def test_start_retry_allows_cancelled_document(db_session):
-    library_repo = LibraryRepository(db_session)
+def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    library = library_repo.create(name="retry-cancelled-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
     ingestion_service = IngestionService(
-        library_repo, document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
     )
     with patch(
         "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
         with pytest.raises(Exception):
-            ingestion_service.ingest(library, "notes.txt", b"hello world", should_cancel=lambda: True)
+            ingestion_service.ingest(org_id, owner.id, "notes.txt", b"hello world", should_cancel=lambda: True)
     db_session.commit()
 
-    cancelled_document = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")[0]
-    assert cancelled_document.status == "cancelled"
+    # No dedicated "cancelled" state exists in the document_status enum — a cancellation is
+    # recorded as "failed" with the reason in error_message (see IngestionService._process).
+    cancelled_document = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
+    assert cancelled_document.status == "failed"
 
-    # Doesn't raise DOCUMENT_NOT_RETRYABLE — a cancelled document is retryable just like a failed one.
-    job_id = DocumentService(document_repo, library_repo, chunk_repo).start_retry(
-        library.id, cancelled_document.id
-    )
+    # Retryable just like any other failed document.
+    job_id = DocumentService(document_repo, chunk_repo).start_retry(org_id, cancelled_document.id)
     assert job_id is not None
 
 
-def test_ingestion_job_cancelled_before_start_marks_job_and_document_cancelled(
+def test_ingestion_job_cancelled_before_start_marks_job_and_document_failed(
     db_session, session_factory, caplog
 ):
     configure_logging("INFO")
 
-    library_repo = LibraryRepository(db_session)
+    owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
-    library = library_repo.create(name="cancel-job-test", description=None)
-    seed_active_embedding_provider(
+    org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
@@ -413,11 +367,11 @@ def test_ingestion_job_cancelled_before_start_marks_job_and_document_cancelled(
                 "app.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=_fake_provider(),
             ):
-                _run_ingestion_job(job_id, library.id, "notes.txt", b"hello world")
+                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     status = JobStore.get(job_id)
     assert status["status"] == "cancelled"
 
-    documents = document_repo.list_for_library(library.id, limit=10, offset=0, sort="-created_at")
+    documents = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")
     assert len(documents) == 1
-    assert documents[0].status == "cancelled"
+    assert documents[0].status == "failed"

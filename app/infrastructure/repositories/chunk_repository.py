@@ -1,7 +1,7 @@
 from sqlalchemy import func, text
 
 from app.domain.entities import ScoredChunk
-from app.infrastructure.orm import Chunk
+from app.infrastructure.orm import Chunk, Document
 
 
 class ChunkRepository:
@@ -61,15 +61,19 @@ class ChunkRepository:
             self._session.add_all(models)
             self._session.flush()
 
-    def similarity_search(self, org_id, query_embedding: list[float], top_k: int) -> list[ScoredChunk]:
+    def similarity_search(
+        self, org_id, query_embedding: list[float], top_k: int, category_id=None
+    ) -> list[ScoredChunk]:
         distance = Chunk.embedding.cosine_distance(query_embedding)
-        rows = (
-            self._session.query(Chunk, distance.label("distance"))
-            .filter(Chunk.org_id == org_id)
-            .order_by(distance)
-            .limit(top_k)
-            .all()
-        )
+        query = self._session.query(Chunk, distance.label("distance")).filter(Chunk.org_id == org_id)
+        if category_id is not None:
+            # Chunks don't carry category_id directly (only org_id, denormalized for RLS/ANN) —
+            # scoping to a category means joining through the parent document, the only place
+            # category_id actually lives.
+            query = query.join(Document, Document.id == Chunk.document_id).filter(
+                Document.category_id == category_id
+            )
+        rows = query.order_by(distance).limit(top_k).all()
         # Cosine distance is 0 (identical) to 2 (opposite) — invert to a higher-is-better score so
         # ScoredChunk.score never mixes lower-is-better and higher-is-better conventions.
         return [
@@ -83,17 +87,19 @@ class ChunkRepository:
             for chunk, distance in rows
         ]
 
-    def sparse_search(self, org_id, query_text: str, top_k: int) -> list[ScoredChunk]:
+    def sparse_search(self, org_id, query_text: str, top_k: int, category_id=None) -> list[ScoredChunk]:
         tsquery = func.plainto_tsquery("english", query_text)
         rank = func.ts_rank_cd(Chunk.content_tsv, tsquery)
-        rows = (
+        query = (
             self._session.query(Chunk, rank.label("rank"))
             .filter(Chunk.org_id == org_id)
             .filter(Chunk.content_tsv.op("@@")(tsquery))
-            .order_by(rank.desc())
-            .limit(top_k)
-            .all()
         )
+        if category_id is not None:
+            query = query.join(Document, Document.id == Chunk.document_id).filter(
+                Document.category_id == category_id
+            )
+        rows = query.order_by(rank.desc()).limit(top_k).all()
         return [
             ScoredChunk(
                 id=chunk.id,

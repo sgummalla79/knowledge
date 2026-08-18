@@ -4,6 +4,7 @@ from collections import deque
 from typing import Callable
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
+from uuid import UUID
 
 import requests
 
@@ -58,9 +59,11 @@ class WebCrawlService:
 
     def crawl(
         self,
-        library,
+        org_id: UUID,
+        owner_id: UUID,
         seed_url: str,
         max_pages: int,
+        category_id: UUID | None = None,
         scope_prefix: str | None = None,
         on_page_result: OnPageResult | None = None,
     ) -> None:
@@ -83,7 +86,9 @@ class WebCrawlService:
 
             try:
                 fetched = self._fetcher.fetch(url)
-                document = self._ingestion_service.ingest_html(library, fetched.final_url, fetched.html)
+                document = self._ingestion_service.ingest_html(
+                    org_id, owner_id, fetched.final_url, fetched.html, category_id=category_id
+                )
                 if on_page_result:
                     on_page_result(url, document, None)
 

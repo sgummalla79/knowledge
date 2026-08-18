@@ -35,6 +35,10 @@ class UserRepository:
         model = self._session.query(UserModel).first()
         return _to_entity(model) if model is not None else None
 
+    def get_by_id(self, user_id: UUID) -> UserEntity | None:
+        model = self._session.get(UserModel, user_id)
+        return _to_entity(model) if model is not None else None
+
     def get_by_org(self, org_id: UUID) -> list[UserEntity]:
         models = self._session.query(UserModel).filter(UserModel.org_id == org_id).all()
         return [_to_entity(model) for model in models]

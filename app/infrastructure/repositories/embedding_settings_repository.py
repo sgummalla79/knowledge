@@ -1,6 +1,5 @@
 from app.domain.entities import EmbeddingSettings as EmbeddingSettingsEntity
 from app.infrastructure.orm import EmbeddingModel
-from app.infrastructure.repositories.default_org import get_default_org_id
 
 
 class EmbeddingSettingsRepository:
@@ -11,8 +10,7 @@ class EmbeddingSettingsRepository:
     def __init__(self, session):
         self._session = session
 
-    def get(self) -> EmbeddingSettingsEntity | None:
-        org_id = get_default_org_id(self._session)
+    def get(self, org_id) -> EmbeddingSettingsEntity | None:
         row = (
             self._session.query(EmbeddingModel)
             .filter(EmbeddingModel.org_id == org_id, EmbeddingModel.is_default.is_(True))

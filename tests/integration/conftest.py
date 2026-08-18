@@ -19,17 +19,6 @@ def postgres_url():
         yield url
 
 
-@pytest.fixture()
-def app_context():
-    # Needed by anything touching jwt_tokens.issue_access_token/decode_access_token, which read
-    # current_app.config["SECRET_KEY"] — a plain app context is enough, no request/client needed.
-    from app import create_app
-
-    app = create_app(testing=True)
-    with app.app_context():
-        yield app
-
-
 def seed_active_embedding_provider(
     session, provider, model, api_key, dimensions, chunk_size, chunk_overlap, base_url=None
 ):
@@ -46,10 +35,11 @@ def seed_active_embedding_provider(
         EmbeddingProviderSettingsRepository,
     )
 
-    bootstrap_default_organization(session)
+    org_id = bootstrap_default_organization(session).id
     repo = EmbeddingProviderSettingsRepository(session)
-    repo.upsert_config(provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap)
-    repo.set_enabled(provider, True)
+    repo.upsert_config(org_id, provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap)
+    repo.set_enabled(org_id, provider, True)
+    return org_id
 
 
 @pytest.fixture()
@@ -68,7 +58,7 @@ def db_session(postgres_url):
             text(
                 "TRUNCATE TABLE chunks, documents, embedding_models, ingestion_jobs, sources, "
                 "document_tags, tags, categories, query_results, queries, user_shelf_access, document_shelves, "
-                "shelves, search_settings, router_settings, users, organizations, applications, refresh_tokens "
+                "shelves, users, organizations "
                 "CASCADE"
             )
         )

@@ -13,11 +13,14 @@ this app was designed against, with deliberate, documented deviations — see
 outside this repo (gitignored, untracked) and is not itself a build artifact — this document is
 the durable reference.
 
-**Backend status:** the *database* layer (schema, ORM, domain entities, repositories) fully
-reflects this document. The *application* layer (`app/application/*` services,
-`app/presentation/routes/*`, `mcp_server/`) does **not** yet — it still largely assumes the old
-library-based shape (`library_id` path params, `LibraryService`, etc.) and needs a dedicated
-rewrite pass. See [Known gap: application layer](#known-gap-application-layer).
+**Backend status:** schema, ORM, domain entities, repositories, application services, and
+presentation routes all reflect this document — `/categories`, `/documents`, `/categories/{id}/
+query`, and `/query` (router RAG across categories) are all org/category-shaped, not library-shaped.
+There is no `mcp_server/` anymore (removed entirely, see
+[Removed: OAuth2 and MCP](#removed-oauth2-and-mcp) below) and no per-request auth yet — every route
+resolves the single bootstrap org/admin via `app.container.get_default_org_id()`/
+`get_default_user_id()` rather than a real authenticated caller. See
+[Known gaps](#known-gaps) for what's still open.
 
 ## Entity-relationship overview
 
@@ -32,7 +35,6 @@ erDiagram
     ORGANIZATIONS ||--o{ TAGS : has
     ORGANIZATIONS ||--o{ INGESTION_JOBS : has
     ORGANIZATIONS ||--o{ QUERIES : has
-    ORGANIZATIONS ||--o{ APPLICATIONS : has
 
     USERS }o--o{ USER_SHELF_ACCESS : granted
     SHELVES ||--o{ USER_SHELF_ACCESS : "grants access to"
@@ -55,9 +57,6 @@ erDiagram
 
     QUERIES ||--o{ QUERY_RESULTS : returned
     CHUNKS ||--o{ QUERY_RESULTS : "retrieved as"
-
-    APPLICATIONS ||--o{ REFRESH_TOKENS : issues
-    APPLICATIONS ||--o{ AUTHORIZATION_CODES : issues
 
     ORGANIZATIONS {
         uuid id PK
@@ -227,65 +226,7 @@ erDiagram
         int rank
         float similarity_score
     }
-    APPLICATIONS {
-        uuid id PK
-        string name UK
-        string client_secret_hash
-        string allowed_scopes
-        string redirect_uris
-        uuid org_id FK "nullable"
-        timestamptz created_at
-    }
-    REFRESH_TOKENS {
-        uuid id PK
-        uuid application_id FK
-        string token_hash UK
-        string scope
-        timestamptz created_at
-        timestamptz expires_at
-        timestamptz last_used_at
-        timestamptz revoked_at
-    }
-    AUTHORIZATION_CODES {
-        uuid id PK
-        uuid application_id FK
-        string code_hash UK
-        string redirect_uri
-        string code_challenge
-        string code_challenge_method
-        string scope
-        timestamptz created_at
-        timestamptz expires_at
-        timestamptz used_at
-    }
-    SEARCH_SETTINGS {
-        uuid id PK
-        int dense_k
-        int sparse_k
-        int rrf_k
-        uuid org_id FK "nullable"
-        timestamptz created_at
-        timestamptz updated_at
-    }
-    WEB_CRAWL_SETTINGS {
-        uuid id PK
-        string user_agent
-        uuid org_id FK "nullable"
-        timestamptz created_at
-        timestamptz updated_at
-    }
-    ROUTER_SETTINGS {
-        uuid id PK
-        int top_n
-        float min_similarity
-        uuid org_id FK "nullable"
-        timestamptz created_at
-        timestamptz updated_at
-    }
 ```
-
-`SEARCH_SETTINGS`/`WEB_CRAWL_SETTINGS`/`ROUTER_SETTINGS` aren't shown wired to `ORGANIZATIONS`
-above only for diagram clarity — each does carry a nullable `org_id` (see their tables below).
 
 ---
 
@@ -293,9 +234,8 @@ above only for diagram clarity — each does carry a nullable `org_id` (see thei
 
 ### `organizations`
 
-The tenant boundary. Every org-scoped table below carries a NOT NULL `org_id` FK to this table
-(except the OAuth2/settings tables, which predate multi-tenancy — see
-[OAuth2 & global settings](#oauth2--global-settings-outside-the-design-spec)).
+The tenant boundary. Every table below carries a NOT NULL `org_id` FK to this table (directly, or
+denormalized on `chunks`).
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
@@ -313,7 +253,7 @@ One bootstrap row (`slug='default'`) is created automatically on first app start
 
 A person inside an org. Role gates write access: contributors add/edit their own documents,
 admins manage sources and members, viewers only browse and search — enforcement of that isn't
-wired up yet (see the known gap below).
+wired up yet (see [Known gaps](#known-gaps)).
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
@@ -476,8 +416,8 @@ replaces the pre-squash app's in-memory-only `JobStore`/`CrawlJobStore` (lost on
 | `triggered_by` | `uuid` | yes | FK → `users.id` — null for scheduled/system resyncs |
 | `created_at` / `started_at` / `finished_at` | `timestamptz` | no / yes / yes | |
 
-Nothing writes to this table yet — the in-memory job stores are still what `DocumentService`
-actually uses (see the known gap below).
+Nothing writes to this table yet — the in-memory `JobStore`/`CrawlJobStore` are still what
+`DocumentService` actually uses (see [Known gaps](#known-gaps)).
 
 ---
 
@@ -521,47 +461,29 @@ FK → chunks (`ON DELETE CASCADE` — a deviation from the design spec's unspec
 reference, matching this app's cascade-everywhere convention elsewhere), `rank`, `similarity_score`.
 Indexed on `query_id`.
 
-Nothing writes to either table yet — `RetrievalService`/`LibraryRouterService` still only log,
-they don't persist (see the known gap below).
+Nothing writes to either table yet — `RetrievalService`/`CategoryRouterService` still only log,
+they don't persist (see [Known gaps](#known-gaps)).
 
 ---
 
-## OAuth2 & global settings (outside the design spec)
+## Removed: OAuth2 and MCP
 
-These predate multi-tenancy and aren't described by the design spec at all — kept as they were,
-with a **nullable** `org_id` added to the four settings/registry tables (not `refresh_tokens`/
-`authorization_codes`, which hang off `applications` and need no org of their own).
+This app previously carried its own OAuth2 client registry (`applications`, `refresh_tokens`,
+`authorization_codes` — none of it part of the design spec) plus three global settings tables
+(`search_settings`, `web_crawl_settings`, `router_settings`) and a bundled MCP server
+(`mcp_server/`, streamable-HTTP, org-unaware). All of it has been removed entirely:
 
-### `applications`
-
-Registered OAuth2 clients (`client_credentials`/`authorization_code` grants).
-
-| Column | Type | Nullable | Notes |
-|---|---|---|---|
-| `id` | `uuid` | no | PK — doubles as the OAuth2 `client_id` |
-| `name` | `string` | no | **unique** |
-| `client_secret_hash` | `string` | no | shown once at registration/regeneration, hashed at rest |
-| `allowed_scopes` | `string` | no | space-separated |
-| `redirect_uris` | `string` | yes | space-separated allowlist for the `authorization_code` grant |
-| `org_id` | `uuid` | yes | FK → `organizations.id`, `ON DELETE CASCADE` — not yet set by `ApplicationRepository.create()`/bootstrap |
-| `created_at` | `timestamptz` | no | |
-
-Two built-in service-account rows (`mcp-server (built-in)`, `dashboard (built-in)`) are
-bootstrapped automatically at fixed, non-secret ids.
-
-### `refresh_tokens` / `authorization_codes`
-
-Unchanged from the pre-squash app — opaque, DB-backed, reusable (not rotated) refresh tokens; and
-single-use, short-lived, hash-only authorization codes for the PKCE flow. Both FK to
-`applications.id` (`ON DELETE CASCADE`), indexed on `application_id`.
-
-### `search_settings` / `web_crawl_settings` / `router_settings`
-
-Each a **singleton by convention** (0 or 1 row; absent row is normal, application code falls back
-to defaults in `app/constants.py`), now with a nullable `org_id`. `search_settings` tunes hybrid
-retrieval (`dense_k`/`sparse_k`/`rrf_k`); `web_crawl_settings` holds the outbound crawl
-User-Agent; `router_settings` holds `top_n`/`min_similarity` for router RAG (currently still
-pointed at whatever the eventual category-routing implementation will use).
+- **Auth is being redesigned as a separate, standalone identity/SSO service**, not yet built.
+  Every route in this app is unauthenticated in the interim — org/user resolution goes through
+  `app.container.get_default_org_id()`/`get_default_user_id()` (resolves the single bootstrap org
+  and admin) instead of a real authenticated caller. Both helpers are explicitly interim scaffolding
+  — see their docstrings — and go away once the standalone service exists and is wired in.
+- **`search_settings`/`web_crawl_settings`/`router_settings`'s values are now fixed `DEFAULT_*`
+  constants in `app/constants.py`** (`DEFAULT_DENSE_K`/`DEFAULT_SPARSE_K`/`DEFAULT_RRF_K`,
+  `DEFAULT_WEB_CRAWL_USER_AGENT`, `DEFAULT_ROUTER_TOP_N`/`DEFAULT_ROUTER_MIN_SIMILARITY`) instead
+  of admin-configurable per-org rows — not yet reintroduced as real per-org settings.
+- **`mcp_server/` is gone.** MCP integration may return later, designed against a real auth layer
+  from the start rather than retrofitted onto it.
 
 ---
 
@@ -606,20 +528,25 @@ Consolidated list — see inline notes above for the full rationale on each:
 6. `embedding_models.api_key` is plaintext, not `api_key_hash` — this app needs the real key to
    call the provider, unlike an OAuth2 secret.
 7. The `shelf_gated_read` RLS policy is RESTRICTIVE, not three OR'd PERMISSIVE policies.
-8. `applications`/`refresh_tokens`/`authorization_codes`/`search_settings`/`web_crawl_settings`/
-   `router_settings` aren't part of the spec at all — this app's own machinery, kept as-is plus a
-   nullable `org_id` on the four non-token tables.
-9. `libraries` is gone entirely, replaced by `categories` (browsing/taxonomy) — the spec never had
+8. `libraries` is gone entirely, replaced by `categories` (browsing/taxonomy) — the spec never had
    a `libraries` table to begin with; this is this app's own migration path, not a spec deviation.
+9. `applications`/`refresh_tokens`/`authorization_codes`/`search_settings`/`web_crawl_settings`/
+   `router_settings` — this app's own machinery, not part of the spec — have been removed entirely
+   rather than kept and org-scoped; see [Removed: OAuth2 and MCP](#removed-oauth2-and-mcp).
 
-## Known gap: application layer
+## Known gaps
 
-The database/ORM/domain/repository layers fully implement the schema above. `app/application/*`,
-`app/presentation/routes/*`, and `mcp_server/` do not yet — they still reference the old
-library-based shape in many places (`library_id` route params, `LibraryService`,
-`list_for_library`/`count_for_library`-shaped calls, `JobStore`/`CrawlJobStore` in-memory job
-tracking instead of `ingestion_jobs`, no query/query_results persistence, no shelf-gating
-enforcement, no per-request org/role resolution). Imports were patched just enough for the app to
-boot (`create_app()` succeeds, `flask run` serves requests) without raising import-time errors, but
-many routes will fail at runtime until that layer is rewritten. This is the next planned phase of
-work, tracked separately from this document.
+Everything below the database layer (schema, ORM, domain, repositories — all of which fully
+implement the schema above) still has open work:
+
+- **No real auth.** Every route resolves the single bootstrap org/admin via
+  `app.container.get_default_org_id()`/`get_default_user_id()` rather than an authenticated caller
+  — see [Removed: OAuth2 and MCP](#removed-oauth2-and-mcp). No role enforcement (contributor vs.
+  admin vs. viewer) and no shelf-gating enforcement in application code either, even though the RLS
+  policy for it exists (and is itself inert — see [Row-level security](#row-level-security)).
+- **`ingestion_jobs` and `queries`/`query_results` are unused.** `DocumentService` still tracks
+  ingestion/crawl jobs in the in-memory `JobStore`/`CrawlJobStore` (lost on process restart, per
+  worker); `RetrievalService`/`CategoryRouterService` only log a query, they don't persist it.
+- **`sources`, `tags`/`document_tags`, and `shelves`/`document_shelves`/`user_shelf_access` have no
+  application-layer surface yet** (no service, no routes) — the tables and repositories exist, but
+  nothing creates or reads rows in them yet.

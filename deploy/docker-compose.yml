@@ -21,14 +21,14 @@ services:
 
   api:
     # This compose file lives in deploy/, but the build needs the repo root (Dockerfile COPYs
-    # app/, mcp_server/, migrations/, etc.) — context is relative to this file's own directory,
-    # dockerfile is relative to that context.
+    # app/, migrations/, etc.) — context is relative to this file's own directory, dockerfile is
+    # relative to that context.
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    # Explicit "prod" tag (this is the image rag-desktop and MCP clients actually talk to) so it
-    # reads clearly in `docker images` instead of relying on the implicit ":latest" default —
-    # distinct from the ":testing" tag built by docker-compose.test.yml.
+    # Explicit "prod" tag so it reads clearly in `docker images` instead of relying on the
+    # implicit ":latest" default — distinct from the ":testing" tag built by
+    # docker-compose.test.yml.
     image: knowledge:prod
     container_name: knowledge
     depends_on:
@@ -38,15 +38,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-rag}:${POSTGRES_PASSWORD}@knowledge-db:5432/${POSTGRES_DB:-rag}
       SECRET_KEY: ${SECRET_KEY}
       PORT: ${PORT:-13102}
-      MCP_HTTP_PORT: ${MCP_HTTP_PORT:-13103}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       # 13102: same 13100 series as rag-desktop's dev ports (13100 vite, 13101 HMR) —
       # keeps every port this project touches in one clearly-distinct block.
       - "${PORT:-13102}:${PORT:-13102}"
-      # MCP HTTP server — explicitly loopback-bound (unlike the API port above), since it's meant
-      # to be reachable only from this machine, never off it.
-      - "127.0.0.1:${MCP_HTTP_PORT:-13103}:${MCP_HTTP_PORT:-13103}"
     logging:
       driver: json-file
       options:

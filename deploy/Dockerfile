@@ -26,7 +26,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install --with-deps chromium
 
 COPY app app
-COPY mcp_server mcp_server
 COPY migrations migrations
 COPY alembic.ini wsgi.py VERSION ./
 COPY deploy/entrypoint.sh ./entrypoint.sh

@@ -7,17 +7,15 @@ from app.application.ingestion_service import IngestionService
 from app.application.job_store import JobNotFoundError, JobStore
 from app.application.pdf_split_ingestion_service import PdfSplitIngestionService
 from app.application.web_crawl_service import WebCrawlService
-from app.application.web_crawl_settings_service import WebCrawlSettingsService
+from app.constants import DEFAULT_WEB_CRAWL_USER_AGENT
 from app.domain import error_codes
 from app.domain.entities import Document
 from app.domain.errors import IngestionCancelled, NotFoundError, ValidationError
 from app.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort
 from app.infrastructure.orm import SessionLocal
-from app.infrastructure.repositories.category_repository import CategoryRepository
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
-from app.infrastructure.repositories.web_crawl_settings_repository import WebCrawlSettingsRepository
 from app.infrastructure.web.fetcher import WebPageFetcher
 from app.logging_config import clear_job_id, set_job_id
 
@@ -25,44 +23,31 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentService:
-    def __init__(
-        self,
-        document_repo: DocumentRepositoryPort,
-        library_repo,
-        chunk_repo: ChunkRepositoryPort,
-    ):
+    def __init__(self, document_repo: DocumentRepositoryPort, chunk_repo: ChunkRepositoryPort):
         self._documents = document_repo
-        self._libraries = library_repo
         self._chunks = chunk_repo
 
-    def list_documents(self, library_id: UUID, limit: int, offset: int, sort: str) -> tuple[list[Document], int]:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+    def list_documents(self, org_id: UUID, limit: int, offset: int, sort: str) -> tuple[list[Document], int]:
         return (
-            self._documents.list_for_library(library_id, limit, offset, sort),
-            self._documents.count_for_library(library_id),
+            self._documents.list_for_org(org_id, limit, offset, sort),
+            self._documents.count_for_org(org_id),
         )
 
-    def delete_document(self, library_id: UUID, document_id: UUID) -> None:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+    def delete_document(self, org_id: UUID, document_id: UUID) -> None:
         document = self._documents.get(document_id)
-        if document is None or document.library_id != library_id:
+        if document is None or document.org_id != org_id:
             raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
 
         chunk_count = self._chunks.count_for_document(document_id)
         self._documents.delete(document_id)
-        self._libraries.increment_counts(library_id, document_delta=-1, chunk_delta=-chunk_count)
         logger.info(
             "Document deleted",
-            extra={"library_id": str(library_id), "document_id": str(document_id), "chunk_count": chunk_count},
+            extra={"org_id": str(org_id), "document_id": str(document_id), "chunk_count": chunk_count},
         )
 
-    def rename_document(self, library_id: UUID, document_id: UUID, new_name: str) -> Document:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+    def rename_document(self, org_id: UUID, document_id: UUID, new_name: str) -> Document:
         document = self._documents.get(document_id)
-        if document is None or document.library_id != library_id:
+        if document is None or document.org_id != org_id:
             raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
         return self._documents.rename(document_id, new_name)
 
@@ -78,64 +63,71 @@ class DocumentService:
         except JobNotFoundError as error:
             raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.") from error
 
-    def start_ingestion(self, library_id: UUID, filename: str, file_bytes: bytes) -> str:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
-
+    def start_ingestion(
+        self,
+        org_id: UUID,
+        owner_id: UUID,
+        filename: str,
+        file_bytes: bytes,
+        category_id: UUID | None = None,
+    ) -> str:
         job_id = JobStore.create()
         # Logged on the *request* thread, so this line also carries request_id from the context
         # filter — the bridge that lets you grep by request_id to find when a job was created,
         # then by job_id to follow the rest of its lifecycle on the background thread below.
         logger.info(
             "Ingestion job created",
-            extra={"job_id": job_id, "library_id": str(library_id), "source_filename": filename},
+            extra={"job_id": job_id, "org_id": str(org_id), "source_filename": filename},
         )
         thread = threading.Thread(
             target=_run_ingestion_job,
-            args=(job_id, library_id, filename, file_bytes),
+            args=(job_id, org_id, owner_id, filename, file_bytes, category_id),
             daemon=True,
         )
         thread.start()
         return job_id
 
-    def start_retry(self, library_id: UUID, document_id: UUID) -> str:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
+    def start_retry(self, org_id: UUID, document_id: UUID) -> str:
         document = self._documents.get(document_id)
-        if document is None or document.library_id != library_id:
+        if document is None or document.org_id != org_id:
             raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
-        if document.status not in ("failed", "cancelled"):
+        if document.status != "failed":
             raise ValidationError(
                 error_codes.DOCUMENT_NOT_RETRYABLE,
-                f"Only failed or cancelled documents can be retried (current status: '{document.status}').",
+                f"Only failed documents can be retried (current status: '{document.status}').",
                 field="document_id",
             )
 
         job_id = JobStore.create()
         logger.info(
             "Retry job created",
-            extra={"job_id": job_id, "library_id": str(library_id), "document_id": str(document_id)},
+            extra={"job_id": job_id, "org_id": str(org_id), "document_id": str(document_id)},
         )
         thread = threading.Thread(
             target=_run_retry_job,
-            args=(job_id, library_id, document_id),
+            args=(job_id, org_id, document_id),
             daemon=True,
         )
         thread.start()
         return job_id
 
-    def start_crawl(self, library_id: UUID, url: str, max_pages: int, scope_prefix: str | None) -> str:
-        if self._libraries.get(library_id) is None:
-            raise NotFoundError(error_codes.LIBRARY_NOT_FOUND, "Library not found.")
-
+    def start_crawl(
+        self,
+        org_id: UUID,
+        owner_id: UUID,
+        url: str,
+        max_pages: int,
+        scope_prefix: str | None,
+        category_id: UUID | None = None,
+    ) -> str:
         job_id = CrawlJobStore.create(url)
         logger.info(
             "Crawl job created",
-            extra={"job_id": job_id, "library_id": str(library_id), "seed_url": url, "max_pages": max_pages},
+            extra={"job_id": job_id, "org_id": str(org_id), "seed_url": url, "max_pages": max_pages},
         )
         thread = threading.Thread(
             target=_run_crawl_job,
-            args=(job_id, library_id, url, max_pages, scope_prefix),
+            args=(job_id, org_id, owner_id, url, max_pages, scope_prefix, category_id),
             daemon=True,
         )
         thread.start()
@@ -148,14 +140,14 @@ class DocumentService:
             raise NotFoundError(error_codes.CRAWL_JOB_NOT_FOUND, "Crawl job not found.") from error
 
 
-def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes: bytes):
+def _run_ingestion_job(
+    job_id: str, org_id: UUID, owner_id: UUID, filename: str, file_bytes: bytes, category_id: UUID | None
+):
     # contextvars set on the request thread do not propagate into a new threading.Thread — this
     # thread gets its own fresh, empty Context, so job_id must be set here, first, using the value
     # already passed in as an argument (not inherited).
     set_job_id(job_id)
-    logger.info(
-        "Ingestion job started", extra={"library_id": str(library_id), "source_filename": filename}
-    )
+    logger.info("Ingestion job started", extra={"org_id": str(org_id), "source_filename": filename})
 
     # Runs on a background thread with no Flask request context, so it gets its own session
     # independent of the request-scoped one from container.get_session() (which relies on
@@ -163,13 +155,8 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
     session = SessionLocal()
     try:
         JobStore.mark_running(job_id)
-        library_repo = CategoryRepository(session)
-        library = library_repo.get(library_id)
         ingestion_service = IngestionService(
-            library_repo,
-            DocumentRepository(session),
-            ChunkRepository(session),
-            EmbeddingSettingsRepository(session),
+            DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
         )
         split_service = PdfSplitIngestionService(ingestion_service)
 
@@ -194,9 +181,11 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
                 )
 
         split_service.ingest(
-            library,
+            org_id,
+            owner_id,
             filename,
             file_bytes,
+            category_id=category_id,
             should_cancel=lambda: JobStore.is_cancellation_requested(job_id),
             on_part_result=on_part_result,
         )
@@ -224,15 +213,11 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
     except IngestionCancelled:
         session.commit()
         JobStore.mark_cancelled(job_id)
-        logger.info(
-            "Ingestion job cancelled", extra={"library_id": str(library_id), "source_filename": filename}
-        )
+        logger.info("Ingestion job cancelled", extra={"org_id": str(org_id), "source_filename": filename})
     except Exception as error:
         session.commit()
         JobStore.mark_failed(job_id, error)
-        logger.exception(
-            "Ingestion job failed", extra={"library_id": str(library_id), "source_filename": filename}
-        )
+        logger.exception("Ingestion job failed", extra={"org_id": str(org_id), "source_filename": filename})
     finally:
         session.close()
         # Each ingestion job runs in its own daemon thread that dies once the job finishes, so
@@ -243,24 +228,20 @@ def _run_ingestion_job(job_id: str, library_id: UUID, filename: str, file_bytes:
         clear_job_id()
 
 
-def _run_retry_job(job_id: str, library_id: UUID, document_id: UUID):
+def _run_retry_job(job_id: str, org_id: UUID, document_id: UUID):
     # Mirrors _run_ingestion_job's structure exactly — see that function's comments for why each
     # piece (fresh session, job_id contextvar set here not inherited, etc.) is the way it is.
     set_job_id(job_id)
-    logger.info("Retry job started", extra={"library_id": str(library_id), "document_id": str(document_id)})
+    logger.info("Retry job started", extra={"org_id": str(org_id), "document_id": str(document_id)})
 
     session = SessionLocal()
     try:
         JobStore.mark_running(job_id)
-        library_repo = CategoryRepository(session)
         document_repo = DocumentRepository(session)
-        library = library_repo.get(library_id)
         document = document_repo.get(document_id)
-        ingestion_service = IngestionService(
-            library_repo, document_repo, ChunkRepository(session), EmbeddingSettingsRepository(session)
-        )
+        ingestion_service = IngestionService(document_repo, ChunkRepository(session), EmbeddingSettingsRepository(session))
         document = ingestion_service.retry(
-            document, library, should_cancel=lambda: JobStore.is_cancellation_requested(job_id)
+            document, should_cancel=lambda: JobStore.is_cancellation_requested(job_id)
         )
         session.commit()
         JobStore.mark_completed(job_id, document.id)
@@ -268,38 +249,39 @@ def _run_retry_job(job_id: str, library_id: UUID, document_id: UUID):
     except IngestionCancelled:
         session.commit()
         JobStore.mark_cancelled(job_id)
-        logger.info(
-            "Retry job cancelled", extra={"library_id": str(library_id), "document_id": str(document_id)}
-        )
+        logger.info("Retry job cancelled", extra={"org_id": str(org_id), "document_id": str(document_id)})
     except Exception as error:
         session.commit()
         JobStore.mark_failed(job_id, error)
-        logger.exception(
-            "Retry job failed", extra={"library_id": str(library_id), "document_id": str(document_id)}
-        )
+        logger.exception("Retry job failed", extra={"org_id": str(org_id), "document_id": str(document_id)})
     finally:
         session.close()
         clear_job_id()
 
 
-def _run_crawl_job(job_id: str, library_id: UUID, url: str, max_pages: int, scope_prefix: str | None):
+def _run_crawl_job(
+    job_id: str,
+    org_id: UUID,
+    owner_id: UUID,
+    url: str,
+    max_pages: int,
+    scope_prefix: str | None,
+    category_id: UUID | None,
+):
     # Mirrors _run_ingestion_job's structure — fresh session, job_id set here not inherited, etc.
     # Unlike a single-document job, this one commits after every page (in on_page_result below) so
     # a page that ingests successfully is durably saved even if a later page in the same crawl
     # fails, and so CrawlJobStore's per-page status reflects data that's actually persisted.
     set_job_id(job_id)
-    logger.info("Crawl job started", extra={"library_id": str(library_id), "seed_url": url, "max_pages": max_pages})
+    logger.info("Crawl job started", extra={"org_id": str(org_id), "seed_url": url, "max_pages": max_pages})
 
     session = SessionLocal()
     try:
         CrawlJobStore.mark_running(job_id)
-        library_repo = CategoryRepository(session)
-        library = library_repo.get(library_id)
         ingestion_service = IngestionService(
-            library_repo, DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
+            DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
         )
-        web_crawl_settings = WebCrawlSettingsService(WebCrawlSettingsRepository(session)).get_status()
-        crawl_service = WebCrawlService(ingestion_service, WebPageFetcher(user_agent=web_crawl_settings.user_agent))
+        crawl_service = WebCrawlService(ingestion_service, WebPageFetcher(user_agent=DEFAULT_WEB_CRAWL_USER_AGENT))
 
         def on_page_result(page_url, document, error):
             session.commit()
@@ -310,13 +292,16 @@ def _run_crawl_job(job_id: str, library_id: UUID, url: str, max_pages: int, scop
                 CrawlJobStore.mark_page_failed(job_id, page_url, error)
                 logger.warning("Crawl page failed", extra={"url": page_url, "error": str(error)})
 
-        crawl_service.crawl(library, url, max_pages, scope_prefix, on_page_result=on_page_result)
+        crawl_service.crawl(
+            org_id, owner_id, url, max_pages, category_id=category_id, scope_prefix=scope_prefix,
+            on_page_result=on_page_result,
+        )
         CrawlJobStore.mark_completed(job_id)
         logger.info("Crawl job completed", extra={"seed_url": url})
     except Exception as error:
         session.commit()
         CrawlJobStore.mark_failed(job_id, error)
-        logger.exception("Crawl job failed", extra={"library_id": str(library_id), "seed_url": url})
+        logger.exception("Crawl job failed", extra={"org_id": str(org_id), "seed_url": url})
     finally:
         session.close()
         clear_job_id()

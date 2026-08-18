@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Rebuilds and restarts the PROD "api" container (image knowledge:prod) that rag-desktop and
-# MCP clients actually talk to. Only run this after deploy/test-image.sh has passed — see
-# CLAUDE.md, "Docker testing workflow".
+# Rebuilds and restarts the PROD "api" container (image knowledge:prod) that rag-desktop actually
+# talks to. Only run this after deploy/test-image.sh has passed — see CLAUDE.md, "Docker testing
+# workflow".
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

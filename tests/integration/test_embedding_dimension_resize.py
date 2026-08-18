@@ -23,13 +23,15 @@ from sqlalchemy import text
 
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from app.constants import EMBEDDING_DIM
-from app.infrastructure.auth.bootstrap import bootstrap_default_organization
+from app.infrastructure.auth.bootstrap import bootstrap_default_admin, bootstrap_default_organization
+from app.infrastructure.repositories.category_repository import CategoryRepository
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
 from app.infrastructure.repositories.document_repository import DocumentRepository
 from app.infrastructure.repositories.embedding_provider_settings_repository import (
     EmbeddingProviderSettingsRepository,
 )
-from app.infrastructure.repositories.library_repository import LibraryRepository
+from app.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
+from app.infrastructure.repositories.user_repository import UserRepository
 
 
 def _mock_provider(vector):
@@ -56,10 +58,12 @@ def restore_embedding_dim(db_session):
 
 
 def test_resize_to_non_default_dimension_then_real_insert_succeeds(db_session, restore_embedding_dim):
-    bootstrap_default_organization(db_session)
+    org = bootstrap_default_organization(db_session)
+    bootstrap_default_admin(db_session)
+    owner = UserRepository(db_session).get()
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
     embedding_provider_service = EmbeddingProviderConfigService(
-        provider_settings_repo, ChunkRepository(db_session), LibraryRepository(db_session)
+        provider_settings_repo, ChunkRepository(db_session), CategoryRepository(db_session)
     )
 
     # A dimension nothing else in this DB has ever used — if the ORM's column type were still
@@ -70,16 +74,18 @@ def test_resize_to_non_default_dimension_then_real_insert_succeeds(db_session, r
         return_value=_mock_provider([0.1] * new_dimension),
     ):
         embedding_provider_service.update_config(
-            "voyage", "voyage-4-lite", "test-key", None, new_dimension, 800, 100
+            org.id, "voyage", "voyage-4-lite", "test-key", None, new_dimension, 800, 100
         )
         db_session.commit()
-        embedding_provider_service.enable("voyage")
+        embedding_provider_service.enable(org.id, "voyage")
     db_session.commit()
 
-    library = LibraryRepository(db_session).create(name="resize-test", description=None)
+    embedding_model_id = EmbeddingSettingsRepository(db_session).get(org.id).id
     document = DocumentRepository(db_session).create(
-        library_id=library.id,
-        source_filename="notes.txt",
+        org_id=org.id,
+        owner_id=owner.id,
+        title="notes.txt",
+        type="article",
         file_type="txt",
         content_hash="deadbeef",
         status="processing",
@@ -90,37 +96,39 @@ def test_resize_to_non_default_dimension_then_real_insert_succeeds(db_session, r
     # This is the real regression check: inserting a genuinely new_dimension-length vector via the
     # ORM must not raise pgvector's client-side "expected N dimensions" ValueError.
     chunk_repo.bulk_create(
-        document.id, library.id, [(0, "some content", [0.1] * new_dimension)]
+        document.id, org.id, embedding_model_id, [(0, "some content", 5, [0.1] * new_dimension)]
     )
     db_session.commit()
 
     assert chunk_repo.count_for_document(document.id) == 1
 
 
-def test_enable_switch_reembeds_real_library_description_embeddings(db_session, restore_embedding_dim):
-    """A library's description_embedding isn't covered by the chunk_count == 0 lock that gates a
-    provider switch (a library can have a description with zero documents) — this proves
+def test_enable_switch_reembeds_real_category_description_embeddings(db_session, restore_embedding_dim):
+    """A category's description_embedding isn't covered by the chunk_count == 0 lock that gates a
+    provider switch (a category can have a description with zero documents) — this proves
     EmbeddingProviderConfigService.enable() actually nulls-then-recomputes it against a real
-    libraries row, not just against mocks (see test_embedding_provider_settings_service.py's
+    categories row, not just against mocks (see test_embedding_provider_settings_service.py's
     mocked equivalent)."""
-    bootstrap_default_organization(db_session)
+    org = bootstrap_default_organization(db_session)
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
     # voyage's config must exist *before* ollama becomes the active provider — update_config()
     # refuses to configure any provider other than whichever one is currently active, so it can't
     # be configured after the fact here; this mirrors a provider that was set up once and later
     # switched away from, not one being configured for the first time mid-switch.
-    provider_settings_repo.upsert_config("voyage", "voyage-4-lite", "test-key", None, 1024, 800, 100)
-    provider_settings_repo.upsert_config("ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100)
-    provider_settings_repo.set_enabled("ollama", True)
+    provider_settings_repo.upsert_config(org.id, "voyage", "voyage-4-lite", "test-key", None, 1024, 800, 100)
+    provider_settings_repo.upsert_config(
+        org.id, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100
+    )
+    provider_settings_repo.set_enabled(org.id, "ollama", True)
     db_session.commit()
 
-    library_repo = LibraryRepository(db_session)
-    library = library_repo.create(name="resync-test", description="a library")
-    library_repo.set_description_embedding(library.id, [0.9] * 768)  # stale, from the old provider
+    category_repo = CategoryRepository(db_session)
+    category = category_repo.create(org.id, name="resync-test", slug="resync-test", description="a category")
+    category_repo.set_description_embedding(category.id, [0.9] * 768)  # stale, from the old provider
     db_session.commit()
 
     embedding_provider_service = EmbeddingProviderConfigService(
-        provider_settings_repo, ChunkRepository(db_session), library_repo
+        provider_settings_repo, ChunkRepository(db_session), category_repo
     )
     new_dimension = 1024
     new_description_vector = [0.5] * new_dimension
@@ -133,9 +141,11 @@ def test_enable_switch_reembeds_real_library_description_embeddings(db_session, 
     ):
         # The real switch-away path: ollama is active, voyage is only configured — enable()
         # disables ollama (chunk_count == 0), resizes chunks.embedding, and must resync every
-        # library's description_embedding against the newly-active provider.
-        embedding_provider_service.enable("voyage")
+        # category's description_embedding against the newly-active provider.
+        embedding_provider_service.enable(org.id, "voyage")
     db_session.commit()
 
-    candidates = library_repo.search_by_description_similarity(new_description_vector, top_n=10, min_similarity=0.99)
-    assert [candidate.id for candidate, _similarity in candidates] == [library.id]
+    candidates = category_repo.search_by_description_similarity(
+        org.id, new_description_vector, top_n=10, min_similarity=0.99
+    )
+    assert [candidate.id for candidate, _similarity in candidates] == [category.id]

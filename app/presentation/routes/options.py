@@ -2,7 +2,6 @@ from flask import Blueprint, jsonify, request
 
 from app.application.embedding_model_listing_service import EmbeddingModelListingService
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigService
-from app.auth import require_scope
 from app.constants import (
     DEFAULT_OLLAMA_BASE_URL,
     EMBEDDING_MODEL_LISTING_RATE_LIMIT,
@@ -12,6 +11,7 @@ from app.constants import (
     EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
 )
+from app import container
 from app.container import get_session
 from app.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from app.infrastructure.repositories.chunk_repository import ChunkRepository
@@ -33,9 +33,8 @@ def _embedding_provider_config_service() -> EmbeddingProviderConfigService:
 
 
 @options_bp.get("/embedding-options")
-@require_scope()
 def get_embedding_options():
-    statuses = _embedding_provider_config_service().list_status()
+    statuses = _embedding_provider_config_service().list_status(container.get_default_org_id())
     active = next((status for status in statuses if status.enabled), None)
     return jsonify(
         {
@@ -78,14 +77,12 @@ def get_embedding_options():
 
 
 @options_bp.post("/embedding-options/models")
-@require_scope("embedding_settings:write")
 @limiter.limit(EMBEDDING_MODEL_LISTING_RATE_LIMIT)
 def list_embedding_models():
     """Lists a provider's live model catalog using credentials the caller just typed (not yet
     saved) — lets a UI populate a model dropdown before the user commits to PUT
-    /embedding-settings/<provider>. Gated behind the write scope (not the bare auth
-    embedding-options uses) since, unlike that endpoint, this one makes a real outbound call on
-    the caller's behalf using whatever base_url/api_key they supply."""
+    /embedding-settings/<provider>. Makes a real outbound call on the caller's behalf using
+    whatever base_url/api_key they supply, rate-limited for that reason."""
     dto = EmbeddingModelListRequest.model_validate(request.get_json(silent=True) or {})
     models = EmbeddingModelListingService().list_models(dto.provider, dto.api_key, dto.base_url)
     return jsonify({"models": models})

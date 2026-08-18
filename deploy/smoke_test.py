@@ -1,18 +1,16 @@
 """End-to-end smoke check against the isolated test stack (docker-compose.test.yml, port 13199).
 
-Drives the real HTTP surface exactly as a human/client would: log in via the React login page's
-JSON API (app/presentation/routes/auth_ui.py), register an OAuth2 application via the React
-Settings > Applications page's JSON API (application registration is deliberately never part of
-the bearer-token OAuth2 surface — see that route module's _require_csrf_header), mint a token,
-then create a library — proving the DB, migrations, auth/scope machinery, and core CRUD path all
-work, not just that /health responds.
+Drives the real HTTP surface exactly as a human would: log in via the React login page's JSON API
+(app/presentation/routes/auth_ui.py) and complete the forced first-login password change — proving
+the DB, migrations, and session-login machinery all work, not just that /health responds.
 
-No embedding provider is enabled by default — every provider starts disabled until an admin
-configures and enables one via its dashboard page (see
-app/infrastructure/embeddings/bootstrap.py) — so this deliberately stops short of document
-ingestion/query, which need one configured and enabled first. Once an embedding provider is set
-up, ingest/query are exercised by tests/integration/test_ingestion_service.py and
-test_retrieval_service.py instead.
+Deliberately stops there for now: OAuth2/application registration was removed (auth is being
+redesigned as a separate standalone identity service, not yet built — see docs/DATA_MODEL.md), so
+every content route (documents/categories/query) is currently unauthenticated and org-scoped only
+via container.get_default_org_id() — there's no per-user identity yet worth smoke-testing against a
+real login session. Once the standalone auth service lands, extend this to cover content CRUD too,
+the same way tests/integration/test_ingestion_service.py and test_retrieval_service.py cover
+ingest/query once an embedding provider is configured.
 
 Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against the prod stack.
@@ -26,11 +24,9 @@ BASE_URL = "http://localhost:13199"
 _ADMIN_USERNAME = "admin"
 _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
-_APP_NAME = "smoke-test"
-_REQUIRED_SCOPES = ["libraries:write", "libraries:read"]
-# /login, /change-password, and /settings all serve the React SPA shell (app/presentation/web/
-# spa.py), which carries its CSRF token as a JS global — every JSON POST in this app (including
-# application registration) sends it back via the X-CSRF-Token header, not a form field.
+# /login and /change-password both serve the React SPA shell (app/presentation/web/spa.py), which
+# carries its CSRF token as a JS global — every JSON POST in this app sends it back via the
+# X-CSRF-Token header, not a form field.
 _CSRF_JS_RE = re.compile(r'window\.__CSRF_TOKEN__="([^"]+)"')
 
 
@@ -41,7 +37,7 @@ def _extract(pattern: re.Pattern, text: str, what: str) -> str:
     return match.group(1)
 
 
-def _register_application_and_get_token() -> str:
+def main() -> None:
     session = requests.Session()
 
     login_page = session.get(f"{BASE_URL}/login")
@@ -64,45 +60,7 @@ def _register_application_and_get_token() -> str:
     )
     change_response.raise_for_status()
 
-    register = session.post(
-        f"{BASE_URL}/dashboard/applications",
-        json={"name": _APP_NAME, "scopes": _REQUIRED_SCOPES},
-        headers={"X-CSRF-Token": csrf},
-    )
-    register.raise_for_status()
-    body = register.json()
-    client_id = body["id"]
-    client_secret = body["client_secret"]
-
-    token_response = requests.post(
-        f"{BASE_URL}/oauth/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "scope": " ".join(_REQUIRED_SCOPES),
-        },
-    )
-    token_response.raise_for_status()
-    return token_response.json()["access_token"]
-
-
-def main() -> None:
-    access_token = _register_application_and_get_token()
-    headers = {"Authorization": f"Bearer {access_token}"}
-
-    library_response = requests.post(
-        f"{BASE_URL}/libraries", json={"name": "smoke-test-library"}, headers=headers
-    )
-    library_response.raise_for_status()
-    library_id = library_response.json()["id"]
-
-    get_response = requests.get(f"{BASE_URL}/libraries/{library_id}", headers=headers)
-    get_response.raise_for_status()
-    if get_response.json()["name"] != "smoke-test-library":
-        raise RuntimeError("smoke_test: library round-trip returned unexpected data")
-
-    print("smoke_test: OK — auth, scopes, and library CRUD all worked")
+    print("smoke_test: OK — login and forced password change both worked")
 
 
 if __name__ == "__main__":

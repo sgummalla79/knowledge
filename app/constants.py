@@ -1,19 +1,9 @@
-from uuid import UUID
-
 # The dimension used only to size the `chunks.embedding` pgvector column at initial table-creation
 # time (migration 0001). Once a provider is enabled, the column is resized dynamically to match
 # its dimensions whenever the active model changes with no documents present (see
 # EmbeddingProviderConfigService.enable() / ChunkRepository.resize_embedding_column) — this
 # constant is no longer consulted anywhere else.
 EMBEDDING_DIM = 768
-
-# Historical only: migration 0001's initial DDL used these as the `libraries.embedding_provider`/
-# `embedding_model` columns' server_default (those columns were dropped in migration 0005 — see
-# its docstring). Migrations are a historical record replayed from scratch on every fresh
-# database, so these stay here for that import even though no active application code reads them
-# anymore (GET /embedding-options doesn't use them).
-DEFAULT_EMBEDDING_PROVIDER = "ollama"
-DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
 
 # Purely informational suggestions surfaced via GET /embedding-options so a UI can offer common
 # provider/model/dimension combos as a starting point — never validated or enforced against; any
@@ -51,8 +41,8 @@ EMBEDDING_PROVIDER_DISPLAY_NAMES = {
 # runtime dependency by itself.
 DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
-# Fallback chunking parameters used only when a library is created without explicit values;
-# callers can always override per-library via the create/update library request body.
+# Fallback chunking parameters used only when an embedding provider is configured without
+# explicit values; callers can always override per-provider via the embedding-settings request body.
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 100
 
@@ -116,7 +106,7 @@ RATE_LIMIT_DEFAULT = "200 per minute"
 # because a UI populating a dropdown has no legitimate reason to call this dozens of times a minute.
 EMBEDDING_MODEL_LISTING_RATE_LIMIT = "10 per minute"
 
-# POST /libraries/{id}/documents/crawl fetches (and possibly headless-renders) pages on the
+# POST /documents/crawl fetches (and possibly headless-renders) pages on the
 # caller's behalf from a URL they supply — bounding this the same way as
 # EMBEDDING_MODEL_LISTING_RATE_LIMIT, and tighter than the global default, since a single call can
 # already fan out into many outbound page fetches via max_pages.
@@ -153,92 +143,12 @@ WEB_CRAWL_PAGE_DELAY_SECONDS = 0.5
 # per-deployment-overridable rather than baked in as the only option.
 DEFAULT_WEB_CRAWL_USER_AGENT = "python-requests/2.32.3"
 
-# OAuth2-style scopes for registered Applications (client_credentials clients). Resource-group
-# granularity, one pair per route module; "offline_access" is a control flag (governs refresh-token
-# issuance), not a resource itself. The embedding-options route requires no specific scope, so it
-# isn't listed here.
-SCOPE_LIBRARIES_READ = "libraries:read"
-SCOPE_LIBRARIES_WRITE = "libraries:write"
-SCOPE_DOCUMENTS_READ = "documents:read"
-SCOPE_DOCUMENTS_WRITE = "documents:write"
-SCOPE_QUERY_EXECUTE = "query:execute"
-SCOPE_EMBEDDING_SETTINGS_READ = "embedding_settings:read"
-SCOPE_EMBEDDING_SETTINGS_WRITE = "embedding_settings:write"
-SCOPE_SEARCH_SETTINGS_READ = "search_settings:read"
-SCOPE_SEARCH_SETTINGS_WRITE = "search_settings:write"
-SCOPE_WEB_CRAWL_SETTINGS_READ = "web_crawl_settings:read"
-SCOPE_WEB_CRAWL_SETTINGS_WRITE = "web_crawl_settings:write"
-SCOPE_ROUTER_SETTINGS_READ = "router_settings:read"
-SCOPE_ROUTER_SETTINGS_WRITE = "router_settings:write"
-SCOPE_OFFLINE_ACCESS = "offline_access"
-
-SUPPORTED_SCOPES = [
-    SCOPE_LIBRARIES_READ,
-    SCOPE_LIBRARIES_WRITE,
-    SCOPE_DOCUMENTS_READ,
-    SCOPE_DOCUMENTS_WRITE,
-    SCOPE_QUERY_EXECUTE,
-    SCOPE_EMBEDDING_SETTINGS_READ,
-    SCOPE_EMBEDDING_SETTINGS_WRITE,
-    SCOPE_SEARCH_SETTINGS_READ,
-    SCOPE_SEARCH_SETTINGS_WRITE,
-    SCOPE_WEB_CRAWL_SETTINGS_READ,
-    SCOPE_WEB_CRAWL_SETTINGS_WRITE,
-    SCOPE_ROUTER_SETTINGS_READ,
-    SCOPE_ROUTER_SETTINGS_WRITE,
-    SCOPE_OFFLINE_ACCESS,
-]
-
-# Short-lived by design — verified on every request with no DB hit, so a short TTL keeps a leaked
-# access token's exposure window small; long-term access is the refresh token's job instead.
-ACCESS_TOKEN_TTL_SECONDS = 3600
-
-# Authorization codes (RFC 6749 §4.1.2) are meant to be exchanged for a token within the same
-# browser round-trip, not held onto — 10 minutes is generous slack, not a usable session length.
-AUTHORIZATION_CODE_TTL_SECONDS = 600
-
-# Scopes granted to clients that self-register via POST /oauth/register (RFC 7591 Dynamic Client
-# Registration) — capped to what the bundled MCP tools actually need, not attacker-choosable,
-# since that endpoint (like the rest of this app) is reachable only on localhost.
-DCR_DEFAULT_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_ACCESS]
-
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin"
 DEFAULT_ADMIN_NAME = "Admin"
 
-# Bootstrapped alongside the default admin on a fresh database (migration 0018 does the same for
-# any pre-existing single-admin database) — this app has never had multiple organizations, so
-# there is exactly one sane org for the first admin to land in until real org creation/invites
-# exist (Phase B of the multi-tenant migration).
+# Bootstrapped alongside the default admin on a fresh database — this app has never had multiple
+# organizations, so there is exactly one sane org for the first admin to land in until real org
+# creation/invites exist behind a real auth layer (see docs/DATA_MODEL.md).
 DEFAULT_ORGANIZATION_NAME = "Default Organization"
 DEFAULT_ORGANIZATION_SLUG = "default"
-
-# Built-in service-account Application mcp_server/server.py's outbound RagApiClient authenticates
-# as, to call this same app's own REST API — bootstrapped automatically (bootstrap.py), never
-# registered by hand. The id is a fixed, non-secret identifier (both the bootstrap step and
-# mcp_server/client.py need to agree on it without any handoff); the secret itself is never stored
-# or transmitted anywhere — see derive_default_mcp_client_secret in
-# app/infrastructure/auth/secrets.py for why a literal constant here would be a real weakness.
-DEFAULT_MCP_APPLICATION_ID = UUID("0d1a2b3c-4d5e-4f60-8a1b-2c3d4e5f6071")
-DEFAULT_MCP_APPLICATION_NAME = "mcp-server (built-in)"
-DEFAULT_MCP_APPLICATION_SCOPES = [SCOPE_LIBRARIES_READ, SCOPE_QUERY_EXECUTE, SCOPE_OFFLINE_ACCESS]
-
-# Built-in service-account Application the /workspace SPA (app/presentation/routes/workspace.py)
-# authenticates as to call this same app's own REST API, the same pattern as
-# DEFAULT_MCP_APPLICATION_ID above — bootstrapped automatically, never registered by hand, secret
-# derived rather than stored (see derive_default_dashboard_client_secret). No offline_access: the
-# admin's browser session is the renewable credential here, so the SPA just re-mints a fresh access
-# token (POST /dashboard/token) rather than holding a refresh token.
-DEFAULT_DASHBOARD_APPLICATION_ID = UUID("b4480149-4880-4d8f-bf65-7f194275317b")
-DEFAULT_DASHBOARD_APPLICATION_NAME = "dashboard (built-in)"
-DEFAULT_DASHBOARD_APPLICATION_SCOPES = [
-    SCOPE_LIBRARIES_READ,
-    SCOPE_LIBRARIES_WRITE,
-    SCOPE_DOCUMENTS_READ,
-    SCOPE_DOCUMENTS_WRITE,
-    SCOPE_QUERY_EXECUTE,
-    SCOPE_EMBEDDING_SETTINGS_READ,
-    SCOPE_EMBEDDING_SETTINGS_WRITE,
-    SCOPE_WEB_CRAWL_SETTINGS_READ,
-    SCOPE_WEB_CRAWL_SETTINGS_WRITE,
-]

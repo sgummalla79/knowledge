@@ -10,24 +10,18 @@ from app.constants import (
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from app.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
-from app.domain.entities import (
-    Document,
-    RoutedScoredChunk,
-    RouterSettings,
-    ScoredChunk,
-    SearchSettings,
-    WebCrawlSettings,
-)
+from app.domain.entities import Category, Document, RoutedScoredChunk, ScoredChunk
 
 
-class LibraryCreateRequest(BaseModel):
+class CategoryCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
     description: str | None = None
+    parent_id: UUID | None = None
 
 
-class LibraryUpdateRequest(BaseModel):
+class CategoryUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
@@ -35,34 +29,34 @@ class LibraryUpdateRequest(BaseModel):
 
 
 class PaginationQuery(BaseModel):
-    """Shared shape for every paginated list endpoint (libraries, documents, ...)."""
+    """Shared shape for every paginated list endpoint (documents, ...)."""
 
     limit: int = Field(default=100, gt=0, le=500)
     offset: int = Field(default=0, ge=0)
     sort: str = "-created_at"
 
 
-class LibraryResponse(BaseModel):
+class CategoryResponse(BaseModel):
     id: UUID
+    org_id: UUID
+    parent_id: UUID | None
     name: str
+    slug: str
     description: str | None
-    document_count: int
-    chunk_count: int
-    last_ingested_at: datetime | None
     created_at: datetime
-    updated_at: datetime
+    last_modified_at: datetime
 
     @classmethod
-    def from_entity(cls, library) -> "LibraryResponse":
+    def from_entity(cls, category: Category) -> "CategoryResponse":
         return cls(
-            id=library.id,
-            name=library.name,
-            description=library.description,
-            document_count=library.document_count,
-            chunk_count=library.chunk_count,
-            last_ingested_at=library.last_ingested_at,
-            created_at=library.created_at,
-            updated_at=library.updated_at,
+            id=category.id,
+            org_id=category.org_id,
+            parent_id=category.parent_id,
+            name=category.name,
+            slug=category.slug,
+            description=category.description,
+            created_at=category.created_at,
+            last_modified_at=category.last_modified_at,
         )
 
 
@@ -118,7 +112,7 @@ class JobStatusResponse(BaseModel):
 class DocumentRenameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_filename: str = Field(min_length=1)
+    title: str = Field(min_length=1)
 
 
 class CrawlRequest(BaseModel):
@@ -127,6 +121,7 @@ class CrawlRequest(BaseModel):
     url: str = Field(min_length=1)
     max_pages: int = Field(default=1, gt=0, le=WEB_CRAWL_MAX_PAGES_LIMIT)
     scope_prefix: str | None = Field(default=None, min_length=1)
+    category_id: UUID | None = None
 
 
 class CrawlPageStatus(BaseModel):
@@ -242,91 +237,3 @@ class EmbeddingProviderConfigResponse(BaseModel):
         )
 
 
-class SearchSettingsUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dense_k: int = Field(gt=0, le=100)
-    sparse_k: int = Field(gt=0, le=100)
-    rrf_k: int = Field(gt=0, le=1000)
-
-
-class SearchSettingsResponse(BaseModel):
-    dense_k: int
-    sparse_k: int
-    rrf_k: int
-    updated_at: datetime | None
-
-    @classmethod
-    def from_entity(cls, settings: SearchSettings) -> "SearchSettingsResponse":
-        return cls(
-            dense_k=settings.dense_k,
-            sparse_k=settings.sparse_k,
-            rrf_k=settings.rrf_k,
-            updated_at=settings.updated_at,
-        )
-
-
-class RouterSettingsUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    top_n: int = Field(gt=0, le=50)
-    min_similarity: float = Field(ge=0, le=1)
-
-
-class RouterSettingsResponse(BaseModel):
-    top_n: int
-    min_similarity: float
-    updated_at: datetime | None
-
-    @classmethod
-    def from_entity(cls, settings: RouterSettings) -> "RouterSettingsResponse":
-        return cls(
-            top_n=settings.top_n,
-            min_similarity=settings.min_similarity,
-            updated_at=settings.updated_at,
-        )
-
-
-class WebCrawlSettingsUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    user_agent: str = Field(min_length=1)
-
-
-class WebCrawlSettingsResponse(BaseModel):
-    user_agent: str
-    updated_at: datetime | None
-
-    @classmethod
-    def from_entity(cls, settings: WebCrawlSettings) -> "WebCrawlSettingsResponse":
-        return cls(user_agent=settings.user_agent, updated_at=settings.updated_at)
-
-
-class ScopeGroupResponse(BaseModel):
-    """One resource-group bucket of scopes (e.g. "Libraries" -> ["libraries:read",
-    "libraries:write"]) — see _grouped_scopes in app/presentation/routes/auth_ui.py."""
-
-    label: str
-    scopes: list[str]
-
-
-class ApplicationResponse(BaseModel):
-    id: UUID
-    name: str
-    allowed_scopes: list[str]
-    token_status: str
-    last_used_at: datetime | None
-
-
-class RegisterApplicationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1)
-    scopes: list[str] = Field(default_factory=list)
-
-
-class RegisterApplicationResponse(BaseModel):
-    id: UUID
-    name: str
-    allowed_scopes: list[str]
-    client_secret: str

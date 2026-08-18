@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -32,19 +32,19 @@ def _status(provider="ollama", enabled=False, configured=False, locked=False, ch
         chunk_size=800,
         chunk_overlap=100,
         updated_at=datetime.now(timezone.utc) if configured else None,
-        active_provider=provider if enabled else None,
+        active_provider=provider if enabled else None
     )
     defaults.update(overrides)
     return EmbeddingProviderConfigStatus(**defaults)
 
 
-def test_list_returns_all_providers(client, auth_headers):
+def test_list_returns_all_providers(client):
     statuses = [_status("ollama", enabled=True, configured=True), _status("voyage"), _status("openai_compatible")]
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.list_status",
-        return_value=statuses,
+        return_value=statuses
     ):
-        response = client.get("/embedding-settings", headers=auth_headers("embedding_settings:read"))
+        response = client.get("/embedding-settings")
 
     assert response.status_code == 200
     body = response.get_json()
@@ -55,12 +55,12 @@ def test_list_returns_all_providers(client, auth_headers):
     }
 
 
-def test_get_status_not_configured(client, auth_headers):
+def test_get_status_not_configured(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.get_status",
-        return_value=_status("voyage"),
+        return_value=_status("voyage")
     ):
-        response = client.get("/embedding-settings/voyage", headers=auth_headers("embedding_settings:read"))
+        response = client.get("/embedding-settings/voyage")
 
     assert response.status_code == 200
     body = response.get_json()
@@ -70,12 +70,12 @@ def test_get_status_not_configured(client, auth_headers):
     assert body["chunk_size"] == 800
 
 
-def test_get_status_configured_and_enabled(client, auth_headers):
+def test_get_status_configured_and_enabled(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.get_status",
-        return_value=_status("ollama", enabled=True, configured=True),
+        return_value=_status("ollama", enabled=True, configured=True)
     ):
-        response = client.get("/embedding-settings/ollama", headers=auth_headers("embedding_settings:read"))
+        response = client.get("/embedding-settings/ollama")
 
     body = response.get_json()
     assert body["configured"] is True
@@ -86,64 +86,60 @@ def test_get_status_configured_and_enabled(client, auth_headers):
     assert "api_key" not in body
 
 
-def test_update_missing_dimensions_rejected_by_schema(client, auth_headers):
+def test_update_missing_dimensions_rejected_by_schema(client):
     # dimensions is a required field — no static map to infer it from.
     response = client.put(
         "/embedding-settings/ollama",
-        json={"model": "nomic-embed-text"},
-        headers=auth_headers("embedding_settings:write"),
+        json={"model": "nomic-embed-text"}
     )
 
     assert response.status_code == 400
 
 
-def test_update_unsupported_provider_returns_structured_400(client, auth_headers):
+def test_update_unsupported_provider_returns_structured_400(client):
     # Real (unmocked) validate_provider_connection rejects any provider not in the registry.
     response = client.put(
         "/embedding-settings/made-up-provider",
-        json={"model": "text-embedding-3", "api_key": "secret", "dimensions": 1536},
-        headers=auth_headers("embedding_settings:write"),
+        json={"model": "text-embedding-3", "api_key": "secret", "dimensions": 1536}
     )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "embedding_provider"
 
 
-def test_update_voyage_without_api_key_returns_structured_400(client, auth_headers):
+def test_update_voyage_without_api_key_returns_structured_400(client):
     # Real (unmocked) validate_provider_connection: voyage requires an api_key. No prior config
     # exists for this provider, so the blank-api-key-keeps-existing fallback finds nothing to
     # reuse either — this is a genuinely missing key, not an omitted-on-purpose one.
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
-        return_value=None,
+        return_value=None
     ):
         response = client.put(
             "/embedding-settings/voyage",
-            json={"model": "voyage-3", "dimensions": 1024},
-            headers=auth_headers("embedding_settings:write"),
+            json={"model": "voyage-3", "dimensions": 1024}
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "api_key"
 
 
-def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
+def test_update_ollama_without_api_key_accepted_by_schema(client):
     # Ollama is self-hosted/keyless — proves api_key is genuinely optional end-to-end at the HTTP
     # layer, not just required-with-empty-string.
     with (
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
-            return_value=None,
+            return_value=None
         ),
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-            return_value=_status("ollama", configured=True),
-        ),
+            return_value=_status("ollama", configured=True)
+        )
     ):
         response = client.put(
             "/embedding-settings/ollama",
-            json={"model": "nomic-embed-text", "dimensions": 768},
-            headers=auth_headers("embedding_settings:write"),
+            json={"model": "nomic-embed-text", "dimensions": 768}
         )
 
     assert response.status_code == 200
@@ -152,25 +148,24 @@ def test_update_ollama_without_api_key_accepted_by_schema(client, auth_headers):
     assert body["base_url"] == "http://ollama:11434"
 
 
-def test_update_model_locked_returns_structured_400(client, auth_headers):
+def test_update_model_locked_returns_structured_400(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-        side_effect=ValidationError("embedding_model_locked", "documents exist", field="model"),
+        side_effect=ValidationError("embedding_model_locked", "documents exist", field="model")
     ):
         response = client.put(
             "/embedding-settings/voyage",
-            json={"model": "voyage-3", "api_key": "secret", "dimensions": 1024},
-            headers=auth_headers("embedding_settings:write"),
+            json={"model": "voyage-3", "api_key": "secret", "dimensions": 1024}
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "embedding_model_locked"
 
 
-def test_update_bad_chunking_returns_structured_400(client, auth_headers):
+def test_update_bad_chunking_returns_structured_400(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-        side_effect=ValidationError("validation_error", "bad chunking", field="chunk_overlap"),
+        side_effect=ValidationError("validation_error", "bad chunking", field="chunk_overlap")
     ):
         response = client.put(
             "/embedding-settings/voyage",
@@ -180,135 +175,120 @@ def test_update_bad_chunking_returns_structured_400(client, auth_headers):
                 "dimensions": 1024,
                 "chunk_size": 10,
                 "chunk_overlap": 20,
-            },
-            headers=auth_headers("embedding_settings:write"),
+            }
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "chunk_overlap"
 
 
-def test_update_blank_api_key_keeps_the_existing_one(client, auth_headers):
+def test_update_blank_api_key_keeps_the_existing_one(client):
     # GET /embedding-settings never returns the saved key (only `configured`), so a caller has no
     # way to round-trip it — omitting api_key must reuse whatever is already saved, not clear it.
     existing = type("Existing", (), {"api_key": "previously-saved-secret"})()
     with (
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
-            return_value=existing,
+            return_value=existing
         ),
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-            return_value=_status("voyage", configured=True),
-        ) as mock_update,
+            return_value=_status("voyage", configured=True)
+        ) as mock_update
     ):
         response = client.put(
             "/embedding-settings/voyage",
-            json={"model": "voyage-3", "dimensions": 1024},
-            headers=auth_headers("embedding_settings:write"),
+            json={"model": "voyage-3", "dimensions": 1024}
         )
 
     assert response.status_code == 200
-    mock_update.assert_called_once_with("voyage", "voyage-3", "previously-saved-secret", None, 1024, 800, 100)
+    mock_update.assert_called_once_with(ANY, "voyage", "voyage-3", "previously-saved-secret", None, 1024, 800, 100)
 
 
-def test_update_success_returns_configured_true(client, auth_headers):
+def test_update_success_returns_configured_true(client):
     with (
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
-            return_value=None,
+            return_value=None
         ),
         patch(
             "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-            return_value=_status("ollama", configured=True),
-        ),
+            return_value=_status("ollama", configured=True)
+        )
     ):
         response = client.put(
             "/embedding-settings/ollama",
-            json={"model": "nomic-embed-text", "dimensions": 768},
-            headers=auth_headers("embedding_settings:write"),
+            json={"model": "nomic-embed-text", "dimensions": 768}
         )
 
     assert response.status_code == 200
     assert response.get_json()["configured"] is True
 
 
-def test_enable_returns_updated_status(client, auth_headers):
+def test_enable_returns_updated_status(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.enable",
-        return_value=_status("ollama", enabled=True, configured=True),
+        return_value=_status("ollama", enabled=True, configured=True)
     ) as mock_enable:
         response = client.post(
-            "/embedding-settings/ollama/enable", headers=auth_headers("embedding_settings:write")
+            "/embedding-settings/ollama/enable"
         )
 
     assert response.status_code == 200
     assert response.get_json()["enabled"] is True
-    mock_enable.assert_called_once_with("ollama")
+    mock_enable.assert_called_once_with(ANY, "ollama")
 
 
-def test_enable_not_configured_returns_structured_400(client, auth_headers):
+def test_enable_not_configured_returns_structured_400(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.enable",
-        side_effect=ValidationError("embeddings_not_configured", "configure it first", field="provider"),
+        side_effect=ValidationError("embeddings_not_configured", "configure it first", field="provider")
     ):
         response = client.post(
-            "/embedding-settings/voyage/enable", headers=auth_headers("embedding_settings:write")
+            "/embedding-settings/voyage/enable"
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "embeddings_not_configured"
 
 
-def test_enable_locked_returns_structured_400(client, auth_headers):
+def test_enable_locked_returns_structured_400(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.enable",
-        side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider"),
+        side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider")
     ):
         response = client.post(
-            "/embedding-settings/voyage/enable", headers=auth_headers("embedding_settings:write")
+            "/embedding-settings/voyage/enable"
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "embedding_model_locked"
 
 
-def test_disable_returns_updated_status(client, auth_headers):
+def test_disable_returns_updated_status(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.disable",
-        return_value=_status("ollama", configured=True),
+        return_value=_status("ollama", configured=True)
     ) as mock_disable:
         response = client.post(
-            "/embedding-settings/ollama/disable", headers=auth_headers("embedding_settings:write")
+            "/embedding-settings/ollama/disable"
         )
 
     assert response.status_code == 200
     assert response.get_json()["enabled"] is False
-    mock_disable.assert_called_once_with("ollama")
+    mock_disable.assert_called_once_with(ANY, "ollama")
 
 
-def test_disable_locked_returns_structured_400(client, auth_headers):
+def test_disable_locked_returns_structured_400(client):
     with patch(
         "app.presentation.routes.embedding_settings.EmbeddingProviderConfigService.disable",
-        side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider"),
+        side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider")
     ):
         response = client.post(
-            "/embedding-settings/ollama/disable", headers=auth_headers("embedding_settings:write")
+            "/embedding-settings/ollama/disable"
         )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["code"] == "embedding_model_locked"
 
 
-def test_missing_auth_returns_401(client):
-    response = client.get("/embedding-settings")
-    assert response.status_code == 401
-
-
-def test_missing_write_scope_returns_403(client, auth_headers):
-    response = client.put(
-        "/embedding-settings/voyage",
-        json={"model": "voyage-3", "api_key": "secret", "dimensions": 1024},
-        headers=auth_headers("embedding_settings:read"),
-    )
-    assert response.status_code == 403

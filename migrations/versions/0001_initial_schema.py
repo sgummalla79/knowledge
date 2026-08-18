@@ -41,11 +41,12 @@ was designed against, with these deliberate, documented deviations:
   restrict anything, contradicting the spec's own prose. Merging the admin-bypass and shelf-access
   checks into one RESTRICTIVE policy makes it actually AND against `tenant_isolation` (same org AND
   (admin OR has shelf access)).
-- `applications`/`refresh_tokens`/`authorization_codes`/`search_settings`/`web_crawl_settings`/
-  `router_settings` aren't part of the spec at all — this app's own OAuth2 client registry and
-  global settings tables, kept as they were, with a nullable `org_id` added to the four
-  settings/registry tables (not `refresh_tokens`/`authorization_codes`, which hang off
-  `applications` and need no org of their own).
+- This app previously carried its own OAuth2 client registry (`applications`/`refresh_tokens`/
+  `authorization_codes`) and three global settings tables (`search_settings`/`web_crawl_settings`/
+  `router_settings`), none of which are part of the spec. Both have been removed entirely:
+  authentication is being redesigned as a separate, standalone identity service (not yet built —
+  routes are unauthenticated in the interim), and the three settings tables' values are now fixed
+  `DEFAULT_*` constants in app/constants.py instead of admin-configurable per-org rows.
 - RLS is enabled and policies are created (matching the spec's list of RLS tables) but is still
   practically inert: this app's single Postgres role (POSTGRES_USER) both runs migrations (owns
   every table) and serves every app query, and Postgres exempts table owners from their own RLS
@@ -392,80 +393,6 @@ def upgrade():
     )
     op.create_index("ix_query_results_query_id", "query_results", ["query_id"])
 
-    # ── OAuth2 / global settings (this app's own machinery, outside the spec) ─────────────────
-    op.create_table(
-        "applications",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("name", sa.String, nullable=False, unique=True),
-        sa.Column("client_secret_hash", sa.String, nullable=False),
-        sa.Column("allowed_scopes", sa.String, nullable=False),
-        sa.Column("redirect_uris", sa.String, nullable=True),
-        sa.Column("org_id", UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-    op.create_index("ix_applications_org_id", "applications", ["org_id"])
-
-    op.create_table(
-        "refresh_tokens",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("application_id", UUID(as_uuid=True), sa.ForeignKey("applications.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("token_hash", sa.String, nullable=False, unique=True),
-        sa.Column("scope", sa.String, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_index("ix_refresh_tokens_application_id", "refresh_tokens", ["application_id"])
-
-    op.create_table(
-        "authorization_codes",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("application_id", UUID(as_uuid=True), sa.ForeignKey("applications.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("code_hash", sa.String, nullable=False, unique=True),
-        sa.Column("redirect_uri", sa.String, nullable=False),
-        sa.Column("code_challenge", sa.String, nullable=False),
-        sa.Column("code_challenge_method", sa.String, nullable=False),
-        sa.Column("scope", sa.String, nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
-    )
-    op.create_index("ix_authorization_codes_application_id", "authorization_codes", ["application_id"])
-
-    op.create_table(
-        "search_settings",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("dense_k", sa.Integer, nullable=False),
-        sa.Column("sparse_k", sa.Integer, nullable=False),
-        sa.Column("rrf_k", sa.Integer, nullable=False),
-        sa.Column("org_id", UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-    op.create_index("ix_search_settings_org_id", "search_settings", ["org_id"])
-
-    op.create_table(
-        "web_crawl_settings",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_agent", sa.String, nullable=False),
-        sa.Column("org_id", UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-    op.create_index("ix_web_crawl_settings_org_id", "web_crawl_settings", ["org_id"])
-
-    op.create_table(
-        "router_settings",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("top_n", sa.Integer, nullable=False),
-        sa.Column("min_similarity", sa.Float, nullable=False),
-        sa.Column("org_id", UUID(as_uuid=True), sa.ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-    op.create_index("ix_router_settings_org_id", "router_settings", ["org_id"])
-
     # ── Row-level security (see module docstring: inert until a restricted role exists) ────────
     for table in _RLS_TABLES:
         op.execute(f"alter table {table} enable row level security")
@@ -513,12 +440,6 @@ def downgrade():
     for table in reversed(_RLS_TABLES):
         op.execute(f"drop policy tenant_isolation on {table}")
 
-    op.drop_table("router_settings")
-    op.drop_table("web_crawl_settings")
-    op.drop_table("search_settings")
-    op.drop_table("authorization_codes")
-    op.drop_table("refresh_tokens")
-    op.drop_table("applications")
     op.drop_table("query_results")
     op.drop_table("queries")
     op.drop_table("chunks")

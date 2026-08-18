@@ -12,20 +12,19 @@ def client():
     app = create_app(
         testing=False,
         rate_limit_default="2 per minute",
-        bootstrap_admin=False,
+        bootstrap_admin=False
     )
     return app.test_client()
 
 
-def test_exceeding_rate_limit_returns_structured_429(client, auth_headers):
+def test_exceeding_rate_limit_returns_structured_429(client):
     # Uses a route that doesn't need a real DB connection, so the only thing under test is
     # the rate limiter itself, not downstream business logic.
-    headers = auth_headers()
     for _ in range(2):
-        response = client.get("/embedding-options", headers=headers)
+        response = client.get("/embedding-options")
         assert response.status_code != 429
 
-    response = client.get("/embedding-options", headers=headers)
+    response = client.get("/embedding-options")
     assert response.status_code == 429
     body = response.get_json()
     assert body["error"]["code"] == "rate_limited"

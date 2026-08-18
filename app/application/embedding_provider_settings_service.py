@@ -41,7 +41,7 @@ class EmbeddingProviderConfigStatus:
 class EmbeddingProviderConfigService:
     """Owns the three known providers' embedding configuration and which one (if any) is the
     active one actually used for embedding. Exactly one provider may be enabled at a time — the
-    app embeds with a single global model, not a per-library choice — so enabling a provider
+    app embeds with a single model per org, not a per-category choice — so enabling a provider
     disables whichever other one was active, and disabling/switching away from a provider that
     still has chunks is rejected until those chunks are deleted. Only the active provider's config
     can be edited; every other provider's config is fully locked until the active one is disabled,
@@ -58,8 +58,8 @@ class EmbeddingProviderConfigService:
         self._chunks = chunk_repo
         self._categories = category_repo
 
-    def list_status(self) -> list[EmbeddingProviderConfigStatus]:
-        configs = {config.provider: config for config in self._repository.list()}
+    def list_status(self, org_id) -> list[EmbeddingProviderConfigStatus]:
+        configs = {config.provider: config for config in self._repository.list(org_id)}
         chunk_count = self._chunks.count_all()
         active_provider = self._active_provider(configs.values())
         return [
@@ -67,15 +67,16 @@ class EmbeddingProviderConfigService:
             for provider in sorted(EmbeddingProviderRegistry.known_providers())
         ]
 
-    def get_status(self, provider: str) -> EmbeddingProviderConfigStatus:
+    def get_status(self, org_id, provider: str) -> EmbeddingProviderConfigStatus:
         self._require_known_provider(provider)
-        configs = self._repository.list()
+        configs = self._repository.list(org_id)
         active_provider = self._active_provider(configs)
         config = next((c for c in configs if c.provider == provider), None)
         return self._status(config, provider, self._chunks.count_all(), active_provider)
 
     def update_config(
         self,
+        org_id,
         provider: str,
         model: str,
         api_key: str | None,
@@ -86,7 +87,7 @@ class EmbeddingProviderConfigService:
     ) -> EmbeddingProviderConfigStatus:
         validate_provider_connection(provider, api_key, base_url)
 
-        configs = self._repository.list()
+        configs = self._repository.list(org_id)
         active_provider = self._active_provider(configs)
         if active_provider is not None and active_provider != provider:
             raise ValidationError(
@@ -142,20 +143,17 @@ class EmbeddingProviderConfigService:
                 )
 
         config = self._repository.upsert_config(
-            provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap
+            org_id, provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap
         )
-        # The active provider's identity just changed — every cached library description_embedding
+        # The active provider's identity just changed — every cached category description_embedding
         # was computed with the *old* model and is now stale/wrong-dimension. Reuses the
         # provider_instance already resolved above for the connection test, no second HTTP call.
         if existing is not None and existing.enabled and identity_changed:
-            # org_id not threaded through this service yet (no per-request org resolution exists —
-            # see the multi-tenant migration plan's Phase B) — passing None means this resync is
-            # currently a safe no-op (no category has org_id=None) rather than raising.
-            self._resync_category_description_embeddings(None, provider_instance)
+            self._resync_category_description_embeddings(org_id, provider_instance)
         return self._status(config, provider, chunk_count, active_provider)
 
-    def enable(self, provider: str) -> EmbeddingProviderConfigStatus:
-        config = self._repository.get(provider)
+    def enable(self, org_id, provider: str) -> EmbeddingProviderConfigStatus:
+        config = self._repository.get(org_id, provider)
         if config is None or not config.model or not config.dimensions:
             raise ValidationError(
                 error_codes.EMBEDDINGS_NOT_CONFIGURED,
@@ -165,7 +163,7 @@ class EmbeddingProviderConfigService:
         if config.enabled:
             return self._status(config, provider, self._chunks.count_all(), provider)
 
-        currently_enabled = next((c for c in self._repository.list() if c.enabled), None)
+        currently_enabled = next((c for c in self._repository.list(org_id) if c.enabled), None)
         chunk_count = self._chunks.count_all()
         if currently_enabled is not None:
             if chunk_count > 0:
@@ -176,28 +174,25 @@ class EmbeddingProviderConfigService:
                     "documents first, since embeddings from different models are not comparable.",
                     field="provider",
                 )
-            self._repository.set_enabled(currently_enabled.provider, False)
+            self._repository.set_enabled(org_id, currently_enabled.provider, False)
 
         # Guaranteed zero chunks whenever the active provider actually changes (the lock above),
         # so resizing the shared vector column here is always safe.
         self._chunks.resize_embedding_column(config.dimensions)
-        # Unlike chunks, libraries aren't locked behind chunk_count == 0 — a library can have a
+        # Unlike chunks, categories aren't locked behind chunk_count == 0 — a category can have a
         # description (and cached description_embedding) with zero documents. Every cached
         # embedding was computed against whichever provider was active before, so it's now
         # stale/wrong-dimension for this new one.
         provider_instance = EmbeddingProviderRegistry.resolve(provider, config.model, config.api_key, config.base_url)
-        # org_id not threaded through this service yet (no per-request org resolution exists —
-        # see the multi-tenant migration plan's Phase B) — passing None means this resync is
-        # currently a safe no-op (no category has org_id=None) rather than raising.
-        self._resync_category_description_embeddings(None, provider_instance)
-        updated = self._repository.set_enabled(provider, True)
+        self._resync_category_description_embeddings(org_id, provider_instance)
+        updated = self._repository.set_enabled(org_id, provider, True)
         return self._status(updated, provider, chunk_count, provider)
 
-    def disable(self, provider: str) -> EmbeddingProviderConfigStatus:
+    def disable(self, org_id, provider: str) -> EmbeddingProviderConfigStatus:
         self._require_known_provider(provider)
-        config = self._repository.get(provider)
+        config = self._repository.get(org_id, provider)
         if config is None or not config.enabled:
-            active_provider = self._active_provider(self._repository.list())
+            active_provider = self._active_provider(self._repository.list(org_id))
             return self._status(config, provider, self._chunks.count_all(), active_provider)
 
         chunk_count = self._chunks.count_all()
@@ -208,7 +203,7 @@ class EmbeddingProviderConfigService:
                 "documents first.",
                 field="provider",
             )
-        updated = self._repository.set_enabled(provider, False)
+        updated = self._repository.set_enabled(org_id, provider, False)
         return self._status(updated, provider, chunk_count, None)
 
     def _resync_category_description_embeddings(self, org_id, provider_instance) -> None:

@@ -1,23 +1,20 @@
-import os
+from contextlib import ExitStack
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
-from flask import Flask
-
-from app.infrastructure.auth.jwt_tokens import issue_access_token
 
 
-@pytest.fixture()
-def auth_headers():
-    """Mints a Bearer token with the given scopes for HTTP-layer tests. Uses a bare Flask app
-    (not the app factory) purely as a context to sign the token — going through create_app()
-    would re-run limiter.init_app() against the module-level Limiter singleton and reset
-    test_rate_limit.py's overridden limit back to the default."""
-
-    def _make(*scopes: str) -> dict:
-        minimal_app = Flask(__name__)
-        minimal_app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
-        with minimal_app.app_context():
-            token = issue_access_token("test-app", list(scopes), ttl_seconds=60)
-        return {"Authorization": f"Bearer {token}"}
-
-    return _make
+@pytest.fixture(autouse=True)
+def _mock_default_org_and_user_id():
+    """Unit/route tests are HTTP-layer only (services mocked, no real DB) — container.
+    get_default_org_id()/get_default_user_id() would otherwise need a real Postgres connection to
+    bootstrap/query the default org and admin user (there's no auth layer yet to resolve these
+    from — see docs/DATA_MODEL.md). Patched globally, at their single source in app.container, so
+    every route calling them via `container.get_default_org_id()`/`container.get_default_user_id()`
+    (module-qualified, not a direct name import) sees the mock without each test needing to know
+    this plumbing exists."""
+    with ExitStack() as stack:
+        stack.enter_context(patch("app.container.get_default_org_id", return_value=uuid4()))
+        stack.enter_context(patch("app.container.get_default_user_id", return_value=uuid4()))
+        yield
