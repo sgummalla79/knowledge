@@ -18,6 +18,13 @@ from api.infrastructure.parsing.registry import ParserRegistry
 # _resolve_parser uses to route to HtmlParser instead of ParserRegistry's extension lookup.
 HTML_SOURCE_FILE_TYPE = "html"
 
+# WebCrawlService passes this instead when WebPageFetcher found a markdown twin of the page
+# (see FetchedPage.is_markdown) rather than fetching/rendering the HTML itself. Matches
+# ParserRegistry's ".md" extension key exactly, so it routes to MarkdownParser through the same
+# resolve_by_file_type() lookup _resolve_parser already falls back to below — no dedicated branch
+# needed, unlike HTML_SOURCE_FILE_TYPE's.
+MARKDOWN_SOURCE_FILE_TYPE = "md"
+
 # No tokenizer is bundled (this app supports multiple embedding providers, each with its own
 # tokenizer — pinning to one wouldn't be accurate for the others anyway), so token_count is a
 # rough chars/4 estimate, the standard rule-of-thumb for English text. Informational only —
@@ -111,11 +118,13 @@ class IngestionService:
         html_bytes: bytes,
         category_id: UUID | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        file_type: str = HTML_SOURCE_FILE_TYPE,
     ) -> Document:
         """Same pipeline as ingest(), for a page fetched from the web (WebCrawlService) instead of
-        uploaded. title is the page's URL itself (for display/linking, not extension sniffing) and
-        file_type is the fixed HTML_SOURCE_FILE_TYPE marker rather than something derived from the
-        URL, which frequently has no real file extension."""
+        uploaded. title is the page's URL itself (for display/linking, not extension sniffing).
+        file_type defaults to the fixed HTML_SOURCE_FILE_TYPE marker rather than something derived
+        from the URL (which frequently has no real file extension), but WebCrawlService passes
+        MARKDOWN_SOURCE_FILE_TYPE explicitly when WebPageFetcher fetched a markdown twin instead."""
         settings = self.require_embedding_settings(org_id)
 
         content_hash = hashlib.sha256(html_bytes).hexdigest()
@@ -125,7 +134,7 @@ class IngestionService:
             category_id=category_id,
             title=url,
             type=_DEFAULT_CRAWL_DOCUMENT_TYPE,
-            file_type=HTML_SOURCE_FILE_TYPE,
+            file_type=file_type,
             content_hash=content_hash,
             status="processing",
             raw_file_bytes=html_bytes,

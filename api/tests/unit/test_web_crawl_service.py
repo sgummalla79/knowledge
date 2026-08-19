@@ -18,7 +18,7 @@ def _fake_fetcher(pages_by_url: dict[str, tuple[bytes, list[str]]]):
 
     def fetch(url):
         html, _ = pages_by_url[url]
-        return FetchedPage(html=html, final_url=url)
+        return FetchedPage(content=html, final_url=url)
 
     fetcher.fetch.side_effect = fetch
     return fetcher
@@ -43,7 +43,7 @@ def test_max_pages_one_never_calls_link_extractor(monkeypatch):
 def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
     ingestion_service = MagicMock()
     ingestion_service.ingest_html.side_effect = (
-        lambda org_id, owner_id, url, html, category_id=None: MagicMock(id=uuid4())
+        lambda org_id, owner_id, url, html, category_id=None, file_type=None: MagicMock(id=uuid4())
     )
 
     pages = {
@@ -57,7 +57,7 @@ def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
         "https://example.com/c": [],
     }
     fetcher = MagicMock()
-    fetcher.fetch.side_effect = lambda url: FetchedPage(html=pages[url], final_url=url)
+    fetcher.fetch.side_effect = lambda url: FetchedPage(content=pages[url], final_url=url)
 
     monkeypatch.setattr(
         "api.application.web_crawl_service.extract_in_scope_links",
@@ -82,10 +82,35 @@ def test_crawl_follows_in_scope_links_up_to_max_pages(monkeypatch):
     assert ingestion_service.ingest_html.call_count == 2
 
 
+def test_markdown_page_uses_markdown_link_extractor_and_file_type(monkeypatch):
+    ingestion_service = MagicMock()
+    ingestion_service.ingest_html.return_value = MagicMock(id=uuid4())
+
+    fetcher = MagicMock()
+    fetcher.fetch.side_effect = lambda url: FetchedPage(
+        content=b"# Title\n\n[Sibling](/docs/book/sibling.md)", final_url=url, is_markdown=True
+    )
+
+    html_extractor = MagicMock(return_value=[])
+    markdown_extractor = MagicMock(return_value=[])
+    monkeypatch.setattr("api.application.web_crawl_service.extract_in_scope_links", html_extractor)
+    monkeypatch.setattr(
+        "api.application.web_crawl_service.extract_in_scope_markdown_links", markdown_extractor
+    )
+
+    service = WebCrawlService(ingestion_service, fetcher)
+    org_id, owner_id = _ids()
+    service.crawl(org_id, owner_id, "https://example.com/docs/book/page.md", max_pages=2)
+
+    html_extractor.assert_not_called()
+    markdown_extractor.assert_called_once()
+    assert ingestion_service.ingest_html.call_args.kwargs["file_type"] == "md"
+
+
 def test_one_failed_page_does_not_abort_the_crawl(monkeypatch):
     ingestion_service = MagicMock()
 
-    def ingest_html(org_id, owner_id, url, html, category_id=None):
+    def ingest_html(org_id, owner_id, url, html, category_id=None, file_type=None):
         if url == "https://example.com/b":
             raise RuntimeError("embedding failed")
         return MagicMock(id=uuid4())
@@ -97,7 +122,7 @@ def test_one_failed_page_does_not_abort_the_crawl(monkeypatch):
         "https://example.com/b": b"<html>b</html>",
     }
     fetcher = MagicMock()
-    fetcher.fetch.side_effect = lambda url: FetchedPage(html=pages[url], final_url=url)
+    fetcher.fetch.side_effect = lambda url: FetchedPage(content=pages[url], final_url=url)
 
     monkeypatch.setattr(
         "api.application.web_crawl_service.extract_in_scope_links",

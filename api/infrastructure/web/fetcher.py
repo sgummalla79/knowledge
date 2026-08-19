@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,18 +20,29 @@ logger = logging.getLogger(__name__)
 
 _MAX_REDIRECTS = 5
 
+# Many modern doc sites (Docusaurus/Nextra/Mintlify-style, and Salesforce's developer docs) publish
+# a plain-markdown twin of every HTML page at the same path with ".md" in place of ".html"/".htm"
+# (or appended, if the page has no extension) — a static fetch of that twin gives clean content and
+# a real link graph to sibling pages, without ever needing the headless-render fallback below.
+# Checked first, best-effort: confirmed only via a real 200 with a markdown Content-Type, so a site
+# with no such twin (or one that soft-404s to an HTML error page) just falls through to the normal
+# path below at the cost of one harmless extra request.
+_MARKDOWN_CONTENT_TYPE_HINT = "markdown"
+
 
 @dataclass(frozen=True)
 class FetchedPage:
-    html: bytes
+    content: bytes
     final_url: str
+    is_markdown: bool = False
 
 
 class WebPageFetcher:
-    """Fetches a page's HTML, statically first, falling back to a headless browser only when the
-    static result looks like an unrendered JS shell (e.g. help.salesforce.com-style SPAs) — see
-    _looks_like_js_shell. Every URL, including every redirect hop, is SSRF-checked before any
-    request is made.
+    """Fetches a page's content, preferring a markdown twin (see _MARKDOWN_CONTENT_TYPE_HINT above)
+    over the real HTML, and among the two possible HTML paths, static first, falling back to a
+    headless browser only when the static result looks like an unrendered JS shell (e.g.
+    help.salesforce.com-style SPAs) — see _looks_like_js_shell. Every URL, including every redirect
+    hop, is SSRF-checked before any request is made.
 
     user_agent defaults to DEFAULT_WEB_CRAWL_USER_AGENT but is expected to be supplied by the
     caller from WebCrawlSettingsService — some sites (e.g. developer.salesforce.com) block a UA
@@ -42,11 +53,46 @@ class WebPageFetcher:
         self._user_agent = user_agent
 
     def fetch(self, url: str) -> FetchedPage:
+        if url.endswith(".md"):
+            content, final_url = self._fetch_static(url)
+            return FetchedPage(content=content, final_url=final_url, is_markdown=True)
+
+        markdown_page = self._fetch_markdown_variant(url)
+        if markdown_page is not None:
+            return markdown_page
+
         html, final_url = self._fetch_static(url)
         if self._looks_like_js_shell(html):
             logger.info("Static fetch looks like a JS shell, rendering instead", extra={"url": final_url})
             html = self._fetch_rendered(final_url)
-        return FetchedPage(html=html, final_url=final_url)
+        return FetchedPage(content=html, final_url=final_url, is_markdown=False)
+
+    def _markdown_variant_url(self, url: str) -> str:
+        parts = urlsplit(url)
+        path = parts.path
+        for ext in (".html", ".htm"):
+            if path.endswith(ext):
+                path = path[: -len(ext)]
+                break
+        return parts._replace(path=path + ".md").geturl()
+
+    def _fetch_markdown_variant(self, url: str) -> FetchedPage | None:
+        candidate = self._markdown_variant_url(url)
+        assert_public_url(candidate)
+        try:
+            response = requests.get(
+                candidate,
+                headers={"User-Agent": self._user_agent},
+                timeout=WEB_CRAWL_REQUEST_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+        except requests.RequestException:
+            return None
+
+        content_type = response.headers.get("Content-Type", "")
+        if response.status_code != 200 or _MARKDOWN_CONTENT_TYPE_HINT not in content_type.lower():
+            return None
+        return FetchedPage(content=response.content, final_url=url, is_markdown=True)
 
     def _fetch_static(self, url: str) -> tuple[bytes, str]:
         current_url = url

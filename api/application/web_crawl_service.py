@@ -8,11 +8,19 @@ from uuid import UUID
 
 import requests
 
-from api.application.ingestion_service import IngestionService
+from api.application.ingestion_service import (
+    HTML_SOURCE_FILE_TYPE,
+    MARKDOWN_SOURCE_FILE_TYPE,
+    IngestionService,
+)
 from api.constants import WEB_CRAWL_PAGE_DELAY_SECONDS, WEB_CRAWL_REQUEST_TIMEOUT_SECONDS
 from api.domain.entities import Document
 from api.infrastructure.web.fetcher import WebPageFetcher
-from api.infrastructure.web.link_extractor import extract_in_scope_links, seed_scope_prefix
+from api.infrastructure.web.link_extractor import (
+    extract_in_scope_links,
+    extract_in_scope_markdown_links,
+    seed_scope_prefix,
+)
 from api.infrastructure.web.url_safety import assert_public_url
 
 logger = logging.getLogger(__name__)
@@ -86,14 +94,23 @@ class WebCrawlService:
 
             try:
                 fetched = self._fetcher.fetch(url)
+                file_type = MARKDOWN_SOURCE_FILE_TYPE if fetched.is_markdown else HTML_SOURCE_FILE_TYPE
                 document = self._ingestion_service.ingest_html(
-                    org_id, owner_id, fetched.final_url, fetched.html, category_id=category_id
+                    org_id,
+                    owner_id,
+                    fetched.final_url,
+                    fetched.content,
+                    category_id=category_id,
+                    file_type=file_type,
                 )
                 if on_page_result:
                     on_page_result(url, document, None)
 
                 if len(visited) < max_pages:
-                    for link in extract_in_scope_links(fetched.html, fetched.final_url, scope_prefix):
+                    extract_links = (
+                        extract_in_scope_markdown_links if fetched.is_markdown else extract_in_scope_links
+                    )
+                    for link in extract_links(fetched.content, fetched.final_url, scope_prefix):
                         if link not in visited and link not in frontier:
                             frontier.append(link)
             except Exception as error:
