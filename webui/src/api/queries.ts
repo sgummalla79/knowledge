@@ -5,11 +5,26 @@ import type {
   Chunk,
   DashboardStats,
   Document,
+  EmbeddingOptions,
   EmbeddingProviderConfig,
   IngestionJob,
+  Org,
+  OrgMember,
   Shelf,
   Tag,
 } from './types'
+
+export function useOrgs() {
+  return useQuery({ queryKey: ['orgs'], queryFn: () => api.get<Org[]>('/orgs') })
+}
+
+export function useOrgMembers(orgId: string | undefined) {
+  return useQuery({
+    queryKey: ['orgs', orgId, 'members'],
+    queryFn: () => api.get<OrgMember[]>(`/orgs/${orgId}/members`),
+    enabled: orgId !== undefined,
+  })
+}
 
 export function useCategories() {
   return useQuery({ queryKey: ['categories'], queryFn: () => api.get<Category[]>('/categories') })
@@ -71,6 +86,10 @@ export function useEmbeddingSettings() {
     queryKey: ['embedding-settings'],
     queryFn: () => api.get<EmbeddingProviderConfig[]>('/embedding-settings'),
   })
+}
+
+export function useEmbeddingOptions() {
+  return useQuery({ queryKey: ['embedding-options'], queryFn: () => api.get<EmbeddingOptions>('/embedding-options') })
 }
 
 export interface DocumentFilters {

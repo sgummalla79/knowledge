@@ -61,6 +61,11 @@ class ShelfService:
     def list_document_shelves(self, document_id: UUID) -> list[Shelf]:
         return self._repository.list_shelves_for_document(document_id)
 
+    def list_accessible_shelves(self, user_id: UUID) -> list[Shelf]:
+        shelf_ids = self._repository.list_accessible_shelf_ids(user_id)
+        shelves = (self._repository.get(shelf_id) for shelf_id in shelf_ids)
+        return [shelf for shelf in shelves if shelf is not None]
+
     def document_count(self, shelf_id: UUID) -> int:
         return self._repository.count_documents(shelf_id)
 

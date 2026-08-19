@@ -26,6 +26,18 @@ export interface Document {
   avg_similarity: number | null
 }
 
+export interface RoutedChunk {
+  category_id: string
+  category_name: string
+  id: string
+  document_id: string
+  ordinal: number
+  content: string
+  score: number
+  document_title: string
+  document_type: DocumentType
+}
+
 export interface Chunk {
   id: string
   document_id: string
@@ -66,6 +78,32 @@ export interface EmbeddingProviderConfig {
   active_provider: string | null
 }
 
+export interface EmbeddingOptionProvider {
+  name: string
+  display_name: string
+  enabled: boolean
+  configured: boolean
+  locked: boolean
+  api_key_required: boolean
+  base_url_required: boolean
+  base_url_supported: boolean
+  default_base_url: string | null
+  supports_model_listing: boolean
+}
+
+export interface EmbeddingModelPreset {
+  provider: string
+  model: string
+  dimensions: number
+}
+
+export interface EmbeddingOptions {
+  providers: EmbeddingOptionProvider[]
+  default_provider: string | null
+  default_model: string | null
+  suggested_models: EmbeddingModelPreset[]
+}
+
 export interface Category {
   id: string
   org_id: string
@@ -88,6 +126,23 @@ export interface Shelf {
   member_count: number
   created_at: string
   last_modified_at: string
+}
+
+export type OrgRole = 'admin' | 'contributor' | 'viewer'
+
+export interface Org {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  role: OrgRole
+}
+
+export interface OrgMember {
+  identity_id: string
+  email: string
+  name: string
+  role: OrgRole
 }
 
 export interface Tag {

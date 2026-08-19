@@ -286,9 +286,13 @@ class RoutedScoredChunkResponse(BaseModel):
     ordinal: int
     content: str
     score: float
+    # Search results need more than category/score to render — the caller batch-fetches the
+    # referenced documents once and passes these in, rather than this response doing N+1 lookups.
+    document_title: str
+    document_type: str
 
     @classmethod
-    def from_entity(cls, routed: RoutedScoredChunk) -> "RoutedScoredChunkResponse":
+    def from_entity(cls, routed: RoutedScoredChunk, document_title: str, document_type: str) -> "RoutedScoredChunkResponse":
         return cls(
             category_id=routed.category_id,
             category_name=routed.category_name,
@@ -297,6 +301,8 @@ class RoutedScoredChunkResponse(BaseModel):
             ordinal=routed.chunk.ordinal,
             content=routed.chunk.content,
             score=routed.chunk.score,
+            document_title=document_title,
+            document_type=document_type,
         )
 
 
@@ -405,6 +411,20 @@ class ShelfResponse(BaseModel):
             created_at=shelf.created_at,
             last_modified_at=shelf.last_modified_at,
         )
+
+
+class ShelfSummaryResponse(BaseModel):
+    """A member's shelf-access badge only needs id/name/slug, not the full ShelfResponse (which
+    also computes document/member counts) — kept separate to avoid an admin-only members-page
+    load computing counts for shelves it never displays."""
+
+    id: UUID
+    name: str
+    slug: str
+
+    @classmethod
+    def from_entity(cls, shelf: Shelf) -> "ShelfSummaryResponse":
+        return cls(id=shelf.id, name=shelf.name, slug=shelf.slug)
 
 
 class TagCreateRequest(BaseModel):

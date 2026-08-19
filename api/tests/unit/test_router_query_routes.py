@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -5,7 +6,7 @@ import pytest
 
 from api import create_app
 from api.domain import error_codes
-from api.domain.entities import RoutedScoredChunk, ScoredChunk
+from api.domain.entities import Document, RoutedScoredChunk, ScoredChunk
 from api.domain.errors import ValidationError
 
 # HTTP-layer wiring only — CategoryRouterService is mocked. Real routing/merge behavior is covered
@@ -56,11 +57,28 @@ def test_query_no_category_clears_threshold_returns_empty_list(client):
     assert response.get_json()["chunks"] == []
 
 
+def _document(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(), org_id=uuid4(), source_id=None, category_id=None, owner_id=uuid4(),
+        title="notes.md", type="article", file_type="md", content_uri=None, description=None,
+        status="indexed", error_message=None, size_bytes=1024, chunk_count=3,
+        split_group_id=None, split_part=None, split_total=None, created_by=None,
+        last_modified_by=None, created_at=now, last_modified_at=now, indexed_at=now,
+    )
+    fields.update(overrides)
+    return Document(**fields)
+
+
 def test_query_returns_routed_scored_chunks(client):
     category_id = uuid4()
-    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
+    document = _document(title="Chunking strategies")
+    chunk = ScoredChunk(id=uuid4(), document_id=document.id, ordinal=0, content="hello world", score=0.9)
     routed = RoutedScoredChunk(category_id=category_id, category_name="docs", chunk=chunk)
-    with patch("api.presentation.routes.router_query.CategoryRouterService.query", return_value=[routed]):
+    with (
+        patch("api.presentation.routes.router_query.CategoryRouterService.query", return_value=[routed]),
+        patch("api.presentation.routes.router_query.DocumentRepository.list_by_ids", return_value=[document]),
+    ):
         response = client.post("/query", json={"query": "hello"})
 
     assert response.status_code == 200
@@ -69,13 +87,17 @@ def test_query_returns_routed_scored_chunks(client):
     assert body["chunks"][0]["score"] == 0.9
     assert body["chunks"][0]["category_id"] == str(category_id)
     assert body["chunks"][0]["category_name"] == "docs"
+    assert body["chunks"][0]["document_title"] == "Chunking strategies"
+    assert body["chunks"][0]["document_type"] == "article"
 
 
 def test_query_records_history_with_unwrapped_chunks(client):
-    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
+    document = _document()
+    chunk = ScoredChunk(id=uuid4(), document_id=document.id, ordinal=0, content="hello world", score=0.9)
     routed = RoutedScoredChunk(category_id=uuid4(), category_name="docs", chunk=chunk)
     with (
         patch("api.presentation.routes.router_query.CategoryRouterService.query", return_value=[routed]),
+        patch("api.presentation.routes.router_query.DocumentRepository.list_by_ids", return_value=[document]),
         patch(
             "api.presentation.routes.router_query.QueryHistoryService.record", return_value=None
         ) as mock_record,

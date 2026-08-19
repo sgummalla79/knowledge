@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from api import create_app
-from api.domain.entities import Identity, OrgMember, Organization
+from api.domain.entities import Identity, OrgMember, Organization, Shelf
 from api.domain.errors import ConflictError, ForbiddenError, NotFoundError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — services are mocked. `orgs.py`
@@ -271,3 +271,45 @@ def test_remove_member_returns_204(client):
         response = client.delete(f"/orgs/{uuid4()}/members/{uuid4()}")
 
     assert response.status_code == 204
+
+
+def _shelf(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(),
+        org_id=uuid4(),
+        name="Engineering",
+        slug="engineering",
+        description=None,
+        is_default=False,
+        created_by=None,
+        last_modified_by=None,
+        created_at=now,
+        last_modified_at=now,
+    )
+    fields.update(overrides)
+    return Shelf(**fields)
+
+
+def test_get_member_shelf_access_requires_admin(client):
+    with patch(
+        "api.presentation.routes.orgs._require_admin",
+        side_effect=ForbiddenError("Only an org admin can manage members."),
+    ):
+        response = client.get(f"/orgs/{uuid4()}/members/{uuid4()}/shelf-access")
+
+    assert response.status_code == 403
+
+
+def test_get_member_shelf_access_returns_shelves(client):
+    shelf = _shelf()
+    with (
+        patch("api.presentation.routes.orgs._require_admin", return_value=None),
+        patch("api.presentation.routes.orgs.ShelfService.list_accessible_shelves", return_value=[shelf]),
+    ):
+        response = client.get(f"/orgs/{uuid4()}/members/{uuid4()}/shelf-access")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body) == 1
+    assert body[0]["name"] == "Engineering"

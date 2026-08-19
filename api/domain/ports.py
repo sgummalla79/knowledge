@@ -31,6 +31,8 @@ class DocumentRepositoryPort(Protocol):
 
     def get(self, document_id: UUID) -> Document | None: ...
 
+    def list_by_ids(self, document_ids: list[UUID]) -> list[Document]: ...
+
     def list_for_org(
         self,
         org_id: UUID,

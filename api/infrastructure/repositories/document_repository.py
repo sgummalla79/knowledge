@@ -70,6 +70,12 @@ class DocumentRepository:
         model = self._session.get(DocumentModel, document_id)
         return _to_entity(model) if model is not None else None
 
+    def list_by_ids(self, document_ids: list) -> list[DocumentEntity]:
+        if not document_ids:
+            return []
+        models = self._session.query(DocumentModel).filter(DocumentModel.id.in_(document_ids)).all()
+        return [_to_entity(model) for model in models]
+
     def list_for_org(
         self, org_id, limit: int, offset: int, sort: str, category_id=None, shelf_id=None, document_type=None
     ) -> list[DocumentEntity]:

@@ -3,11 +3,13 @@ from uuid import UUID
 from flask import Blueprint, g, jsonify, request, session
 
 from api.application.org_membership_service import OrgMembershipService
+from api.application.shelf_service import ShelfService
 from api.container import get_session
 from api.domain.errors import ForbiddenError
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
+from api.infrastructure.repositories.shelf_repository import ShelfRepository
 from api.presentation.routes.auth_ui import require_org_session
 from api.presentation.schemas import (
     OrgCreateRequest,
@@ -16,6 +18,7 @@ from api.presentation.schemas import (
     OrgMemberRoleUpdateRequest,
     OrgResponse,
     OrgUpdateRequest,
+    ShelfSummaryResponse,
 )
 
 orgs_bp = Blueprint("orgs", __name__, url_prefix="/orgs")
@@ -126,3 +129,11 @@ def remove_member(org_id: UUID, identity_id: UUID):
     _require_admin(org_id)
     _service().remove_member(org_id, identity_id)
     return "", 204
+
+
+@orgs_bp.get("/<uuid:org_id>/members/<uuid:identity_id>/shelf-access")
+@require_org_session
+def get_member_shelf_access(org_id: UUID, identity_id: UUID):
+    _require_admin(org_id)
+    shelves = ShelfService(ShelfRepository(get_session())).list_accessible_shelves(identity_id)
+    return jsonify([ShelfSummaryResponse.from_entity(shelf).model_dump(mode="json") for shelf in shelves])
