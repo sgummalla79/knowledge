@@ -6,7 +6,9 @@ import { useCategories, useIngestionJobs, useShelves, useTags } from '../api/que
 import type { Tag } from '../api/types'
 import { Dropzone } from '../components/Dropzone'
 import { RecentUploadsList } from '../components/RecentUploadsList'
+import { Select } from '../components/Select'
 import { SourceTypeRadio, type SourceType } from '../components/SourceTypeRadio'
+import { TagPillInput } from '../components/TagPillInput'
 import { useToast } from '../components/toastContext'
 import { useJobPolling } from '../lib/useJobPolling'
 
@@ -22,22 +24,6 @@ interface CrawlStatus {
   pages: Record<string, { status: string; document_id: string | null; error: string | null }>
 }
 
-async function getOrCreateTagIds(names: string[], existingTags: Tag[]): Promise<string[]> {
-  const ids: string[] = []
-  for (const raw of names) {
-    const name = raw.trim()
-    if (!name) continue
-    const existing = existingTags.find((tag) => tag.name.toLowerCase() === name.toLowerCase())
-    if (existing) {
-      ids.push(existing.id)
-    } else {
-      const created = await api.post<Tag>('/tags', { name })
-      ids.push(created.id)
-    }
-  }
-  return ids
-}
-
 export function UploadPage() {
   const { showToast } = useToast()
   const queryClient = useQueryClient()
@@ -51,7 +37,7 @@ export function UploadPage() {
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
-  const [tagsInput, setTagsInput] = useState('')
+  const [pendingTags, setPendingTags] = useState<Tag[]>([])
   const [shelfIds, setShelfIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -61,7 +47,7 @@ export function UploadPage() {
     setFile(null)
     setUrl('')
     setTitle('')
-    setTagsInput('')
+    setPendingTags([])
     setShelfIds([])
   }
 
@@ -70,15 +56,8 @@ export function UploadPage() {
       if (title.trim()) {
         await api.patch(`/documents/${documentId}`, { title: title.trim() })
       }
-      const tagNames = tagsInput
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-      if (tagNames.length > 0) {
-        const tagIds = await getOrCreateTagIds(tagNames, tags.data ?? [])
-        for (const tagId of tagIds) {
-          await api.post(`/documents/${documentId}/tags`, { tag_id: tagId })
-        }
+      for (const tag of pendingTags) {
+        await api.post(`/documents/${documentId}/tags`, { tag_id: tag.id })
       }
       for (const shelfId of shelfIds) {
         await api.post(`/shelves/${shelfId}/documents`, { document_id: documentId })
@@ -213,33 +192,27 @@ export function UploadPage() {
             <label htmlFor="category" className="mb-1.5 block text-sm text-foreground">
               Category
             </label>
-            <select
+            <Select
               id="category"
               value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
-              className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground"
-            >
-              <option value="">No category</option>
-              {(categories.data ?? []).map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
+              onChange={setCategoryId}
+              options={[
+                { value: '', label: 'No category' },
+                ...(categories.data ?? []).map((category) => ({ value: category.id, label: category.name })),
+              ]}
+              className="w-full px-4 py-2.5 text-[15px]"
+            />
           </div>
 
           <div className="mb-4">
-            <label htmlFor="tags" className="mb-1.5 block text-sm text-foreground">
-              Tags
-            </label>
-            <input
-              id="tags"
-              placeholder="billing, refunds"
-              value={tagsInput}
-              onChange={(event) => setTagsInput(event.target.value)}
-              className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <span className="mb-1.5 block text-sm text-foreground">Tags</span>
+            <TagPillInput
+              tags={pendingTags}
+              existingTags={tags.data ?? []}
+              onAdd={(tag) => setPendingTags((current) => [...current, tag])}
+              onRemove={(tagId) => setPendingTags((current) => current.filter((tag) => tag.id !== tagId))}
+              placeholder="billing, refunds — press Tab or Enter"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Comma-separated.</p>
           </div>
 
           {(shelves.data ?? []).length > 0 && (

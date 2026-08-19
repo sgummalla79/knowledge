@@ -1,6 +1,13 @@
 import { useQueries } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { OrgMember, OrgRole, Shelf } from '../api/types'
+import { Select } from './Select'
+
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'contributor', label: 'Contributor' },
+  { value: 'viewer', label: 'Viewer' },
+]
 
 interface Props {
   orgId: string
@@ -42,16 +49,13 @@ export function MembersTable({ orgId, members, canManage, currentUserEmail, onRo
                   <div className="text-[12.5px] text-muted-foreground">{member.email}</div>
                 </td>
                 <td className="py-3.5 pr-4">
-                  <select
+                  <Select
                     value={member.role}
+                    options={ROLE_OPTIONS}
                     disabled={!canManage || isSelf}
-                    onChange={(event) => onRoleChange(member.identity_id, event.target.value as OrgRole)}
-                    className="rounded-sm border border-border bg-secondary px-2.5 py-1.5 text-[13px] text-foreground disabled:opacity-60"
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="contributor">Contributor</option>
-                    <option value="viewer">Viewer</option>
-                  </select>
+                    onChange={(value) => onRoleChange(member.identity_id, value as OrgRole)}
+                    className="px-2.5 py-1.5 text-[13px]"
+                  />
                 </td>
                 <td className="py-3.5 pr-4">
                   {member.role === 'admin' ? (

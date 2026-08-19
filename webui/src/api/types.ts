@@ -1,4 +1,4 @@
-export type DocumentType = 'article' | 'dataset' | 'guide' | 'report' | 'faq' | 'media'
+export type DocumentType = 'article' | 'document'
 export type DocumentStatus = 'processing' | 'indexed' | 'failed' | 'archived'
 
 export interface Document {

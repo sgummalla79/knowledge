@@ -1,16 +1,14 @@
 import { useParams } from 'react-router-dom'
-import { useCategories, useDocument, useDocumentChunks, useDocumentShelves } from '../api/queries'
+import { useCategories, useDocument } from '../api/queries'
 import { Breadcrumb } from '../components/Breadcrumb'
-import { ChunksTable } from '../components/ChunksTable'
 import { DocumentHeader } from '../components/DocumentHeader'
+import { DocumentOrganizePanel } from '../components/DocumentOrganizePanel'
 import { RelatedItems } from '../components/RelatedItems'
 import { RetrievalStatsSidebar } from '../components/RetrievalStatsSidebar'
 
 export function ItemPage() {
   const { id } = useParams<{ id: string }>()
   const document = useDocument(id)
-  const chunks = useDocumentChunks(id)
-  const shelves = useDocumentShelves(id)
   const categories = useCategories()
 
   if (document.isLoading) {
@@ -41,7 +39,7 @@ export function ItemPage() {
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_300px]">
         <div>
-          <DocumentHeader document={doc} category={category} shelves={shelves.data ?? []} />
+          <DocumentHeader document={doc} />
 
           {doc.description && (
             <section className="mt-8">
@@ -50,14 +48,7 @@ export function ItemPage() {
             </section>
           )}
 
-          <section className="mt-8">
-            <h2 className="mb-3 text-lg font-semibold text-foreground">Chunks</h2>
-            {chunks.isLoading ? (
-              <p className="text-sm text-muted-foreground">Loading chunks…</p>
-            ) : (
-              <ChunksTable chunks={chunks.data ?? []} />
-            )}
-          </section>
+          <DocumentOrganizePanel document={doc} categories={categories.data ?? []} />
         </div>
 
         <div className="flex flex-col gap-6">

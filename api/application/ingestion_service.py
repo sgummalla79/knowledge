@@ -24,9 +24,15 @@ HTML_SOURCE_FILE_TYPE = "html"
 # nothing in the retrieval pipeline depends on this being exact.
 _CHARS_PER_TOKEN_ESTIMATE = 4
 
-# Documents don't get classified into the target spec's article/dataset/guide/report/faq/media
-# taxonomy by anything yet — every ingested document defaults to this until that's built.
-_DEFAULT_DOCUMENT_TYPE = "article"
+# Every crawled page is classified "article" — the vast majority of web content is, and there's no
+# per-URL signal (unlike a file's extension) to classify it any other way.
+_DEFAULT_CRAWL_DOCUMENT_TYPE = "article"
+# Every file upload is classified "document" — just a starting point, corrigible after the fact via
+# PATCH /documents/<id>/metadata. (Previously split further into a "dataset" type for spreadsheet
+# extensions, but structured/tabular data doesn't actually belong in this chunk-and-embed pipeline
+# at all — it wants exact query access, not similarity search — so that distinction was removed
+# rather than kept as a type label with no real tabular capability behind it.)
+_DEFAULT_UPLOAD_DOCUMENT_TYPE = "document"
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +81,15 @@ class IngestionService:
         caller omits these and gets today's behavior unchanged."""
         settings = self.require_embedding_settings(org_id)
 
+        resolved_file_type = file_type if file_type is not None else resolve_file_type(filename)
         content_hash = hashlib.sha256(file_bytes).hexdigest()
         document = self._documents.create(
             org_id=org_id,
             owner_id=owner_id,
             category_id=category_id,
             title=filename,
-            type=_DEFAULT_DOCUMENT_TYPE,
-            file_type=file_type if file_type is not None else resolve_file_type(filename),
+            type=_DEFAULT_UPLOAD_DOCUMENT_TYPE,
+            file_type=resolved_file_type,
             content_hash=content_hash,
             status="processing",
             # Kept only until this document reaches "indexed" — see
@@ -117,7 +124,7 @@ class IngestionService:
             owner_id=owner_id,
             category_id=category_id,
             title=url,
-            type=_DEFAULT_DOCUMENT_TYPE,
+            type=_DEFAULT_CRAWL_DOCUMENT_TYPE,
             file_type=HTML_SOURCE_FILE_TYPE,
             content_hash=content_hash,
             status="processing",

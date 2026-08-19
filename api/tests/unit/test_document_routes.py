@@ -112,10 +112,10 @@ def test_list_documents_passes_type_filter_through(client):
         "api.presentation.routes.documents.DocumentService.list_documents",
         return_value=([], 0)
     ) as mock_list:
-        response = client.get("/documents?type=dataset")
+        response = client.get("/documents?type=document")
 
     assert response.status_code == 200
-    assert mock_list.call_args.kwargs["document_type"] == "dataset"
+    assert mock_list.call_args.kwargs["document_type"] == "document"
 
 
 def test_get_document_returns_document(client):
@@ -375,6 +375,77 @@ def test_rename_document_missing_document_returns_structured_404(client):
 
     assert response.status_code == 404
     assert response.get_json()["error"]["code"] == "document_not_found"
+
+
+def test_update_document_metadata_returns_updated_document(client):
+    category_id = uuid4()
+    updated = _document(category_id=category_id, type="document")
+    with patch(
+        "api.presentation.routes.documents.DocumentService.update_metadata",
+        return_value=updated
+    ) as mock_update:
+        response = client.patch(
+            f"/documents/{uuid4()}/metadata",
+            json={"category_id": str(category_id), "type": "document"}
+        )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["type"] == "document"
+    assert body["category_id"] == str(category_id)
+    assert mock_update.call_args[0][2] == category_id
+    assert mock_update.call_args[0][3] == "document"
+
+
+def test_update_document_metadata_allows_clearing_category(client):
+    updated = _document(category_id=None, type="article")
+    with patch(
+        "api.presentation.routes.documents.DocumentService.update_metadata",
+        return_value=updated
+    ) as mock_update:
+        response = client.patch(
+            f"/documents/{uuid4()}/metadata",
+            json={"category_id": None, "type": "article"}
+        )
+
+    assert response.status_code == 200
+    assert mock_update.call_args[0][2] is None
+
+
+def test_update_document_metadata_invalid_type_returns_structured_400(client):
+    response = client.patch(
+        f"/documents/{uuid4()}/metadata",
+        json={"category_id": None, "type": "not-a-real-type"}
+    )
+    assert response.status_code == 400
+
+
+def test_update_document_metadata_missing_document_returns_structured_404(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.update_metadata",
+        side_effect=NotFoundError("document_not_found", "Document not found.")
+    ):
+        response = client.patch(
+            f"/documents/{uuid4()}/metadata",
+            json={"category_id": None, "type": "article"}
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "document_not_found"
+
+
+def test_update_document_metadata_foreign_category_returns_structured_404(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.update_metadata",
+        side_effect=NotFoundError("category_not_found", "Category not found.")
+    ):
+        response = client.patch(
+            f"/documents/{uuid4()}/metadata",
+            json={"category_id": str(uuid4()), "type": "article"}
+        )
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "category_not_found"
 
 
 def test_cancel_job_returns_202(client):

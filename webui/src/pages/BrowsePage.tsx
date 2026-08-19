@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { DocumentCard } from '../components/DocumentCard'
 import { FilterSidebar } from '../components/FilterSidebar'
 import { Pagination } from '../components/Pagination'
+import { Select } from '../components/Select'
 import { useCategories, useDocuments, useShelves } from '../api/queries'
 
 const PAGE_SIZE = 12
@@ -53,17 +54,7 @@ export function BrowsePage() {
 
         <div className="flex-1">
           <div className="mb-5 flex justify-end">
-            <select
-              value={sort}
-              onChange={(event) => setSort(event.target.value)}
-              className="rounded-sm border border-border bg-secondary px-3 py-1.5 text-[13px] text-foreground"
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <Select value={sort} onChange={setSort} options={SORT_OPTIONS} className="px-3 py-1.5 text-[13px]" />
           </div>
 
           {documents.isLoading && <p className="text-sm text-muted-foreground">Loading documents…</p>}

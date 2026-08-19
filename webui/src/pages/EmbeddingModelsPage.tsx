@@ -4,6 +4,8 @@ import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import { useEmbeddingOptions, useEmbeddingSettings } from '../api/queries'
 import type { EmbeddingOptionProvider, EmbeddingProviderConfig } from '../api/types'
+import { Modal } from '../components/Modal'
+import { Select } from '../components/Select'
 import { useToast } from '../components/toastContext'
 
 function statusLabel(config: EmbeddingProviderConfig): string {
@@ -18,6 +20,15 @@ function statusClass(config: EmbeddingProviderConfig): string {
   return 'bg-secondary text-muted-foreground'
 }
 
+// The grid's raw `provider` key ("openai_compatible", ...) isn't a display string — display_name
+// (api/constants.py's EMBEDDING_PROVIDER_DISPLAY_NAMES, served fresh by GET /embedding-options)
+// already backs the provider Select's option labels below, so reuse that instead of a second
+// lookup — the DB's embedding_models.name column carries the same value but is a write-once copy
+// frozen at row-creation time, so it can't be relied on to reflect a label change later.
+function providerDisplayName(provider: string, providers: EmbeddingOptionProvider[]): string {
+  return providers.find((entry) => entry.name === provider)?.display_name ?? provider
+}
+
 interface ProviderConfigFormProps {
   provider: string
   providers: EmbeddingOptionProvider[]
@@ -25,11 +36,12 @@ interface ProviderConfigFormProps {
   option: EmbeddingOptionProvider | undefined
   onProviderChange: (provider: string) => void
   onSaved: () => void
+  onClose: () => void
 }
 
 // Keyed by `provider` in the parent so switching providers remounts this component with fresh
 // initial state (from `config`/`option`) rather than needing a reset-on-prop-change effect.
-function ProviderConfigForm({ provider, providers, config, option, onProviderChange, onSaved }: ProviderConfigFormProps) {
+function ProviderConfigForm({ provider, providers, config, option, onProviderChange, onSaved, onClose }: ProviderConfigFormProps) {
   const { showToast } = useToast()
   const [model, setModel] = useState(config?.model ?? '')
   const [apiKey, setApiKey] = useState('')
@@ -92,18 +104,13 @@ function ProviderConfigForm({ provider, providers, config, option, onProviderCha
         <label htmlFor="provider" className="mb-1.5 block text-sm text-foreground">
           Provider
         </label>
-        <select
+        <Select
           id="provider"
           value={provider}
-          onChange={(event) => onProviderChange(event.target.value)}
-          className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground"
-        >
-          {providers.map((entry) => (
-            <option key={entry.name} value={entry.name}>
-              {entry.display_name}
-            </option>
-          ))}
-        </select>
+          onChange={onProviderChange}
+          options={providers.map((entry) => ({ value: entry.name, label: entry.display_name }))}
+          className="w-full px-4 py-2.5 text-[15px]"
+        />
         {config?.locked_by_other && (
           <p className="mt-1 text-xs text-muted-foreground">
             Another provider is active — disable it before configuring this one.
@@ -203,13 +210,18 @@ function ProviderConfigForm({ provider, providers, config, option, onProviderCha
         Make this the org&apos;s active model — disables the current active provider
       </label>
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="w-fit rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-      >
-        {saving ? 'Saving…' : 'Save provider'}
-      </button>
+      <div className="mt-2 flex justify-end gap-3">
+        <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">
+          Close
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save provider'}
+        </button>
+      </div>
     </form>
   )
 }
@@ -220,6 +232,7 @@ export function EmbeddingModelsPage() {
   const settings = useEmbeddingSettings()
   const options = useEmbeddingOptions()
   const [manuallySelected, setManuallySelected] = useState<string | null>(null)
+  const [configuring, setConfiguring] = useState(false)
 
   const providers = options.data?.providers ?? []
   const configs = settings.data ?? []
@@ -244,7 +257,16 @@ export function EmbeddingModelsPage() {
 
   return (
     <div>
-      <h1 className="mb-1 text-[26px] font-semibold text-foreground">Embedding model</h1>
+      <div className="mb-1 flex items-baseline justify-between">
+        <h1 className="text-[26px] font-semibold text-foreground">Embedding model</h1>
+        <button
+          type="button"
+          onClick={() => setConfiguring(true)}
+          className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+        >
+          Add provider
+        </button>
+      </div>
       <p className="mb-8 max-w-xl text-sm text-muted-foreground">
         Exactly one provider is active at a time — the org embeds with a single model, not a
         per-category choice. Switching providers is blocked while documents exist, since
@@ -265,7 +287,7 @@ export function EmbeddingModelsPage() {
           <tbody>
             {configs.map((config) => (
               <tr key={config.provider} className="border-t border-border">
-                <td className="py-3 pr-4 text-foreground">{config.provider}</td>
+                <td className="py-3 pr-4 font-medium text-foreground">{providerDisplayName(config.provider, providers)}</td>
                 <td className="py-3 pr-4 text-foreground">{config.model ?? '—'}</td>
                 <td className="py-3 pr-4 text-muted-foreground">{config.dimensions ?? '—'}</td>
                 <td className="py-3 pr-4">
@@ -294,9 +316,8 @@ export function EmbeddingModelsPage() {
         </table>
       </div>
 
-      <section className="max-w-lg">
-        <h2 className="mb-4 text-lg font-semibold text-foreground">Configure a provider</h2>
-        {selectedProvider && (
+      {configuring && selectedProvider && (
+        <Modal title="Configure a provider" onClose={() => setConfiguring(false)} maxWidthClassName="max-w-lg">
           <ProviderConfigForm
             key={selectedProvider}
             provider={selectedProvider}
@@ -304,10 +325,14 @@ export function EmbeddingModelsPage() {
             config={selectedConfig}
             option={selectedOption}
             onProviderChange={setManuallySelected}
-            onSaved={() => void refetch()}
+            onSaved={() => {
+              void refetch()
+              setConfiguring(false)
+            }}
+            onClose={() => setConfiguring(false)}
           />
-        )}
-      </section>
+        </Modal>
+      )}
     </div>
   )
 }

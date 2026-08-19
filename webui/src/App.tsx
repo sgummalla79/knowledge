@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { NavBar } from './components/NavBar'
-import { SettingsTabs } from './components/SettingsTabs'
+import { SettingsLayout } from './components/SettingsLayout'
 import { ToastProvider } from './components/ToastProvider'
 import { BrowsePage } from './pages/BrowsePage'
+import { CategoriesSettingsPage } from './pages/CategoriesSettingsPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -39,10 +40,11 @@ export default function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="upload" element={<UploadPage />} />
 
-              <Route element={<SettingsTabs />}>
+              <Route element={<SettingsLayout />}>
                 <Route path="org/settings" element={<GeneralSettingsPage />} />
                 <Route path="org/members" element={<OrgSettingsPage />} />
                 <Route path="org/shelves" element={<ShelvesSettingsPage />} />
+                <Route path="org/categories" element={<CategoriesSettingsPage />} />
                 <Route path="org/embedding-models" element={<EmbeddingModelsPage />} />
               </Route>
             </Route>

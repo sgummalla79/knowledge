@@ -12,7 +12,7 @@ from api.constants import DEFAULT_WEB_CRAWL_USER_AGENT
 from api.domain import error_codes
 from api.domain.entities import Chunk, Document
 from api.domain.errors import IngestionCancelled, NotFoundError, ValidationError
-from api.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, IngestionJobRepositoryPort
+from api.domain.ports import CategoryRepositoryPort, ChunkRepositoryPort, DocumentRepositoryPort, IngestionJobRepositoryPort
 from api.infrastructure.orm import SessionLocal
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
@@ -59,6 +59,7 @@ class DocumentService:
         document_repo: DocumentRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
         ingestion_job_repo: IngestionJobRepositoryPort | None = None,
+        category_repo: CategoryRepositoryPort | None = None,
     ):
         self._documents = document_repo
         self._chunks = chunk_repo
@@ -67,6 +68,9 @@ class DocumentService:
         # background thread itself builds its own IngestionJobRepository against its own session
         # (see _run_ingestion_job etc.) rather than sharing this one across threads.
         self._ingestion_jobs = ingestion_job_repo
+        # Optional: only update_metadata() needs it, to check a caller-supplied category_id
+        # actually belongs to this org before writing it onto the document.
+        self._categories = category_repo
 
     def list_documents(
         self,
@@ -112,6 +116,18 @@ class DocumentService:
         if document is None or document.org_id != org_id:
             raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
         return self._documents.rename(document_id, new_name)
+
+    def update_metadata(
+        self, org_id: UUID, document_id: UUID, category_id: UUID | None, document_type: str
+    ) -> Document:
+        document = self._documents.get(document_id)
+        if document is None or document.org_id != org_id:
+            raise NotFoundError(error_codes.DOCUMENT_NOT_FOUND, "Document not found.")
+        if category_id is not None:
+            category = self._categories.get(category_id)
+            if category is None or category.org_id != org_id:
+                raise NotFoundError(error_codes.CATEGORY_NOT_FOUND, "Category not found.")
+        return self._documents.update_metadata(document_id, category_id, document_type)
 
     def get_job_status(self, job_id: str) -> dict:
         try:

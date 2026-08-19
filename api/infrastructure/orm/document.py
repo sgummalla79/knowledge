@@ -7,7 +7,7 @@ from sqlalchemy.orm import deferred
 from api.infrastructure.orm.base import Base
 
 document_type = ENUM(
-    "article", "dataset", "guide", "report", "faq", "media", name="document_type", create_type=False
+    "article", "document", name="document_type", create_type=False
 )
 document_status = ENUM("processing", "indexed", "failed", "archived", name="document_status", create_type=False)
 
@@ -23,9 +23,13 @@ class Document(Base):
     # The browsable/editable display name — replaces the old `source_filename` (same renameable
     # field, see DocumentRepository.rename).
     title = Column(String, nullable=False)
-    # Classification (article/dataset/guide/report/faq/media) per the target spec — distinct from
-    # `file_type` below, which is the technical upload format (pdf/md/txt/html) driving parser
-    # selection (api/infrastructure/parsing/registry.py). Nothing sets this classification yet.
+    # Content classification (article/document) — distinct from `file_type` below, which is the
+    # technical upload format (pdf/md/txt/html) driving parser selection
+    # (api/infrastructure/parsing/registry.py). Assigned at ingestion time by a simple rule
+    # (IngestionService: a crawl is always "article", an upload is "document") and editable after
+    # the fact via PATCH /documents/<id>/metadata. No "media" (image/video/audio) type for now —
+    # this app has no model that can meaningfully embed or retrieve that content yet; add it back
+    # once one exists, rather than keeping a label with nothing real behind it.
     type = Column(document_type, nullable=False)
     # Pointer to blob storage — nullable and unpopulated for now, no blob storage exists yet.
     # Uploads live in raw_file_bytes below instead (see migration 0001's docstring).

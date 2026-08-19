@@ -6,81 +6,91 @@
    every component references these variable names via Tailwind utilities (bg-background,
    text-foreground, bg-primary, ...), never a raw color value.
 
-   Light values below are lifted from the Claude-Design mockup's own inline tokens (teal accent,
-   pink accent used for destructive/restricted states, Source Serif 4 throughout). Dark values are
-   this app's own derivation — the mockup itself has no dark variant. */
+   Current values are tweakcn's "Twitter" theme (https://tweakcn.com/r/themes/cmlznk552000004jubsv77roj)
+   — Open Sans throughout, Menlo for font-mono. One deliberate deviation from the raw export:
+   --secondary/--secondary-foreground are remapped to mirror --muted/--foreground (same pairing
+   this app's pre-tweakcn theme already used) instead of tweakcn's own values. tweakcn's "Twitter"
+   theme pairs secondary with a shadcn "dark secondary button" in mind (near-black fill, white
+   text in light mode; the inverse in dark mode) — but every input/select/badge in this app pairs
+   bg-secondary with text-foreground expecting a light neutral fill, so the raw export made that
+   text unreadable (dark-on-dark in light mode, light-on-light in dark mode) in every text box,
+   dropdown, and pill in the app. Every other token below is the tweakcn export verbatim. */
 :root {
-  --background: #f3f2f2;
-  --foreground: #201e1d;
-  --card: #eae9e9;
-  --card-foreground: #201e1d;
-  --popover: #f3f2f2;
-  --popover-foreground: #201e1d;
-  --primary: #0088b0;
-  --primary-foreground: #f3f2f2;
-  --secondary: #eae9e9;
-  --secondary-foreground: #201e1d;
-  --muted: #eae9e9;
-  --muted-foreground: #6b6968;
-  --accent: #e9f8ff;
-  --accent-foreground: #004961;
-  --destructive: #d6006c;
-  --destructive-foreground: #f3f2f2;
-  --border: #d9d8d7;
-  --input: #d9d8d7;
-  --ring: #0088b0;
-  --radius: 0.125rem;
-  --font-sans: "Source Serif 4", ui-serif, Georgia, serif;
-  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+  color-scheme: light;
+  --background: oklch(1.0000 0 0);
+  --foreground: oklch(0.1884 0.0128 248.5103);
+  --card: oklch(0.9784 0.0011 197.1387);
+  --card-foreground: oklch(0.1884 0.0128 248.5103);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.1884 0.0128 248.5103);
+  --primary: oklch(0.6723 0.1606 244.9955);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.9222 0.0013 286.3737);
+  --secondary-foreground: oklch(0.1884 0.0128 248.5103);
+  --muted: oklch(0.9222 0.0013 286.3737);
+  --muted-foreground: oklch(0.1884 0.0128 248.5103);
+  --accent: oklch(0.9392 0.0166 250.8453);
+  --accent-foreground: oklch(0.6723 0.1606 244.9955);
+  --destructive: oklch(0.6188 0.2376 25.7658);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border: oklch(0.9317 0.0118 231.6594);
+  --input: oklch(0.9809 0.0025 228.7836);
+  --ring: oklch(0.6818 0.1584 243.3540);
+  --radius: 1.3rem;
+  --font-sans: "Open Sans", ui-sans-serif, sans-serif;
+  --font-serif: Georgia, ui-serif, serif;
+  --font-mono: Menlo, ui-monospace, monospace;
 }
 
 /* Explicit dark override — wins regardless of system preference. Toggled via NavBar setting
    document.documentElement.dataset.theme, persisted to localStorage (see main.tsx). */
 :root[data-theme="dark"] {
-  --background: #18191a;
-  --foreground: #f3f2f2;
-  --card: #212223;
-  --card-foreground: #f3f2f2;
-  --popover: #212223;
-  --popover-foreground: #f3f2f2;
-  --primary: #22a8cf;
-  --primary-foreground: #0a1316;
-  --secondary: #2b2c2d;
-  --secondary-foreground: #f3f2f2;
-  --muted: #2b2c2d;
-  --muted-foreground: #a3a1a0;
-  --accent: #163540;
-  --accent-foreground: #7fd4ea;
-  --destructive: #ef4b93;
-  --destructive-foreground: #1a0710;
-  --border: #343536;
-  --input: #343536;
-  --ring: #22a8cf;
+  color-scheme: dark;
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.9328 0.0025 228.7857);
+  --card: oklch(0.2097 0.0080 274.5332);
+  --card-foreground: oklch(0.8853 0 0);
+  --popover: oklch(0 0 0);
+  --popover-foreground: oklch(0.9328 0.0025 228.7857);
+  --primary: oklch(0.6692 0.1607 245.0110);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.2090 0 0);
+  --secondary-foreground: oklch(0.9328 0.0025 228.7857);
+  --muted: oklch(0.2090 0 0);
+  --muted-foreground: oklch(0.5637 0.0078 247.9662);
+  --accent: oklch(0.1928 0.0331 242.5459);
+  --accent-foreground: oklch(0.6692 0.1607 245.0110);
+  --destructive: oklch(0.6188 0.2376 25.7658);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --border: oklch(0.2674 0.0047 248.0045);
+  --input: oklch(0.3020 0.0288 244.8244);
+  --ring: oklch(0.6818 0.1584 243.3540);
 }
 
 /* Falls back to system preference only when the user hasn't made an explicit choice — an explicit
    [data-theme="light"] (also set by the toggle) always wins over this. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
-    --background: #18191a;
-    --foreground: #f3f2f2;
-    --card: #212223;
-    --card-foreground: #f3f2f2;
-    --popover: #212223;
-    --popover-foreground: #f3f2f2;
-    --primary: #22a8cf;
-    --primary-foreground: #0a1316;
-    --secondary: #2b2c2d;
-    --secondary-foreground: #f3f2f2;
-    --muted: #2b2c2d;
-    --muted-foreground: #a3a1a0;
-    --accent: #163540;
-    --accent-foreground: #7fd4ea;
-    --destructive: #ef4b93;
-    --destructive-foreground: #1a0710;
-    --border: #343536;
-    --input: #343536;
-    --ring: #22a8cf;
+    color-scheme: dark;
+    --background: oklch(0 0 0);
+    --foreground: oklch(0.9328 0.0025 228.7857);
+    --card: oklch(0.2097 0.0080 274.5332);
+    --card-foreground: oklch(0.8853 0 0);
+    --popover: oklch(0 0 0);
+    --popover-foreground: oklch(0.9328 0.0025 228.7857);
+    --primary: oklch(0.6692 0.1607 245.0110);
+    --primary-foreground: oklch(1.0000 0 0);
+    --secondary: oklch(0.2090 0 0);
+    --secondary-foreground: oklch(0.9328 0.0025 228.7857);
+    --muted: oklch(0.2090 0 0);
+    --muted-foreground: oklch(0.5637 0.0078 247.9662);
+    --accent: oklch(0.1928 0.0331 242.5459);
+    --accent-foreground: oklch(0.6692 0.1607 245.0110);
+    --destructive: oklch(0.6188 0.2376 25.7658);
+    --destructive-foreground: oklch(1.0000 0 0);
+    --border: oklch(0.2674 0.0047 248.0045);
+    --input: oklch(0.3020 0.0288 244.8244);
+    --ring: oklch(0.6818 0.1584 243.3540);
   }
 }
 
@@ -112,6 +122,7 @@
   --radius-lg: calc(var(--radius) + 4px);
   --font-sans: var(--font-sans);
   --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
 }
 
 * {

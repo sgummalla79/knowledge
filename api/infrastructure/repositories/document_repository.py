@@ -119,6 +119,13 @@ class DocumentRepository:
         self._session.flush()
         return _to_entity(model)
 
+    def update_metadata(self, document_id, category_id, document_type: str) -> DocumentEntity:
+        model = self._session.get(DocumentModel, document_id)
+        model.category_id = category_id
+        model.type = document_type
+        self._session.flush()
+        return _to_entity(model)
+
     def delete(self, document_id) -> None:
         model = self._session.get(DocumentModel, document_id)
         if model is not None:

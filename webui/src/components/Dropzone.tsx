@@ -41,7 +41,7 @@ export function Dropzone({ file, onFileSelected }: Props) {
       ) : (
         <>
           <p className="text-sm text-foreground">Drag files here or click to browse</p>
-          <p className="mt-1 text-xs text-muted-foreground">PDF, CSV, DOCX, Markdown or plain text</p>
+          <p className="mt-1 text-xs text-muted-foreground">PDF, HTML, Markdown or plain text</p>
         </>
       )}
     </div>

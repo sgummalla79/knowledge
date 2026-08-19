@@ -34,15 +34,15 @@ export function HomePage() {
         Every source your assistant can cite.
       </h1>
       <p className="mb-8 max-w-lg text-base text-muted-foreground">
-        Docs, datasets, guides and reports — indexed, chunked and ready for retrieval. Search the
-        library the way your RAG pipeline does.
+        Articles and documents — indexed, chunked and ready for retrieval. Search the library the
+        way your RAG pipeline does.
       </p>
 
       <form onSubmit={handleSearch} className="mb-12 flex max-w-xl gap-2.5">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search articles, datasets, reports…"
+          placeholder="Search articles, documents…"
           className="flex-1 rounded-sm border border-border bg-secondary px-4 py-3 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <button

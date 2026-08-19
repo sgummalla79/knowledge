@@ -7,6 +7,7 @@ from api.constants import WEB_CRAWL_RATE_LIMIT
 from api.container import get_session
 from api.domain import error_codes
 from api.domain.errors import ValidationError
+from api.infrastructure.repositories.category_repository import CategoryRepository
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
@@ -16,6 +17,7 @@ from api.presentation.schemas import (
     ChunkResponse,
     CrawlJobStatusResponse,
     CrawlRequest,
+    DocumentMetadataUpdateRequest,
     DocumentRenameRequest,
     DocumentResponse,
     JobStatusResponse,
@@ -29,7 +31,9 @@ documents_bp = Blueprint("documents", __name__)
 
 def _service() -> DocumentService:
     session = get_session()
-    return DocumentService(DocumentRepository(session), ChunkRepository(session), IngestionJobRepository(session))
+    return DocumentService(
+        DocumentRepository(session), ChunkRepository(session), IngestionJobRepository(session), CategoryRepository(session)
+    )
 
 
 @documents_bp.post("/documents")
@@ -140,6 +144,14 @@ def delete_document(document_id: UUID):
 def rename_document(document_id: UUID):
     dto = DocumentRenameRequest.model_validate(request.get_json(silent=True) or {})
     document = _service().rename_document(g.org_id, document_id, dto.title)
+    return jsonify(DocumentResponse.from_entity(document).model_dump(mode="json"))
+
+
+@documents_bp.patch("/documents/<uuid:document_id>/metadata")
+@require_org_session
+def update_document_metadata(document_id: UUID):
+    dto = DocumentMetadataUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    document = _service().update_metadata(g.org_id, document_id, dto.category_id, dto.type)
     return jsonify(DocumentResponse.from_entity(document).model_dump(mode="json"))
 
 

@@ -89,7 +89,7 @@ source_status = ENUM("active", "paused", "error", name="source_status", create_t
 ingestion_type = ENUM("upload", "crawl", "resync", "reindex", name="ingestion_type", create_type=False)
 ingestion_status = ENUM("queued", "processing", "indexed", "failed", name="ingestion_status", create_type=False)
 document_type = ENUM(
-    "article", "dataset", "guide", "report", "faq", "media", name="document_type", create_type=False
+    "article", "document", name="document_type", create_type=False
 )
 document_status = ENUM(
     "processing", "indexed", "failed", "archived", name="document_status", create_type=False

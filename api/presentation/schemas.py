@@ -27,6 +27,7 @@ from api.domain.entities import (
 )
 
 OrgRole = Literal["admin", "contributor", "viewer"]
+DocumentType = Literal["article", "document"]
 
 
 class OrgCreateRequest(BaseModel):
@@ -229,6 +230,13 @@ class DocumentRenameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(min_length=1)
+
+
+class DocumentMetadataUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category_id: UUID | None = None
+    type: DocumentType
 
 
 class CrawlRequest(BaseModel):

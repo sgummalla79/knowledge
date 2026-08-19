@@ -3,6 +3,13 @@ import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import type { OrgRole } from '../api/types'
 import { Modal } from './Modal'
+import { Select } from './Select'
+
+const ROLE_OPTIONS = [
+  { value: 'viewer', label: 'Viewer' },
+  { value: 'contributor', label: 'Contributor' },
+  { value: 'admin', label: 'Admin' },
+]
 
 interface Props {
   orgId: string
@@ -55,16 +62,13 @@ export function InviteMemberModal({ orgId, onClose, onInvited }: Props) {
           <label htmlFor="invite-role" className="mb-1.5 block text-sm text-foreground">
             Role
           </label>
-          <select
+          <Select
             id="invite-role"
             value={role}
-            onChange={(event) => setRole(event.target.value as OrgRole)}
-            className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground"
-          >
-            <option value="viewer">Viewer</option>
-            <option value="contributor">Contributor</option>
-            <option value="admin">Admin</option>
-          </select>
+            options={ROLE_OPTIONS}
+            onChange={(value) => setRole(value as OrgRole)}
+            className="w-full px-4 py-2.5 text-[15px]"
+          />
         </div>
         <div className="mt-2 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground">

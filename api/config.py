@@ -14,6 +14,10 @@ class Config:
         self.port = int(os.environ.get("PORT", "13102"))
         self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))
         self.version = self._read_version()
+        # Set only for local `npm run dev` (webui/) iteration — when present, serve_spa_shell()
+        # points the SPA shell at this Vite dev server (HMR) instead of the built webui/ bundle.
+        # Unset in every real deployment, which always serves the built bundle.
+        self.webui_dev_server = os.environ.get("WEBUI_DEV_SERVER")
 
     @staticmethod
     def _require(name):

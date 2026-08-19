@@ -292,11 +292,14 @@ build. Fixed conventions — reuse these exact values every time rather than pic
 | What | Value |
 |---|---|
 | Flask dev server | `http://127.0.0.1:15100` |
+| Vite dev server (webui/, HMR) | `http://127.0.0.1:5173` |
 | Postgres container | `knowledge-dev-preview`, port `15432`, db/user/password all `rag` |
 | Ollama container | `knowledge-dev-preview-ollama`, port `11500` |
 | `SECRET_KEY` | `dev-preview-secret` |
 | Flask PID file | `/tmp/workspace-preview.pid` |
 | Flask log file | `/tmp/knowledge-dev-preview-flask.log` |
+| Vite PID file | `/tmp/workspace-preview-vite.pid` |
+| Vite log file | `/tmp/knowledge-dev-preview-vite.log` |
 
 **Why a separate throwaway Ollama container, not prod's:** the prod stack's `ollama` container
 (started outside `deploy/docker-compose.yml` historically — check `docker ps` for
@@ -329,11 +332,16 @@ docker exec knowledge-dev-preview-ollama ollama pull nomic-embed-text
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
   api/.venv/bin/python -m alembic -c api/alembic.ini upgrade head
 
-# 4. Frontend build (needed once, and again after any webui/ change)
-cd webui && npm run build && cd ..
+# 4. Vite dev server (webui/, HMR) — leave running, tracking its PID
+cd webui && nohup npm run dev > /tmp/knowledge-dev-preview-vite.log 2>&1 &
+disown
+echo $! > /tmp/workspace-preview-vite.pid
+cd ..
 
-# 5. Start Flask, tracking its PID
+# 5. Start Flask, tracking its PID — WEBUI_DEV_SERVER points serve_spa_shell() (api/presentation/
+# web/spa.py) at the Vite dev server above instead of the built webui/ bundle
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
+  WEBUI_DEV_SERVER=http://127.0.0.1:5173 \
   nohup api/.venv/bin/python -m flask --app api.wsgi run --port 15100 \
   > /tmp/knowledge-dev-preview-flask.log 2>&1 &
 disown
@@ -347,9 +355,12 @@ dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
 **Day-to-day after that (containers already running):**
 - **Backend code change:** Flask's dev server doesn't hot-reload — kill the tracked PID
   (`kill $(cat /tmp/workspace-preview.pid)`, never by port — see the process-safety note below)
-  and re-run step 5 above (containers/DB/model stay up, so only Flask needs restarting).
-- **Frontend-only change:** just re-run `npm run build` in `webui/`; Flask reads the built
-  `index.html` fresh per request, no restart needed.
+  and re-run step 5 above (containers/DB/model/Vite stay up, so only Flask needs restarting).
+- **Frontend-only change:** nothing to do — Vite's dev server hot-reloads the browser directly.
+  Leave `npm run dev` (step 4) running for the whole session; only restart it if it crashes or the
+  webui/ dependency tree changes (e.g. after `npm install`). `npm run build` is still what
+  `deploy/Dockerfile`/CI produce for a real image — run it only when you actually need to verify
+  the production bundle, not as part of this iteration loop.
 - **Don't tear the containers down between checks** — keep this as one stable, persistent preview
   across a session rather than recreating it for every verification pass; the user may be clicking
   around the same URL. If you need a DB for your own throwaway/automated test script, spin up yet
@@ -361,6 +372,7 @@ dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
 **Full teardown**, once genuinely done with the preview:
 ```bash
 kill $(cat /tmp/workspace-preview.pid) 2>/dev/null
+kill $(cat /tmp/workspace-preview-vite.pid) 2>/dev/null
 docker rm -f knowledge-dev-preview knowledge-dev-preview-ollama
 docker volume rm knowledge-dev-preview-ollama-data
 ```

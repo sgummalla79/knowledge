@@ -13,11 +13,13 @@ from api.constants import EMBEDDING_DIM
 from api.domain import error_codes
 from api.domain.errors import NotFoundError, ValidationError
 from api.infrastructure.auth.bootstrap import bootstrap_default_identity
+from api.infrastructure.repositories.category_repository import CategoryRepository
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
+from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.logging_config import configure_logging
 from api.tests.integration.conftest import seed_active_embedding_provider
 
@@ -330,6 +332,93 @@ def test_rename_document_missing_document_raises_document_not_found(db_session):
     with pytest.raises(NotFoundError) as exc_info:
         DocumentService(document_repo, chunk_repo).rename_document(uuid4(), uuid4(), "x.txt")
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
+
+
+def test_update_metadata_updates_category_and_type(db_session):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    category_repo = CategoryRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    category = category_repo.create(org_id, name="Guides", slug="guides", description=None)
+    db_session.commit()
+
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+
+    service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
+    updated = service.update_metadata(org_id, document.id, category.id, "article")
+    db_session.commit()
+
+    assert updated.category_id == category.id
+    assert updated.type == "article"
+    stored = document_repo.get(document.id)
+    assert stored.category_id == category.id
+    assert stored.type == "article"
+
+
+def test_update_metadata_can_clear_category(db_session):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    category_repo = CategoryRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    category = category_repo.create(org_id, name="Guides", slug="guides", description=None)
+    db_session.commit()
+
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
+    service.update_metadata(org_id, document.id, category.id, document.type)
+    db_session.commit()
+
+    updated = service.update_metadata(org_id, document.id, None, document.type)
+    db_session.commit()
+
+    assert updated.category_id is None
+    assert document_repo.get(document.id).category_id is None
+
+
+def test_update_metadata_from_wrong_org_raises_document_not_found(db_session):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    category_repo = CategoryRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+
+    service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
+    with pytest.raises(NotFoundError) as exc_info:
+        service.update_metadata(uuid4(), document.id, None, "article")
+    assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
+    assert document_repo.get(document.id).type != "article"
+
+
+def test_update_metadata_with_foreign_category_raises_category_not_found(db_session):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    category_repo = CategoryRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    other_org = OrganizationRepository(db_session).create("Other Org", "other-org")
+    foreign_category = category_repo.create(other_org.id, name="Foreign", slug="foreign", description=None)
+    db_session.commit()
+
+    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+
+    service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
+    with pytest.raises(NotFoundError) as exc_info:
+        service.update_metadata(org_id, document.id, foreign_category.id, document.type)
+    assert exc_info.value.code == error_codes.CATEGORY_NOT_FOUND
+    assert document_repo.get(document.id).category_id != foreign_category.id
 
 
 def test_cancel_job_missing_job_raises_job_not_found(db_session):

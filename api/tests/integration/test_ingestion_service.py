@@ -54,6 +54,27 @@ def test_successful_ingest_is_atomic(db_session):
     assert document.size_bytes == len(text.encode())
     assert document.chunk_count > 0
     assert ChunkRepository(db_session).count_for_document(document.id) == document.chunk_count
+    assert document.type == "document"
+
+
+def test_ingest_html_defaults_to_article_type(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    service = _make_service(db_session)
+    html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
+
+    with patch(
+        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        document = service.ingest_html(org_id, owner.id, "https://example.com/docs", html)
+    db_session.commit()
+
+    assert document.type == "article"
 
 
 def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_session):

@@ -42,7 +42,7 @@ export function SearchPage() {
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Search articles, datasets, reports…"
+          placeholder="Search articles, documents…"
           className="flex-1 rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <button

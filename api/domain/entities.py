@@ -17,7 +17,7 @@ class Document:
     title: str
     type: str
     # Technical upload format (pdf/md/txt/html) driving parser selection — distinct from `type`
-    # above (article/dataset/guide/report/faq/media classification). See the ORM class docstring.
+    # above (article/document classification). See the ORM class docstring.
     file_type: str
     content_uri: str | None
     description: str | None

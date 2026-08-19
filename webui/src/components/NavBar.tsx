@@ -38,81 +38,85 @@ export function NavBar() {
   const orgName = currentOrgName()
 
   return (
-    <div className="min-h-full bg-background">
-      <nav className="mx-auto flex max-w-6xl items-center gap-7 px-6 py-4">
-        <NavLink to="/" className="mr-auto flex items-center gap-2 text-foreground">
-          <Logo className="text-primary" />
-          <span className="text-lg font-semibold">Knowledge</span>
-        </NavLink>
-        <NavLink to="/browse" className={navLinkClass}>
-          Browse
-        </NavLink>
-        <NavLink to="/search" className={navLinkClass}>
-          Search
-        </NavLink>
-        <NavLink to="/dashboard" className={navLinkClass}>
-          Dashboard
-        </NavLink>
-        <NavLink
-          to="/upload"
-          className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-        >
-          Contribute
-        </NavLink>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-          className="text-foreground/70 hover:text-foreground"
-        >
-          {dark ? <SunIcon /> : <MoonIcon />}
-        </button>
-        <div className="relative" ref={menuRef}>
+    <div className="flex h-screen flex-col bg-background">
+      <div className="shrink-0 border-b border-border bg-background">
+        <nav className="mx-auto flex max-w-6xl items-center gap-7 px-6 py-4">
+          <NavLink to="/" className="mr-auto flex items-center gap-2 text-foreground">
+            <Logo className="text-primary" />
+            <span className="text-lg font-semibold">Knowledge</span>
+          </NavLink>
+          <NavLink to="/browse" className={navLinkClass}>
+            Browse
+          </NavLink>
+          <NavLink to="/search" className={navLinkClass}>
+            Search
+          </NavLink>
+          <NavLink to="/dashboard" className={navLinkClass}>
+            Dashboard
+          </NavLink>
+          <NavLink
+            to="/upload"
+            className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          >
+            Contribute
+          </NavLink>
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            className="flex items-center gap-1.5"
-            aria-label="Account menu"
+            onClick={toggleTheme}
+            aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+            className="text-foreground/70 hover:text-foreground"
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-[13px] font-semibold text-primary-foreground">
-              {username ? initials(username) : '?'}
-            </span>
-            <ChevronDownIcon className="text-foreground/60" />
+            {dark ? <SunIcon /> : <MoonIcon />}
           </button>
-          {menuOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] z-10 min-w-[190px] rounded-sm border border-border bg-popover p-1.5 shadow-lg">
-              <div className="mb-1 border-b border-border px-2.5 py-2 text-xs text-muted-foreground">
-                {username}
-                {orgName ? (
-                  <>
-                    <br />
-                    {orgName}
-                  </>
-                ) : null}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="flex items-center gap-1.5"
+              aria-label="Account menu"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-[13px] font-semibold text-primary-foreground">
+                {username ? initials(username) : '?'}
+              </span>
+              <ChevronDownIcon className="text-foreground/60" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-10 min-w-[190px] rounded-sm border border-border bg-popover p-1.5 shadow-lg">
+                <div className="mb-1 border-b border-border px-2.5 py-2 text-xs text-muted-foreground">
+                  {username}
+                  {orgName ? (
+                    <>
+                      <br />
+                      {orgName}
+                    </>
+                  ) : null}
+                </div>
+                <NavLink
+                  to="/org/settings"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
+                >
+                  Org settings
+                </NavLink>
+                <button
+                  type="button"
+                  onClick={() => void signOut().then(() => (window.location.href = '/sign-in'))}
+                  className="mt-1 block w-full rounded-sm border-t border-border px-2.5 py-2 pt-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                >
+                  Sign out
+                </button>
               </div>
-              <NavLink
-                to="/org/settings"
-                onClick={() => setMenuOpen(false)}
-                className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
-              >
-                Org settings
-              </NavLink>
-              <button
-                type="button"
-                onClick={() => void signOut().then(() => (window.location.href = '/sign-in'))}
-                className="mt-1 block w-full rounded-sm border-t border-border px-2.5 py-2 pt-2.5 text-left text-sm text-foreground hover:bg-secondary"
-              >
-                Sign out
-              </button>
-            </div>
-          )}
+            )}
+          </div>
+        </nav>
+      </div>
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-6 pb-16">
+          <Outlet />
         </div>
-      </nav>
-      <main className="mx-auto max-w-6xl px-6 pb-16">
-        <Outlet />
       </main>
-      <footer className="mx-auto max-w-6xl px-6 pb-10 pt-10 text-xs text-muted-foreground">
-        <div className="flex justify-between border-t border-border pt-6">
+      <footer className="shrink-0 border-t border-border bg-background">
+        <div className="mx-auto flex max-w-6xl justify-between px-6 py-4 text-xs text-muted-foreground">
           <span>Knowledge — a knowledge library for retrieval-augmented answers.</span>
           <span>© {new Date().getFullYear()} Knowledge</span>
         </div>

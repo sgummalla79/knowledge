@@ -5,11 +5,7 @@ import type { DocumentType } from '../api/types'
 // UI constant in this codebase is handled. Shared by DocumentCard's type tag and Browse's filter.
 export const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
   { value: 'article', label: 'Article' },
-  { value: 'dataset', label: 'Dataset' },
-  { value: 'guide', label: 'Guide' },
-  { value: 'report', label: 'Report' },
-  { value: 'faq', label: 'FAQ' },
-  { value: 'media', label: 'Media' },
+  { value: 'document', label: 'Document' },
 ]
 
 export function documentTypeLabel(type: string): string {
