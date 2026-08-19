@@ -53,9 +53,6 @@ export function NavBar() {
         <NavLink to="/dashboard" className={navLinkClass}>
           Dashboard
         </NavLink>
-        <NavLink to="/settings/data-model" className={navLinkClass}>
-          Data model
-        </NavLink>
         <NavLink
           to="/upload"
           className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
