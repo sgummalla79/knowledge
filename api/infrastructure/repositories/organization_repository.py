@@ -13,6 +13,7 @@ def _to_entity(model: OrganizationModel) -> OrganizationEntity:
         id=model.id,
         name=model.name,
         slug=model.slug,
+        description=model.description,
         plan=model.plan,
         created_by=model.created_by,
         last_modified_by=model.last_modified_by,
@@ -46,6 +47,13 @@ class OrganizationRepository:
     def get_by_slug(self, slug: str) -> OrganizationEntity | None:
         model = self._session.query(OrganizationModel).filter(OrganizationModel.slug == slug).first()
         return _to_entity(model) if model is not None else None
+
+    def update(self, org_id, name: str, description: str | None) -> OrganizationEntity:
+        model = self._session.get(OrganizationModel, org_id)
+        model.name = name
+        model.description = description
+        self._session.flush()
+        return _to_entity(model)
 
     def list(self) -> list[OrganizationEntity]:
         models = self._session.query(OrganizationModel).all()

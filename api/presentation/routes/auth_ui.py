@@ -55,7 +55,7 @@ def login_required(view):
             # Only GET requests get a `next` — redirecting a blocked POST back to itself would
             # just re-GET that URL after login, not resubmit the form.
             next_url = request.full_path if request.method == "GET" else None
-            return redirect(url_for("auth_ui.login", next=next_url))
+            return redirect(url_for("auth_ui.sign_in", next=next_url))
         # identity_id/active_org_id/active_role are cached in the session at login/switch time
         # (see login_submit/switch_org) rather than re-fetched from the DB on every gated request —
         # keeps this decorator a pure session-dict read so route tests can fake a session without
@@ -99,10 +99,10 @@ def _is_safe_redirect(url: str) -> bool:
 
 
 def _consume_post_login_redirect() -> str:
-    # /workspace is the default landing page for a plain login (no explicit `next`) — the rest of
-    # the app is still fully reachable via the workspace sidebar's account menu.
+    # Home ("/") is the default landing page for a plain login (no explicit `next`) — the rest of
+    # the app is still fully reachable via the nav bar.
     next_url = session.pop("post_login_redirect", None)
-    return next_url if next_url and _is_safe_redirect(next_url) else url_for("workspace.workspace")
+    return next_url if next_url and _is_safe_redirect(next_url) else url_for("app_shell.app_shell")
 
 
 def _establish_session(identity_id: UUID) -> None:
@@ -117,8 +117,8 @@ def _establish_session(identity_id: UUID) -> None:
         session["active_role"] = role
 
 
-@auth_ui_bp.get("/login")
-def login():
+@auth_ui_bp.get("/sign-in")
+def sign_in():
     next_url = request.args.get("next")
     if next_url and _is_safe_redirect(next_url):
         session["post_login_redirect"] = next_url
@@ -127,10 +127,10 @@ def login():
     return serve_spa_shell()
 
 
-@auth_ui_bp.post("/login")
-def login_submit():
-    # Served to the React login page (webui/src/pages/LoginPage.tsx) via fetch — JSON in/out,
-    # CSRF via header rather than a form field.
+@auth_ui_bp.post("/sign-in")
+def sign_in_submit():
+    # Served to the React sign-in page via fetch — JSON in/out, CSRF via header rather than a
+    # form field.
     if not validate_csrf(request.headers.get("X-CSRF-Token")):
         raise AuthenticationError("Session expired — please reload the page.")
     body = request.get_json(silent=True) or {}
@@ -142,8 +142,15 @@ def login_submit():
     return jsonify({"redirect": redirect_url})
 
 
-@auth_ui_bp.post("/signup")
-def signup_submit():
+@auth_ui_bp.get("/sign-up")
+def sign_up():
+    if session.get("identity_id"):
+        return redirect(_consume_post_login_redirect())
+    return serve_spa_shell()
+
+
+@auth_ui_bp.post("/sign-up")
+def sign_up_submit():
     if not validate_csrf(request.headers.get("X-CSRF-Token")):
         raise AuthenticationError("Session expired — please reload the page.")
     body = request.get_json(silent=True) or {}
@@ -182,4 +189,4 @@ def change_password_submit():
 @auth_ui_bp.post("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("auth_ui.login"))
+    return redirect(url_for("auth_ui.sign_in"))

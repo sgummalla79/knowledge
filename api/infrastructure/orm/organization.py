@@ -14,6 +14,7 @@ class Organization(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False, unique=True)
+    description = Column(String, nullable=True)
     plan = Column(org_plan, nullable=False, default="free")
     created_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     last_modified_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)

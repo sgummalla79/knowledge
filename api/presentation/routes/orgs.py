@@ -15,6 +15,7 @@ from api.presentation.schemas import (
     OrgMemberResponse,
     OrgMemberRoleUpdateRequest,
     OrgResponse,
+    OrgUpdateRequest,
 )
 
 orgs_bp = Blueprint("orgs", __name__, url_prefix="/orgs")
@@ -54,6 +55,15 @@ def create_org():
     response = jsonify(OrgResponse.from_entity(organization, "admin").model_dump(mode="json"))
     response.status_code = 201
     return response
+
+
+@orgs_bp.patch("/<uuid:org_id>")
+@require_org_session
+def update_org(org_id: UUID):
+    _require_admin(org_id)
+    dto = OrgUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    organization = _service().update_organization(org_id, dto.name, dto.description)
+    return jsonify(OrgResponse.from_entity(organization, "admin").model_dump(mode="json"))
 
 
 @orgs_bp.post("/<uuid:org_id>/switch")

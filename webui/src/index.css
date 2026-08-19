@@ -1,24 +1,117 @@
-/* Tokens copied from app/templates/base.html (tweakcn "Professional Theme", dark-only — the
-   Flask-rendered dashboard has no light/dark toggle, so neither does this SPA). */
+@import "tailwindcss";
+
+/* Theme tokens, tweakcn/shadcn convention — this file is the single source of truth for the
+   app's visual identity. Re-theming later means pasting a new tweakcn.com export's `:root`/
+   `.dark` (or [data-theme="dark"], see below) blocks over these two blocks and nothing else;
+   every component references these variable names via Tailwind utilities (bg-background,
+   text-foreground, bg-primary, ...), never a raw color value.
+
+   Light values below are lifted from the Claude-Design mockup's own inline tokens (teal accent,
+   pink accent used for destructive/restricted states, Source Serif 4 throughout). Dark values are
+   this app's own derivation — the mockup itself has no dark variant. */
 :root {
-  --background: oklch(0.1371 0.036 258.5258);
-  --foreground: oklch(0.9838 0.0035 247.8583);
-  --card: oklch(0.1371 0.036 258.5258);
-  --card-foreground: oklch(0.9838 0.0035 247.8583);
-  --primary: oklch(0.6232 0.1879 259.7964);
-  --primary-foreground: oklch(0.2079 0.0399 265.7275);
-  --secondary: oklch(0.28 0.0369 259.974);
-  --secondary-foreground: oklch(0.9838 0.0035 247.8583);
-  --muted: oklch(0.28 0.0369 259.974);
-  --muted-foreground: oklch(0.7107 0.0351 256.7877);
-  --destructive: oklch(0.3959 0.1331 25.7205);
-  --destructive-foreground: oklch(0.9838 0.0035 247.8583);
-  --border: oklch(0.28 0.0369 259.974);
-  --input: oklch(0.28 0.0369 259.974);
-  --ring: oklch(0.4878 0.217 264.3876);
-  --radius: 0.375rem;
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  --background: #f3f2f2;
+  --foreground: #201e1d;
+  --card: #eae9e9;
+  --card-foreground: #201e1d;
+  --popover: #f3f2f2;
+  --popover-foreground: #201e1d;
+  --primary: #0088b0;
+  --primary-foreground: #f3f2f2;
+  --secondary: #eae9e9;
+  --secondary-foreground: #201e1d;
+  --muted: #eae9e9;
+  --muted-foreground: #6b6968;
+  --accent: #e9f8ff;
+  --accent-foreground: #004961;
+  --destructive: #d6006c;
+  --destructive-foreground: #f3f2f2;
+  --border: #d9d8d7;
+  --input: #d9d8d7;
+  --ring: #0088b0;
+  --radius: 0.125rem;
+  --font-sans: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-serif: "Source Serif 4", ui-serif, Georgia, serif;
+}
+
+/* Explicit dark override — wins regardless of system preference. Toggled via NavBar setting
+   document.documentElement.dataset.theme, persisted to localStorage (see main.tsx). */
+:root[data-theme="dark"] {
+  --background: #18191a;
+  --foreground: #f3f2f2;
+  --card: #212223;
+  --card-foreground: #f3f2f2;
+  --popover: #212223;
+  --popover-foreground: #f3f2f2;
+  --primary: #22a8cf;
+  --primary-foreground: #0a1316;
+  --secondary: #2b2c2d;
+  --secondary-foreground: #f3f2f2;
+  --muted: #2b2c2d;
+  --muted-foreground: #a3a1a0;
+  --accent: #163540;
+  --accent-foreground: #7fd4ea;
+  --destructive: #ef4b93;
+  --destructive-foreground: #1a0710;
+  --border: #343536;
+  --input: #343536;
+  --ring: #22a8cf;
+}
+
+/* Falls back to system preference only when the user hasn't made an explicit choice — an explicit
+   [data-theme="light"] (also set by the toggle) always wins over this. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --background: #18191a;
+    --foreground: #f3f2f2;
+    --card: #212223;
+    --card-foreground: #f3f2f2;
+    --popover: #212223;
+    --popover-foreground: #f3f2f2;
+    --primary: #22a8cf;
+    --primary-foreground: #0a1316;
+    --secondary: #2b2c2d;
+    --secondary-foreground: #f3f2f2;
+    --muted: #2b2c2d;
+    --muted-foreground: #a3a1a0;
+    --accent: #163540;
+    --accent-foreground: #7fd4ea;
+    --destructive: #ef4b93;
+    --destructive-foreground: #1a0710;
+    --border: #343536;
+    --input: #343536;
+    --ring: #22a8cf;
+  }
+}
+
+/* Maps the semantic tokens above onto Tailwind v4 utilities (bg-background, text-primary,
+   border-border, rounded-md, font-sans, ...) — this block is generic infra, never touched when
+   re-theming; only the variable values above change. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
 }
 
 * {
@@ -34,8 +127,7 @@ body,
 body {
   margin: 0;
   font-family: var(--font-sans);
-  letter-spacing: -0.015em;
-  line-height: 1.5;
+  line-height: 1.55;
   background: var(--background);
   color: var(--foreground);
 }

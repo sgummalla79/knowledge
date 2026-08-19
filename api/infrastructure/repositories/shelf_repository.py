@@ -49,6 +49,39 @@ class ShelfRepository:
         model = self._session.get(ShelfModel, shelf_id)
         return _to_entity(model) if model is not None else None
 
+    def update(self, shelf_id: UUID, name: str, description: str | None) -> ShelfEntity:
+        model = self._session.get(ShelfModel, shelf_id)
+        model.name = name
+        model.description = description
+        try:
+            self._session.flush()
+        except IntegrityError:
+            self._session.rollback()
+            raise ConflictError(
+                error_codes.SHELF_SLUG_TAKEN,
+                f"A shelf named '{name}' already exists in this organization.",
+                field="name",
+            )
+        return _to_entity(model)
+
+    def delete(self, shelf_id: UUID) -> None:
+        model = self._session.get(ShelfModel, shelf_id)
+        if model is not None:
+            self._session.delete(model)
+            self._session.flush()
+
+    def count_documents(self, shelf_id: UUID) -> int:
+        return (
+            self._session.query(DocumentShelfModel).filter(DocumentShelfModel.shelf_id == shelf_id).count()
+        )
+
+    def count_members(self, shelf_id: UUID) -> int:
+        return (
+            self._session.query(UserShelfAccessModel)
+            .filter(UserShelfAccessModel.shelf_id == shelf_id)
+            .count()
+        )
+
     def list_by_org(self, org_id: UUID) -> list[ShelfEntity]:
         models = self._session.query(ShelfModel).filter(ShelfModel.org_id == org_id).all()
         return [_to_entity(model) for model in models]

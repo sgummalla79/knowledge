@@ -1,5 +1,6 @@
 from api.domain.entities import Document as DocumentEntity
 from api.infrastructure.orm import Document as DocumentModel
+from api.infrastructure.orm import DocumentShelf as DocumentShelfModel
 
 _SORTABLE_COLUMNS = {
     "title": DocumentModel.title,
@@ -41,6 +42,20 @@ def _apply_sort(query, sort: str):
     return query.order_by(column.desc() if descending else column.asc())
 
 
+def _apply_filters(query, category_id, shelf_id, document_type=None):
+    if category_id is not None:
+        query = query.filter(DocumentModel.category_id == category_id)
+    if shelf_id is not None:
+        # Documents don't carry shelf_id directly (many-to-many via document_shelves) — scoping to
+        # a shelf means joining through the association table, the only place shelf_id lives.
+        query = query.join(DocumentShelfModel, DocumentShelfModel.document_id == DocumentModel.id).filter(
+            DocumentShelfModel.shelf_id == shelf_id
+        )
+    if document_type is not None:
+        query = query.filter(DocumentModel.type == document_type)
+    return query
+
+
 class DocumentRepository:
     def __init__(self, session):
         self._session = session
@@ -55,14 +70,19 @@ class DocumentRepository:
         model = self._session.get(DocumentModel, document_id)
         return _to_entity(model) if model is not None else None
 
-    def list_for_org(self, org_id, limit: int, offset: int, sort: str) -> list[DocumentEntity]:
+    def list_for_org(
+        self, org_id, limit: int, offset: int, sort: str, category_id=None, shelf_id=None, document_type=None
+    ) -> list[DocumentEntity]:
         query = self._session.query(DocumentModel).filter(DocumentModel.org_id == org_id)
+        query = _apply_filters(query, category_id, shelf_id, document_type)
         query = _apply_sort(query, sort)
         models = query.offset(offset).limit(limit).all()
         return [_to_entity(model) for model in models]
 
-    def count_for_org(self, org_id) -> int:
-        return self._session.query(DocumentModel).filter(DocumentModel.org_id == org_id).count()
+    def count_for_org(self, org_id, category_id=None, shelf_id=None, document_type=None) -> int:
+        query = self._session.query(DocumentModel).filter(DocumentModel.org_id == org_id)
+        query = _apply_filters(query, category_id, shelf_id, document_type)
+        return query.count()
 
     def update_status(
         self, document_id, status: str, indexed_at=None, error_message=None, chunk_count=None

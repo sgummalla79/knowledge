@@ -57,6 +57,11 @@ class OrgMembershipService:
             identity = self._identities.create(email, hash_password(secrets.token_urlsafe(32)), name=email)
         return self._org_members.create(org_id, identity.id, role, invited_by=invited_by)
 
+    def update_organization(self, org_id: UUID, name: str, description: str | None) -> Organization:
+        if self._organizations.get(org_id) is None:
+            raise NotFoundError(error_codes.ORGANIZATION_NOT_FOUND, "Organization not found.")
+        return self._organizations.update(org_id, name=name, description=description)
+
     def switch_active_org(self, identity_id: UUID, org_id: UUID) -> str:
         """Validates membership and returns the role to cache in the session."""
         member = self._org_members.get(org_id, identity_id)

@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from api import create_app
-from api.domain.entities import Document
+from api.domain.entities import Chunk, Document
 from api.domain.errors import NotFoundError, ValidationError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — DocumentService is mocked.
@@ -91,6 +91,104 @@ def test_list_documents_sets_total_count_header(client):
     assert len(body) == 2
     assert body[0]["size_bytes"] == 1024
     assert body[0]["chunk_count"] == 3
+
+
+def test_list_documents_passes_category_and_shelf_filters_through(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_documents",
+        return_value=([], 0)
+    ) as mock_list:
+        category_id = uuid4()
+        shelf_id = uuid4()
+        response = client.get(f"/documents?category_id={category_id}&shelf_id={shelf_id}")
+
+    assert response.status_code == 200
+    assert mock_list.call_args.kwargs["category_id"] == category_id
+    assert mock_list.call_args.kwargs["shelf_id"] == shelf_id
+
+
+def test_list_documents_passes_type_filter_through(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_documents",
+        return_value=([], 0)
+    ) as mock_list:
+        response = client.get("/documents?type=dataset")
+
+    assert response.status_code == 200
+    assert mock_list.call_args.kwargs["document_type"] == "dataset"
+
+
+def test_get_document_returns_document(client):
+    document = _document()
+    with (
+        patch("api.presentation.routes.documents.DocumentService.get_document", return_value=document),
+        patch(
+            "api.presentation.routes.documents.QueryRepository.retrieval_stats_for_document",
+            return_value=(0, None)
+        ),
+    ):
+        response = client.get(f"/documents/{document.id}")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["id"] == str(document.id)
+    assert body["type"] == "article"
+
+
+def test_get_document_includes_retrieval_stats(client):
+    document = _document()
+    with (
+        patch("api.presentation.routes.documents.DocumentService.get_document", return_value=document),
+        patch(
+            "api.presentation.routes.documents.QueryRepository.retrieval_stats_for_document",
+            return_value=(12, 0.87)
+        ),
+    ):
+        response = client.get(f"/documents/{document.id}")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["retrieval_count"] == 12
+    assert body["avg_similarity"] == 0.87
+
+
+def test_get_document_missing_returns_structured_404(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.get_document",
+        side_effect=NotFoundError("document_not_found", "Document not found.")
+    ):
+        response = client.get(f"/documents/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "document_not_found"
+
+
+def test_list_document_chunks_returns_chunks(client):
+    now = datetime.now(timezone.utc)
+    chunks = [
+        Chunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello", token_count=2, created_at=now)
+    ]
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_chunks",
+        return_value=chunks
+    ):
+        response = client.get(f"/documents/{uuid4()}/chunks")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body) == 1
+    assert body[0]["content"] == "hello"
+
+
+def test_list_document_chunks_missing_document_returns_structured_404(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_chunks",
+        side_effect=NotFoundError("document_not_found", "Document not found.")
+    ):
+        response = client.get(f"/documents/{uuid4()}/chunks")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"]["code"] == "document_not_found"
 
 
 def test_get_job_status_returns_structured_404_when_missing(client):

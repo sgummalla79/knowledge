@@ -1,77 +1,56 @@
-export interface Library {
+export type DocumentType = 'article' | 'dataset' | 'guide' | 'report' | 'faq' | 'media'
+export type DocumentStatus = 'processing' | 'indexed' | 'failed' | 'archived'
+
+export interface Document {
   id: string
-  name: string
+  org_id: string
+  category_id: string | null
+  owner_id: string
+  source_id: string | null
+  title: string
+  type: DocumentType
   description: string | null
-  document_count: number
-  chunk_count: number
-  last_ingested_at: string | null
-  created_at: string
-  updated_at: string
-}
-
-export type DocumentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
-
-export interface LibraryDocument {
-  id: string
-  library_id: string
-  source_filename: string
   file_type: string
   status: DocumentStatus
   error_message: string | null
   size_bytes: number | null
   chunk_count: number | null
-  // Set only for a document created as one part of an oversized PDF auto-split on ingest — all
-  // three are null for an ordinary, unsplit document.
   split_group_id: string | null
   split_part: number | null
   split_total: number | null
-  ingested_at: string | null
+  indexed_at: string | null
+  created_at: string
+  // Only present on the single-document GET (Item page) — see api/presentation/schemas.py's
+  // DocumentResponse comment for why the list endpoint omits these.
+  retrieval_count: number | null
+  avg_similarity: number | null
+}
+
+export interface Chunk {
+  id: string
+  document_id: string
+  ordinal: number
+  content: string
+  token_count: number
   created_at: string
 }
 
-export interface JobStatus {
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
-  error: string | null
-  document_id: string | null
-  cancel_requested: boolean
-  // Populated only when this job ingested an oversized PDF that got split into multiple parts —
-  // parts_total === 1 (or null, before the first part result arrives) means document_id above is
-  // the whole story, same as before this field existed.
-  document_ids: string[]
-  parts_total: number | null
-  parts_completed: number
-  parts_failed: number
-}
-
-export interface ScoredChunk {
-  id: string
+export interface MostRetrievedDocument {
   document_id: string
-  chunk_index: number
-  content: string
-  score: number
+  title: string
+  retrieval_count: number
+  avg_similarity: number
 }
 
-export interface EmbeddingProviderOption {
-  name: string
-  display_name: string
-  enabled: boolean
-  configured: boolean
-  locked: boolean
-  api_key_required: boolean
-  base_url_required: boolean
-  base_url_supported: boolean
-  default_base_url: string | null
-  supports_model_listing: boolean
+export interface DashboardStats {
+  document_count: number
+  chunk_count: number
+  queries_last_30d: number
+  avg_query_latency_ms: number | null
+  most_retrieved_documents: MostRetrievedDocument[]
 }
 
-export interface EmbeddingOptions {
-  providers: EmbeddingProviderOption[]
-  default_provider: string | null
-  default_model: string | null
-  suggested_models: { provider: string; model: string; dimensions: number }[]
-}
-
-export interface EmbeddingProviderStatus {
+export interface EmbeddingProviderConfig {
   provider: string
   enabled: boolean
   configured: boolean
@@ -87,46 +66,51 @@ export interface EmbeddingProviderStatus {
   active_provider: string | null
 }
 
-export interface EmbeddingProviderUpdateInput {
-  model: string
-  api_key?: string
-  base_url?: string | null
-  dimensions: number
-  chunk_size: number
-  chunk_overlap: number
-}
-
-export type ApplicationTokenStatus = 'active' | 'revoked' | 'none'
-
-export interface Application {
+export interface Category {
   id: string
+  org_id: string
+  parent_id: string | null
   name: string
-  allowed_scopes: string[]
-  token_status: ApplicationTokenStatus
-  last_used_at: string | null
+  slug: string
+  description: string | null
+  created_at: string
+  last_modified_at: string
 }
 
-export interface ScopeGroup {
-  label: string
-  scopes: string[]
+export interface Shelf {
+  id: string
+  org_id: string
+  name: string
+  slug: string
+  description: string | null
+  is_default: boolean
+  document_count: number
+  member_count: number
+  created_at: string
+  last_modified_at: string
 }
 
-export interface WebCrawlSettings {
-  user_agent: string
-  updated_at: string | null
+export interface Tag {
+  id: string
+  org_id: string
+  name: string
+  created_at: string
 }
 
-export type CrawlPageState = 'pending' | 'completed' | 'failed'
+export type IngestionJobType = 'upload' | 'crawl' | 'resync' | 'reindex'
+export type IngestionJobStatus = 'queued' | 'processing' | 'indexed' | 'failed'
 
-export interface CrawlPageStatus {
-  status: CrawlPageState
+export interface IngestionJob {
+  id: string
+  org_id: string
+  source_id: string | null
   document_id: string | null
-  error: string | null
-}
-
-export interface CrawlJobStatus {
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  seed_url: string
-  error: string | null
-  pages: Record<string, CrawlPageStatus>
+  type: IngestionJobType
+  status: IngestionJobStatus
+  error_message: string | null
+  items_processed: number
+  triggered_by: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
 }

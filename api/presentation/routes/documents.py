@@ -9,13 +9,17 @@ from api.domain import error_codes
 from api.domain.errors import ValidationError
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
+from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
+from api.infrastructure.repositories.query_repository import QueryRepository
 from api.presentation.routes.auth_ui import require_org_session
 from api.presentation.schemas import (
+    ChunkResponse,
     CrawlJobStatusResponse,
     CrawlRequest,
     DocumentRenameRequest,
     DocumentResponse,
     JobStatusResponse,
+    LimitOffsetQuery,
     PaginationQuery,
 )
 from api.rate_limit import limiter
@@ -25,7 +29,7 @@ documents_bp = Blueprint("documents", __name__)
 
 def _service() -> DocumentService:
     session = get_session()
-    return DocumentService(DocumentRepository(session), ChunkRepository(session))
+    return DocumentService(DocumentRepository(session), ChunkRepository(session), IngestionJobRepository(session))
 
 
 @documents_bp.post("/documents")
@@ -76,10 +80,35 @@ def get_crawl_job(job_id: str):
 @require_org_session
 def list_documents():
     query = PaginationQuery.model_validate(request.args.to_dict())
-    documents, total = _service().list_documents(g.org_id, query.limit, query.offset, query.sort)
+    documents, total = _service().list_documents(
+        g.org_id,
+        query.limit,
+        query.offset,
+        query.sort,
+        category_id=query.category_id,
+        shelf_id=query.shelf_id,
+        document_type=query.type,
+    )
     response = jsonify([DocumentResponse.from_entity(document).model_dump(mode="json") for document in documents])
     response.headers["X-Total-Count"] = str(total)
     return response
+
+
+@documents_bp.get("/documents/<uuid:document_id>")
+@require_org_session
+def get_document(document_id: UUID):
+    document = _service().get_document(g.org_id, document_id)
+    retrieval_count, avg_similarity = QueryRepository(get_session()).retrieval_stats_for_document(document_id)
+    response = DocumentResponse.from_entity(document, retrieval_count=retrieval_count, avg_similarity=avg_similarity)
+    return jsonify(response.model_dump(mode="json"))
+
+
+@documents_bp.get("/documents/<uuid:document_id>/chunks")
+@require_org_session
+def list_document_chunks(document_id: UUID):
+    query = LimitOffsetQuery.model_validate(request.args.to_dict())
+    chunks = _service().list_chunks(g.org_id, document_id, query.limit, query.offset)
+    return jsonify([ChunkResponse.from_entity(chunk).model_dump(mode="json") for chunk in chunks])
 
 
 @documents_bp.get("/jobs/<job_id>")
@@ -117,5 +146,5 @@ def rename_document(document_id: UUID):
 @documents_bp.post("/documents/<uuid:document_id>/retry")
 @require_org_session
 def retry_document(document_id: UUID):
-    job_id = _service().start_retry(g.org_id, document_id)
+    job_id = _service().start_retry(g.org_id, document_id, g.user_id)
     return jsonify({"job_id": job_id}), 202

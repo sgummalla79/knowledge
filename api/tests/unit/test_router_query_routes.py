@@ -71,3 +71,18 @@ def test_query_returns_routed_scored_chunks(client):
     assert body["chunks"][0]["category_name"] == "docs"
 
 
+def test_query_records_history_with_unwrapped_chunks(client):
+    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
+    routed = RoutedScoredChunk(category_id=uuid4(), category_name="docs", chunk=chunk)
+    with (
+        patch("api.presentation.routes.router_query.CategoryRouterService.query", return_value=[routed]),
+        patch(
+            "api.presentation.routes.router_query.QueryHistoryService.record", return_value=None
+        ) as mock_record,
+    ):
+        client.post("/query", json={"query": "hello"})
+
+    assert mock_record.call_args.args[2] == "hello"
+    assert mock_record.call_args.args[4] == [chunk]
+
+

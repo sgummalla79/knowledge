@@ -1,25 +1,18 @@
-import { Suspense, lazy } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { Layout } from './components/Layout'
-import { SettingsLayout } from './components/SettingsLayout'
+import { ComingSoonPage } from './components/ComingSoonPage'
+import { NavBar } from './components/NavBar'
+import { SettingsTabs } from './components/SettingsTabs'
 import { ToastProvider } from './components/ToastProvider'
-import { IngestionProvider } from './components/IngestionProvider'
-import { LibrariesPage } from './pages/LibrariesPage'
-import { LibraryDetailPage } from './pages/LibraryDetailPage'
-import { LoginPage } from './pages/LoginPage'
+import { BrowsePage } from './pages/BrowsePage'
+import { CategoryPage } from './pages/CategoryPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
-import { ProvidersPage } from './pages/ProvidersPage'
-import { ApplicationsPage } from './pages/ApplicationsPage'
-import { WebCrawlerPage } from './pages/WebCrawlerPage'
-import { ApiDocsPage } from './pages/ApiDocsPage'
-import { AuthorizePage } from './pages/AuthorizePage'
-import './app.css'
-
-// Lazy-loaded: mermaid (and its per-diagram-type sub-renderers) is a genuinely heavy dependency
-// that only this one page needs — a static import would put its whole module graph in every
-// route's bundle, including /login, for a page most sessions never visit.
-const DataModelPage = lazy(() => import('./pages/DataModelPage').then((m) => ({ default: m.DataModelPage })))
+import { DashboardPage } from './pages/DashboardPage'
+import { HomePage } from './pages/HomePage'
+import { ItemPage } from './pages/ItemPage'
+import { SignInPage } from './pages/SignInPage'
+import { SignUpPage } from './pages/SignUpPage'
+import { UploadPage } from './pages/UploadPage'
 
 const queryClient = new QueryClient()
 
@@ -27,33 +20,85 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <IngestionProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/change-password" element={<ChangePasswordPage />} />
-              <Route path="/oauth/authorize" element={<AuthorizePage />} />
-              <Route path="/settings" element={<SettingsLayout />}>
-                <Route index element={<ProvidersPage />} />
-                <Route path="applications" element={<ApplicationsPage />} />
-                <Route path="web-crawler" element={<WebCrawlerPage />} />
-                <Route path="api-docs" element={<ApiDocsPage />} />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/sign-in" element={<SignInPage />} />
+            <Route path="/sign-up" element={<SignUpPage />} />
+            <Route path="/change-password" element={<ChangePasswordPage />} />
+
+            <Route element={<NavBar />}>
+              <Route index element={<HomePage />} />
+              <Route path="browse" element={<BrowsePage />} />
+              <Route path="category/:slug" element={<CategoryPage />} />
+              <Route path="item/:id" element={<ItemPage />} />
+              <Route
+                path="search"
+                element={
+                  <ComingSoonPage
+                    eyebrow="Library"
+                    title="Search"
+                    description="Retrieval search is being built next."
+                  />
+                }
+              />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="upload" element={<UploadPage />} />
+              <Route
+                path="settings/data-model"
+                element={
+                  <ComingSoonPage
+                    eyebrow="Reference"
+                    title="Data model"
+                    description="The schema reference diagram is being rebuilt against the current data model next."
+                  />
+                }
+              />
+
+              <Route element={<SettingsTabs />}>
                 <Route
-                  path="data-model"
+                  path="org/settings"
                   element={
-                    <Suspense fallback={<p className="subtitle">Loading…</p>}>
-                      <DataModelPage />
-                    </Suspense>
+                    <ComingSoonPage
+                      eyebrow="Org settings"
+                      title="General"
+                      description="Org name and description settings are being built next."
+                    />
+                  }
+                />
+                <Route
+                  path="org/members"
+                  element={
+                    <ComingSoonPage
+                      eyebrow="Org settings"
+                      title="Members & access"
+                      description="Member management is being built next."
+                    />
+                  }
+                />
+                <Route
+                  path="org/shelves"
+                  element={
+                    <ComingSoonPage
+                      eyebrow="Org settings"
+                      title="Shelves"
+                      description="Shelf-based access control is being built next."
+                    />
+                  }
+                />
+                <Route
+                  path="org/embedding-models"
+                  element={
+                    <ComingSoonPage
+                      eyebrow="Org settings"
+                      title="Embedding models"
+                      description="The embedding model registry is being built next."
+                    />
                   }
                 />
               </Route>
-              <Route path="/workspace" element={<Layout />}>
-                <Route index element={<LibrariesPage />} />
-                <Route path="libraries/:libraryId" element={<LibraryDetailPage />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </IngestionProvider>
+            </Route>
+          </Routes>
+        </BrowserRouter>
       </ToastProvider>
     </QueryClientProvider>
   )

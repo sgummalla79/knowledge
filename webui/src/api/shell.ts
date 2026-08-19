@@ -1,32 +1,17 @@
-export interface OAuthAuthorizeParams {
-  response_type: string
-  client_id: string
-  redirect_uri: string
-  scope: string[]
-  state: string
-  code_challenge: string
-  code_challenge_method: string
-}
-
-export interface OAuthAuthorizeData {
-  application_name: string
-  params: OAuthAuthorizeParams
-}
-
 declare global {
   interface Window {
     __CSRF_TOKEN__?: string
     __USERNAME__?: string
-    __OAUTH_AUTHORIZE__?: OAuthAuthorizeData
-    __OAUTH_ERROR__?: string
+    __ORG_ID__?: string | null
+    __ORG_NAME__?: string | null
+    __ROLE__?: string | null
   }
 }
 
 // Globals injected into the served SPA shell by api/presentation/web/spa.py (serve_spa_shell) —
-// every page this app renders (login, change-password, workspace, oauth/authorize) gets a fresh
-// CSRF token on load; /workspace also gets the logged-in username (for the sidebar's account
-// menu), and /oauth/authorize gets exactly one of __OAUTH_AUTHORIZE__ (render the consent form)
-// or __OAUTH_ERROR__ (render the error page) — see api/presentation/routes/oauth.py's authorize().
+// every logged-in page gets a fresh CSRF token, the logged-in identity's email, and the active
+// org's id/name/role on first load, so the nav bar can render without an extra round trip (see
+// api/presentation/routes/app_shell.py).
 export function csrfToken(): string {
   return window.__CSRF_TOKEN__ ?? ''
 }
@@ -35,10 +20,14 @@ export function currentUsername(): string {
   return window.__USERNAME__ ?? ''
 }
 
-export function oauthAuthorizeData(): OAuthAuthorizeData | null {
-  return window.__OAUTH_AUTHORIZE__ ?? null
+export function currentOrgId(): string | null {
+  return window.__ORG_ID__ ?? null
 }
 
-export function oauthError(): string | null {
-  return window.__OAUTH_ERROR__ ?? null
+export function currentOrgName(): string | null {
+  return window.__ORG_NAME__ ?? null
+}
+
+export function currentRole(): string | null {
+  return window.__ROLE__ ?? null
 }

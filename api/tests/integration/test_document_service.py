@@ -17,6 +17,7 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
+from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.logging_config import configure_logging
 from api.tests.integration.conftest import seed_active_embedding_provider
 
@@ -53,6 +54,8 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
     db_session.commit()
 
     job_id = JobStore.create()
+    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
+    db_session.commit()
 
     with caplog.at_level(logging.INFO):
         with patch("api.application.document_service.SessionLocal", session_factory):
@@ -60,7 +63,7 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
                 "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 side_effect=RuntimeError("embedding API unavailable"),
             ):
-                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
+                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     failure_records = [
         record
@@ -85,6 +88,8 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
     db_session.commit()
 
     job_id = JobStore.create()
+    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
+    db_session.commit()
     fake_provider = _fake_provider()
 
     with caplog.at_level(logging.INFO):
@@ -93,7 +98,7 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
                 "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=fake_provider,
             ):
-                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
+                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     job_records = [
         record for record in caplog.records if record.name == "api.application.document_service"
@@ -105,6 +110,16 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
 
     status = JobStore.get(job_id)
     assert status["status"] == "completed"
+
+    # A fresh session, not db_session — db_session's identity map still holds the "queued" row
+    # from before the background thread's own session committed its updates; re-using db_session
+    # here would silently read that stale cached object instead of what's actually in Postgres.
+    verify_session = session_factory()
+    persisted = IngestionJobRepository(verify_session).get(ingestion_job_id)
+    assert persisted.status == "indexed"
+    assert persisted.document_id is not None
+    assert persisted.finished_at is not None
+    verify_session.close()
 
 
 def _fake_provider():
@@ -205,7 +220,9 @@ def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_ses
     assert document.status == "indexed"
 
     with pytest.raises(ValidationError) as exc_info:
-        DocumentService(document_repo, chunk_repo).start_retry(org_id, document.id)
+        DocumentService(document_repo, chunk_repo, IngestionJobRepository(db_session)).start_retry(
+            org_id, document.id, owner.id
+        )
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_RETRYABLE
 
 
@@ -221,7 +238,9 @@ def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
     failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, chunk_repo).start_retry(uuid4(), failed_document.id)
+        DocumentService(document_repo, chunk_repo, IngestionJobRepository(db_session)).start_retry(
+            uuid4(), failed_document.id, owner.id
+        )
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
@@ -239,13 +258,19 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
     failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
 
     job_id = JobStore.create()
+    ingestion_job_id = (
+        IngestionJobRepository(db_session)
+        .create(org_id, type="reindex", document_id=failed_document.id, triggered_by=owner.id)
+        .id
+    )
+    db_session.commit()
     with caplog.at_level(logging.INFO):
         with patch("api.application.document_service.SessionLocal", session_factory):
             with patch(
                 "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=_fake_provider(),
             ):
-                _run_retry_job(job_id, org_id, failed_document.id)
+                _run_retry_job(job_id, ingestion_job_id, org_id, failed_document.id)
 
     job_records = [
         record for record in caplog.records if record.name == "api.application.document_service"
@@ -342,7 +367,9 @@ def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
     assert cancelled_document.status == "failed"
 
     # Retryable just like any other failed document.
-    job_id = DocumentService(document_repo, chunk_repo).start_retry(org_id, cancelled_document.id)
+    job_id = DocumentService(document_repo, chunk_repo, IngestionJobRepository(db_session)).start_retry(
+        org_id, cancelled_document.id, owner.id
+    )
     assert job_id is not None
 
 
@@ -360,6 +387,8 @@ def test_ingestion_job_cancelled_before_start_marks_job_and_document_failed(
 
     job_id = JobStore.create()
     JobStore.request_cancellation(job_id)
+    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
+    db_session.commit()
 
     with caplog.at_level(logging.INFO):
         with patch("api.application.document_service.SessionLocal", session_factory):
@@ -367,7 +396,7 @@ def test_ingestion_job_cancelled_before_start_marks_job_and_document_failed(
                 "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
                 return_value=_fake_provider(),
             ):
-                _run_ingestion_job(job_id, org_id, owner.id, "notes.txt", b"hello world", None)
+                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
 
     status = JobStore.get(job_id)
     assert status["status"] == "cancelled"

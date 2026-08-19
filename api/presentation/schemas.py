@@ -11,7 +11,20 @@ from api.constants import (
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from api.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
-from api.domain.entities import Category, Document, Organization, RoutedScoredChunk, ScoredChunk
+from api.domain.entities import (
+    Category,
+    Chunk,
+    DashboardStats,
+    Document,
+    IngestionJob,
+    MostRetrievedDocument,
+    Organization,
+    Query,
+    RoutedScoredChunk,
+    ScoredChunk,
+    Shelf,
+    Tag,
+)
 
 OrgRole = Literal["admin", "contributor", "viewer"]
 
@@ -22,15 +35,29 @@ class OrgCreateRequest(BaseModel):
     name: str = Field(min_length=1)
 
 
+class OrgUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
 class OrgResponse(BaseModel):
     id: UUID
     name: str
     slug: str
+    description: str | None
     role: str
 
     @classmethod
     def from_entity(cls, organization: Organization, role: str) -> "OrgResponse":
-        return cls(id=organization.id, name=organization.name, slug=organization.slug, role=role)
+        return cls(
+            id=organization.id,
+            name=organization.name,
+            slug=organization.slug,
+            description=organization.description,
+            role=role,
+        )
 
 
 class OrgInviteRequest(BaseModel):
@@ -74,6 +101,17 @@ class PaginationQuery(BaseModel):
     limit: int = Field(default=100, gt=0, le=500)
     offset: int = Field(default=0, ge=0)
     sort: str = "-created_at"
+    category_id: UUID | None = None
+    shelf_id: UUID | None = None
+    type: str | None = None
+
+
+class LimitOffsetQuery(BaseModel):
+    """Shared shape for list endpoints that only need limit/offset, no sort/filter (chunks,
+    ingestion jobs, query history)."""
+
+    limit: int = Field(default=100, gt=0, le=500)
+    offset: int = Field(default=0, ge=0)
 
 
 class CategoryResponse(BaseModel):
@@ -103,7 +141,12 @@ class CategoryResponse(BaseModel):
 class DocumentResponse(BaseModel):
     id: UUID
     org_id: UUID
+    category_id: UUID | None
+    owner_id: UUID
+    source_id: UUID | None
     title: str
+    type: str
+    description: str | None
     file_type: str
     status: str
     error_message: str | None
@@ -114,13 +157,24 @@ class DocumentResponse(BaseModel):
     split_total: int | None = None
     indexed_at: datetime | None
     created_at: datetime
+    # Only populated by GET /documents/<id> (the Item page's single-document fetch) — omitted from
+    # the list endpoint to avoid an aggregate join per row on every Browse/Category page load.
+    retrieval_count: int | None = None
+    avg_similarity: float | None = None
 
     @classmethod
-    def from_entity(cls, document: Document) -> "DocumentResponse":
+    def from_entity(
+        cls, document: Document, retrieval_count: int | None = None, avg_similarity: float | None = None
+    ) -> "DocumentResponse":
         return cls(
             id=document.id,
             org_id=document.org_id,
+            category_id=document.category_id,
+            owner_id=document.owner_id,
+            source_id=document.source_id,
             title=document.title,
+            type=document.type,
+            description=document.description,
             file_type=document.file_type,
             status=document.status,
             error_message=document.error_message,
@@ -131,6 +185,28 @@ class DocumentResponse(BaseModel):
             split_total=document.split_total,
             indexed_at=document.indexed_at,
             created_at=document.created_at,
+            retrieval_count=retrieval_count,
+            avg_similarity=avg_similarity,
+        )
+
+
+class ChunkResponse(BaseModel):
+    id: UUID
+    document_id: UUID
+    ordinal: int
+    content: str
+    token_count: int
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, chunk: Chunk) -> "ChunkResponse":
+        return cls(
+            id=chunk.id,
+            document_id=chunk.document_id,
+            ordinal=chunk.ordinal,
+            content=chunk.content,
+            token_count=chunk.token_count,
+            created_at=chunk.created_at,
         )
 
 
@@ -274,6 +350,173 @@ class EmbeddingProviderConfigResponse(BaseModel):
             chunk_overlap=status.chunk_overlap,
             updated_at=status.updated_at,
             active_provider=status.active_provider,
+        )
+
+
+class ShelfCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class ShelfUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class ShelfDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: UUID
+
+
+class ShelfAccessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+
+
+class ShelfResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    name: str
+    slug: str
+    description: str | None
+    is_default: bool
+    document_count: int
+    member_count: int
+    created_at: datetime
+    last_modified_at: datetime
+
+    @classmethod
+    def from_entity(cls, shelf: Shelf, document_count: int, member_count: int) -> "ShelfResponse":
+        return cls(
+            id=shelf.id,
+            org_id=shelf.org_id,
+            name=shelf.name,
+            slug=shelf.slug,
+            description=shelf.description,
+            is_default=shelf.is_default,
+            document_count=document_count,
+            member_count=member_count,
+            created_at=shelf.created_at,
+            last_modified_at=shelf.last_modified_at,
+        )
+
+
+class TagCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+
+
+class DocumentTagRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tag_id: UUID
+
+
+class TagResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    name: str
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, tag: Tag) -> "TagResponse":
+        return cls(id=tag.id, org_id=tag.org_id, name=tag.name, created_at=tag.created_at)
+
+
+class IngestionJobResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    source_id: UUID | None
+    document_id: UUID | None
+    type: str
+    status: str
+    error_message: str | None
+    items_processed: int
+    triggered_by: UUID | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, job: IngestionJob) -> "IngestionJobResponse":
+        return cls(
+            id=job.id,
+            org_id=job.org_id,
+            source_id=job.source_id,
+            document_id=job.document_id,
+            type=job.type,
+            status=job.status,
+            error_message=job.error_message,
+            items_processed=job.items_processed,
+            triggered_by=job.triggered_by,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            finished_at=job.finished_at,
+        )
+
+
+class QueryHistoryResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    user_id: UUID | None
+    query_text: str
+    latency_ms: int | None
+    result_count: int | None
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, query: Query) -> "QueryHistoryResponse":
+        return cls(
+            id=query.id,
+            org_id=query.org_id,
+            user_id=query.user_id,
+            query_text=query.query_text,
+            latency_ms=query.latency_ms,
+            result_count=query.result_count,
+            created_at=query.created_at,
+        )
+
+
+class MostRetrievedDocumentResponse(BaseModel):
+    document_id: UUID
+    title: str
+    retrieval_count: int
+    avg_similarity: float
+
+    @classmethod
+    def from_entity(cls, entity: MostRetrievedDocument) -> "MostRetrievedDocumentResponse":
+        return cls(
+            document_id=entity.document_id,
+            title=entity.title,
+            retrieval_count=entity.retrieval_count,
+            avg_similarity=entity.avg_similarity,
+        )
+
+
+class DashboardStatsResponse(BaseModel):
+    document_count: int
+    chunk_count: int
+    queries_last_30d: int
+    avg_query_latency_ms: float | None
+    most_retrieved_documents: list[MostRetrievedDocumentResponse]
+
+    @classmethod
+    def from_entity(cls, stats: DashboardStats) -> "DashboardStatsResponse":
+        return cls(
+            document_count=stats.document_count,
+            chunk_count=stats.chunk_count,
+            queries_last_30d=stats.queries_last_30d,
+            avg_query_latency_ms=stats.avg_query_latency_ms,
+            most_retrieved_documents=[
+                MostRetrievedDocumentResponse.from_entity(document) for document in stats.most_retrieved_documents
+            ],
         )
 
 

@@ -37,8 +37,15 @@ class IngestionJobRepository:
         model = self._session.get(IngestionJobModel, job_id)
         return _to_entity(model) if model is not None else None
 
-    def list_by_org(self, org_id: UUID) -> list[IngestionJobEntity]:
-        models = self._session.query(IngestionJobModel).filter(IngestionJobModel.org_id == org_id).all()
+    def list_by_org(self, org_id: UUID, limit: int, offset: int) -> list[IngestionJobEntity]:
+        models = (
+            self._session.query(IngestionJobModel)
+            .filter(IngestionJobModel.org_id == org_id)
+            .order_by(IngestionJobModel.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
         return [_to_entity(model) for model in models]
 
     def update_status(self, job_id: UUID, status: str, **fields) -> IngestionJobEntity:

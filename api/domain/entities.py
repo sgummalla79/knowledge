@@ -36,6 +36,21 @@ class Document:
 
 
 @dataclass(frozen=True)
+class Chunk:
+    """A document's persisted chunk, as browsed (Item page's chunk table) rather than as scored
+    retrieval output — see ScoredChunk below for the query-time variant. No `status` field: a
+    chunk row only ever exists after successful embedding, so every persisted chunk is implicitly
+    "indexed" by construction — there's nothing to store."""
+
+    id: UUID
+    document_id: UUID
+    ordinal: int
+    content: str
+    token_count: int
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class ScoredChunk:
     id: UUID
     document_id: UUID
@@ -88,6 +103,7 @@ class Organization:
     id: UUID
     name: str
     slug: str
+    description: str | None
     plan: str
     created_by: UUID | None
     last_modified_by: UUID | None
@@ -205,6 +221,23 @@ class Identity:
     created_at: datetime
     last_modified_at: datetime
     last_active_at: datetime | None
+
+
+@dataclass(frozen=True)
+class MostRetrievedDocument:
+    document_id: UUID
+    title: str
+    retrieval_count: int
+    avg_similarity: float
+
+
+@dataclass(frozen=True)
+class DashboardStats:
+    document_count: int
+    chunk_count: int
+    queries_last_30d: int
+    avg_query_latency_ms: float | None
+    most_retrieved_documents: list[MostRetrievedDocument]
 
 
 @dataclass(frozen=True)

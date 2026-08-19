@@ -1,7 +1,19 @@
 from sqlalchemy import func, text
 
+from api.domain.entities import Chunk as ChunkEntity
 from api.domain.entities import ScoredChunk
 from api.infrastructure.orm import Chunk, Document
+
+
+def _to_entity(model: Chunk) -> ChunkEntity:
+    return ChunkEntity(
+        id=model.id,
+        document_id=model.document_id,
+        ordinal=model.ordinal,
+        content=model.content,
+        token_count=model.token_count,
+        created_at=model.created_at,
+    )
 
 
 class ChunkRepository:
@@ -13,6 +25,20 @@ class ChunkRepository:
 
     def count_all(self) -> int:
         return self._session.query(Chunk).count()
+
+    def count_for_org(self, org_id) -> int:
+        return self._session.query(Chunk).filter(Chunk.org_id == org_id).count()
+
+    def list_for_document(self, document_id, limit: int, offset: int) -> list[ChunkEntity]:
+        models = (
+            self._session.query(Chunk)
+            .filter(Chunk.document_id == document_id)
+            .order_by(Chunk.ordinal.asc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return [_to_entity(model) for model in models]
 
     def resize_embedding_column(self, dimensions: int) -> None:
         """Only ever called when count_all() == 0 (enforced by EmbeddingProviderConfigService's

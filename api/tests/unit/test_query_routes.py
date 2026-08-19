@@ -68,3 +68,15 @@ def test_query_returns_scored_chunks(client):
     assert body["chunks"][0]["content"] == "hello world"
     assert body["chunks"][0]["score"] == 0.9
     assert mock_query.call_args.kwargs["category_id"] == category_id
+
+
+def test_query_records_history(client):
+    chunk = ScoredChunk(id=uuid4(), document_id=uuid4(), ordinal=0, content="hello world", score=0.9)
+    with (
+        patch("api.presentation.routes.query.RetrievalService.query", return_value=[chunk]),
+        patch("api.presentation.routes.query.QueryHistoryService.record", return_value=None) as mock_record,
+    ):
+        client.post(f"/categories/{uuid4()}/query", json={"query": "hello"})
+
+    assert mock_record.call_args.args[2] == "hello"
+    assert mock_record.call_args.args[4] == [chunk]
