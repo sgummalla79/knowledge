@@ -1,4 +1,4 @@
-from flask import Blueprint, g, redirect, url_for
+from flask import Blueprint, current_app, g, redirect, send_from_directory, url_for
 
 from api.container import get_session
 from api.infrastructure.repositories.identity_repository import IdentityRepository
@@ -10,6 +10,16 @@ from api.presentation.web.spa import serve_spa_shell
 # new nav is a single top bar, not the old two-sidebar /workspace + /settings split, so one
 # catch-all replaces those two narrower mounts (see the old workspace.py, now removed).
 app_shell_bp = Blueprint("app_shell", __name__)
+
+
+@app_shell_bp.get("/favicon.ico")
+def favicon():
+    # Without this, a browser's automatic favicon request falls through to the /<path:subpath>
+    # catch-all below, which is @login_required — that redirects it to /sign-in?next=/favicon.ico,
+    # and sign_in() stashes that next value in the session, later hijacking the real post-login/
+    # post-signup redirect target. Registering this first keeps favicon requests off that path
+    # entirely (a static route always wins over the dynamic one below, regardless of order).
+    return send_from_directory(current_app.static_folder, "brand-icon.png")
 
 
 @app_shell_bp.get("/")
