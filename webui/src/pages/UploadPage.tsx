@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
-import { useCategories, useIngestionJobs, useShelves, useTags } from '../api/queries'
+import { useCategories, useCrawlOptions, useIngestionJobs, useShelves, useTags } from '../api/queries'
 import type { Tag } from '../api/types'
 import { Dropzone } from '../components/Dropzone'
 import { RecentUploadsList } from '../components/RecentUploadsList'
@@ -31,10 +31,12 @@ export function UploadPage() {
   const shelves = useShelves()
   const tags = useTags()
   const recentJobs = useIngestionJobs(10)
+  const crawlOptions = useCrawlOptions()
 
   const [sourceType, setSourceType] = useState<SourceType>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
+  const [maxPages, setMaxPages] = useState('1')
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [pendingTags, setPendingTags] = useState<Tag[]>([])
@@ -46,6 +48,7 @@ export function UploadPage() {
   function resetForm() {
     setFile(null)
     setUrl('')
+    setMaxPages('1')
     setTitle('')
     setPendingTags([])
     setShelfIds([])
@@ -130,6 +133,7 @@ export function UploadPage() {
       } else if (sourceType === 'url') {
         const { job_id } = await api.post<{ job_id: string }>('/documents/crawl', {
           url: url.trim(),
+          max_pages: Math.max(1, Number(maxPages) || 1),
           category_id: categoryId || undefined,
         })
         setActiveJobId(job_id)
@@ -155,13 +159,40 @@ export function UploadPage() {
         <form onSubmit={handleSubmit}>
           {sourceType === 'upload' && <Dropzone file={file} onFileSelected={setFile} />}
           {sourceType === 'url' && (
-            <input
-              type="url"
-              placeholder="https://docs.example.com/getting-started"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              className="mb-6 w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+            <div className="mb-6">
+              <div className="flex items-start gap-3">
+                <div className="flex-1">
+                  <label htmlFor="crawl-url" className="mb-1.5 block text-sm text-foreground">
+                    URL
+                  </label>
+                  <input
+                    id="crawl-url"
+                    type="url"
+                    placeholder="https://docs.example.com/getting-started"
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    className="h-11 w-full appearance-none rounded-sm border border-border bg-secondary px-4 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
+                <div className="w-fit shrink-0">
+                  <label htmlFor="max-pages" className="mb-1.5 block whitespace-nowrap text-sm text-foreground text-center">
+                    Pages to crawl
+                  </label>
+                  <input
+                    id="max-pages"
+                    type="text"
+                    inputMode="numeric"
+                    value={maxPages}
+                    onChange={(event) => setMaxPages(event.target.value.replace(/\D/g, ''))}
+                    className="h-11 w-27 appearance-none rounded-sm border border-border bg-secondary px-4 text-right text-[15px] text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </div>
+              </div>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                1 indexes just this page. A higher number follows in-scope links from it, breadth-first
+                {crawlOptions.data ? ` (up to ${crawlOptions.data.max_pages_limit} pages).` : '.'}
+              </p>
+            </div>
           )}
           {sourceType === 'connector' && (
             <p className="mb-6 rounded-sm bg-secondary px-4 py-3 text-sm text-muted-foreground">

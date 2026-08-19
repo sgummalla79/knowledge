@@ -104,6 +104,10 @@ export interface EmbeddingOptions {
   suggested_models: EmbeddingModelPreset[]
 }
 
+export interface CrawlOptions {
+  max_pages_limit: number
+}
+
 export interface Category {
   id: string
   org_id: string

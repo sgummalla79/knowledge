@@ -3,6 +3,7 @@ import { api } from './client'
 import type {
   Category,
   Chunk,
+  CrawlOptions,
   DashboardStats,
   Document,
   EmbeddingOptions,
@@ -90,6 +91,10 @@ export function useEmbeddingSettings() {
 
 export function useEmbeddingOptions() {
   return useQuery({ queryKey: ['embedding-options'], queryFn: () => api.get<EmbeddingOptions>('/embedding-options') })
+}
+
+export function useCrawlOptions() {
+  return useQuery({ queryKey: ['crawl-options'], queryFn: () => api.get<CrawlOptions>('/crawl-options') })
 }
 
 export interface DocumentFilters {

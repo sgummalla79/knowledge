@@ -78,6 +78,15 @@ def test_embedding_options_describes_provider_capabilities(client):
     assert voyage["supports_model_listing"] is False
 
 
+def test_crawl_options_exposes_the_max_pages_limit(client):
+    from api.constants import WEB_CRAWL_MAX_PAGES_LIMIT
+
+    response = client.get("/crawl-options")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"max_pages_limit": WEB_CRAWL_MAX_PAGES_LIMIT}
+
+
 def test_embedding_options_lists_every_known_provider_regardless_of_state(client):
     # There's no more "selectable in a dropdown" toggle gating this list — every provider is
     # always listed, whether configured/enabled or not, since the dashboard renders a fixed page

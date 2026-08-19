@@ -10,6 +10,7 @@ from api.constants import (
     EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
     EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
     EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
+    WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from api.container import get_session
 from api.infrastructure.embeddings.registry import EmbeddingProviderRegistry
@@ -75,6 +76,16 @@ def get_embedding_options():
             "suggested_models": EMBEDDING_MODEL_PRESETS,
         }
     )
+
+
+@options_bp.get("/crawl-options")
+@require_org_session
+def get_crawl_options():
+    """CrawlRequest.max_pages (see api/presentation/schemas.py) is validated server-side against
+    this same limit regardless of what the UI sends — exposed here purely so the "Pages to crawl"
+    field on the upload form can size its input and show the real ceiling instead of a duplicated,
+    driftable copy of the constant."""
+    return jsonify({"max_pages_limit": WEB_CRAWL_MAX_PAGES_LIMIT})
 
 
 @options_bp.post("/embedding-options/models")
