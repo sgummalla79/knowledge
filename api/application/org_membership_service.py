@@ -33,22 +33,30 @@ class OrgMembershipService:
         self._identities = identities
         self._profiles = profiles
 
-    def create_org_with_owner(self, name: str, owner_identity_id: UUID) -> Organization:
-        """Self-serve org creation — used both for a new signup's personal org and for "create
-        another org" later. Retries the slug with a random suffix on collision rather than failing
-        the whole signup over a cosmetic slug clash."""
-        base_slug = slugify(name)
-        for attempt in range(_SLUG_COLLISION_RETRIES):
-            slug = base_slug if attempt == 0 else f"{base_slug}-{secrets.token_hex(2)}"
-            try:
-                organization = self._organizations.create(
-                    name, slug, created_by=owner_identity_id, last_modified_by=owner_identity_id
-                )
-                break
-            except ConflictError:
-                continue
+    def create_org_with_owner(self, name: str, owner_identity_id: UUID, *, exact_slug: bool = False) -> Organization:
+        """Self-serve org creation — used both for "create another org" (free-text `name`, slug
+        auto-derived below with a random-suffix retry on collision, since the caller never sees or
+        chooses the slug) and for a new signup's own org (`exact_slug=True`: `name` is already a
+        user-chosen, slug-shaped identifier — see org_name_validation.validate_org_slug — so a
+        collision must surface as a clear "taken" error instead of being silently renamed out from
+        under the user)."""
+        if exact_slug:
+            organization = self._organizations.create(
+                name, name, created_by=owner_identity_id, last_modified_by=owner_identity_id
+            )
         else:
-            raise ConflictError(error_codes.ORGANIZATION_SLUG_TAKEN, f"Could not allocate a slug for '{name}'.")
+            base_slug = slugify(name)
+            for attempt in range(_SLUG_COLLISION_RETRIES):
+                slug = base_slug if attempt == 0 else f"{base_slug}-{secrets.token_hex(2)}"
+                try:
+                    organization = self._organizations.create(
+                        name, slug, created_by=owner_identity_id, last_modified_by=owner_identity_id
+                    )
+                    break
+                except ConflictError:
+                    continue
+            else:
+                raise ConflictError(error_codes.ORGANIZATION_SLUG_TAKEN, f"Could not allocate a slug for '{name}'.")
         profile_service = ProfileService(self._profiles)
         admin_profile = profile_service.create_admin_profile(organization.id, owner_identity_id)
         # Contributor/Viewer are seeded alongside Admin for every org — see ProfileService's

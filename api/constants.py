@@ -153,6 +153,43 @@ DEFAULT_ADMIN_NAME = "Admin"
 DEFAULT_ORGANIZATION_NAME = "Default Organization"
 DEFAULT_ORGANIZATION_SLUG = "default"
 
+# Bounds on a self-serve signup's org name/slug (see org_name_validation.py) — the same string is
+# stored as both `organizations.name` and `organizations.slug`, so it must already be URL-safe.
+# Upper bound matches the DNS label limit (63) in case this identifier is ever used in a subdomain,
+# not just a path segment.
+ORG_SLUG_MIN_LENGTH = 3
+ORG_SLUG_MAX_LENGTH = 63
+
+# Reserved so a user-chosen org slug can never collide with a real top-level route, present or
+# future — sourced from this app's actual Flask blueprint url_prefixes and the SPA's top-level
+# React Router paths, not an arbitrary list.
+RESERVED_ORG_SLUGS = frozenset(
+    {
+        "api",
+        "admin",
+        "app",
+        "www",
+        "auth",
+        "login",
+        "sign-in",
+        "sign-up",
+        "oauth",
+        "mcp",
+        "static",
+        "health",
+        "org",
+        "orgs",
+        "settings",
+        "workspace",
+        "account",
+        "well-known",
+        "help",
+        "support",
+        "change-password",
+        "logout",
+    }
+)
+
 # Bytes of entropy (secrets.token_urlsafe input) for a personal API key — 256 bits, well beyond
 # brute-forceable regardless of the hash used to store it (see
 # api/infrastructure/auth/token_hashing.py). Same budget the removed Connected Applications

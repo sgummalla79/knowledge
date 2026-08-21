@@ -144,11 +144,60 @@ def test_sign_up_success_redirects_home(client):
     ):
         response = client.post(
             "/sign-up",
-            json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada"},
+            json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada", "org_name": "ada-labs"},
             headers={"X-CSRF-Token": csrf},
         )
     assert response.status_code == 200
     assert response.get_json()["redirect"] == "/"
+
+
+def test_sign_up_invalid_org_name_shows_error(client):
+    csrf = _with_csrf(client)
+    response = client.post(
+        "/sign-up",
+        json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada", "org_name": "Not Slug!"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"]["code"] == "organization_name_invalid"
+    assert body["error"]["field"] == "org_name"
+
+
+def test_check_org_name_available(client):
+    with patch(
+        "api.presentation.routes.auth_ui.OrganizationRepository.get_by_slug", return_value=None
+    ):
+        response = client.get("/check-org-name", query_string={"name": "ada-labs"})
+    assert response.status_code == 200
+    assert response.get_json() == {"available": True, "message": None}
+
+
+def test_check_org_name_taken(client):
+    with patch(
+        "api.presentation.routes.auth_ui.OrganizationRepository.get_by_slug", return_value=object()
+    ):
+        response = client.get("/check-org-name", query_string={"name": "ada-labs"})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["available"] is False
+    assert "taken" in body["message"]
+
+
+def test_check_org_name_invalid_format(client):
+    response = client.get("/check-org-name", query_string={"name": "Not Valid!"})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["available"] is False
+    assert body["message"]
+
+
+def test_check_org_name_reserved(client):
+    response = client.get("/check-org-name", query_string={"name": "admin"})
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["available"] is False
+    assert "reserved" in body["message"]
 
 
 def test_change_password_requires_login(client):

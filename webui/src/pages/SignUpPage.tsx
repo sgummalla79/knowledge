@@ -1,23 +1,52 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { signUp } from '../api/auth'
+import { checkOrgNameAvailable, signUp } from '../api/auth'
 import { ApiError } from '../api/errors'
 import { AuthCard } from '../components/AuthCard'
 import { PasswordField } from '../components/PasswordField'
+
+// Mirrors the backend's validate_org_slug (api/application/org_name_validation.py) — client-side
+// check is a UX nicety only, the server re-validates on both the availability probe and submit.
+const ORG_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
+function normalizeOrgName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
 
 export function SignUpPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [orgName, setOrgName] = useState('')
+  const [orgNameStatus, setOrgNameStatus] = useState<{ available: boolean; message: string | null } | null>(null)
+  const [checkingOrgName, setCheckingOrgName] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (orgName.length < 3 || !ORG_NAME_PATTERN.test(orgName)) {
+      setOrgNameStatus(null)
+      return
+    }
+    setCheckingOrgName(true)
+    const timeout = setTimeout(() => {
+      checkOrgNameAvailable(orgName)
+        .then(setOrgNameStatus)
+        .catch(() => setOrgNameStatus(null))
+        .finally(() => setCheckingOrgName(false))
+    }, 400)
+    return () => clearTimeout(timeout)
+  }, [orgName])
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
     setSubmitting(true)
     try {
-      const { redirect } = await signUp(email, password, name)
+      const { redirect } = await signUp(email, password, name, orgName)
       window.location.href = redirect
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
@@ -59,6 +88,31 @@ export function SignUpPage() {
           />
         </div>
         <div>
+          <label htmlFor="org-name" className="mb-1.5 block text-sm text-foreground">
+            Org name
+          </label>
+          <input
+            id="org-name"
+            placeholder="acme-labs"
+            value={orgName}
+            onChange={(event) => setOrgName(normalizeOrgName(event.target.value))}
+            className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <p className="mt-1.5 text-[13px] text-muted-foreground">
+            Lowercase letters, numbers, and hyphens only — this becomes your workspace's URL-safe
+            identifier. You can invite teammates or rename it later from org settings.
+          </p>
+          {orgName.length > 0 && orgName.length < 3 && (
+            <p className="mt-1 text-[13px] text-muted-foreground">At least 3 characters.</p>
+          )}
+          {checkingOrgName && <p className="mt-1 text-[13px] text-muted-foreground">Checking availability…</p>}
+          {!checkingOrgName && orgNameStatus && (
+            <p className={`mt-1 text-[13px] ${orgNameStatus.available ? 'text-green-600' : 'text-destructive'}`}>
+              {orgNameStatus.available ? 'Available' : orgNameStatus.message}
+            </p>
+          )}
+        </div>
+        <div>
           <label htmlFor="email" className="mb-1.5 block text-sm text-foreground">
             Work email
           </label>
@@ -82,13 +136,9 @@ export function SignUpPage() {
             onChange={setPassword}
           />
         </div>
-        <div className="rounded-sm bg-accent px-3.5 py-3 text-[13px] text-accent-foreground">
-          We&apos;ll set up a workspace for you automatically — you can invite teammates or rename
-          it anytime from org settings.
-        </div>
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || checkingOrgName || orgNameStatus?.available === false}
           className="mt-1 rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
         >
           {submitting ? 'Creating account…' : 'Create account'}

@@ -24,8 +24,13 @@ export function signIn(email: string, password: string) {
   return post('/sign-in', { email, password })
 }
 
-export function signUp(email: string, password: string, name: string) {
-  return post('/sign-up', { email, password, name })
+export function signUp(email: string, password: string, name: string, orgName: string) {
+  return post('/sign-up', { email, password, name, org_name: orgName })
+}
+
+export async function checkOrgNameAvailable(orgName: string): Promise<{ available: boolean; message: string | null }> {
+  const response = await fetch(`/check-org-name?name=${encodeURIComponent(orgName)}`, { credentials: 'include' })
+  return (await response.json()) as { available: boolean; message: string | null }
 }
 
 export function changePassword(newPassword: string, confirmPassword: string) {

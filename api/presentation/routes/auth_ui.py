@@ -5,6 +5,7 @@ from flask import Blueprint, g, jsonify, redirect, request, session, url_for
 
 from api.application.auth_service import AuthService
 from api.application.org_membership_service import OrgMembershipService
+from api.application.org_name_validation import validate_org_slug
 from api.application.signup_service import SignupService
 from api.container import get_session, set_rls_session_vars
 from api.domain import error_codes
@@ -161,9 +162,26 @@ def sign_up_submit():
     password = body.get("password", "")
     if len(password) < 8:
         raise ValidationError(error_codes.VALIDATION_ERROR, "Password must be at least 8 characters.", field="password")
-    identity, _organization = _signup_service().signup(body.get("email", ""), password, body.get("name", ""))
+    identity, _organization = _signup_service().signup(
+        body.get("email", ""), password, body.get("name", ""), body.get("org_name", "")
+    )
     _establish_session(identity.id)
     return jsonify({"redirect": _consume_post_login_redirect()})
+
+
+@auth_ui_bp.get("/check-org-name")
+def check_org_name():
+    """Live availability check for the org name field on the sign-up form — unauthenticated (no
+    identity/session exists yet at signup) and deliberately never errors on a taken or malformed
+    name; that's an ordinary, expected outcome for a probe endpoint, not a failure."""
+    name = request.args.get("name", "")
+    try:
+        validate_org_slug(name)
+    except ValidationError as exc:
+        return jsonify({"available": False, "message": exc.message})
+    if OrganizationRepository(get_session()).get_by_slug(name) is not None:
+        return jsonify({"available": False, "message": "That org name is already taken."})
+    return jsonify({"available": True, "message": None})
 
 
 @auth_ui_bp.get("/change-password")
