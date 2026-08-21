@@ -68,6 +68,7 @@ def _application(**overrides):
         service_identity_id=uuid4(),
         execute_as_identity_id=None,
         mcp_access=False,
+        api_access=True,
         created_by=None,
         last_modified_by=None,
         revoked_at=None,
@@ -111,6 +112,7 @@ def test_authenticate_bearer_token_resolves_valid_key():
         scopes=frozenset({"documents:read"}),
         auth_method="api_key",
         mcp_access=False,
+        api_access=True,
     )
 
 
@@ -164,6 +166,7 @@ def test_authenticate_bearer_token_resolves_valid_jwt():
         scopes=frozenset({"documents:read"}),
         auth_method="oauth_client_credentials",
         mcp_access=False,
+        api_access=True,
     )
 
 
@@ -208,6 +211,7 @@ def test_bearer_token_without_scope_is_rejected(client):
         scopes=frozenset({"documents:read"}),
         auth_method="api_key",
         mcp_access=False,
+        api_access=True,
     )
     with patch(
         "api.presentation.routes.app_auth.AppAuthService.authenticate_bearer_token", return_value=caller
@@ -225,6 +229,7 @@ def test_bearer_token_with_scope_is_accepted(client):
         scopes=frozenset({"categories:read"}),
         auth_method="api_key",
         mcp_access=False,
+        api_access=True,
     )
     with (
         patch("api.presentation.routes.app_auth.AppAuthService.authenticate_bearer_token", return_value=caller),

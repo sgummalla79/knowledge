@@ -28,6 +28,7 @@ class Application(Base):
     service_identity_id = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=False)
     execute_as_identity_id = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     mcp_access = Column(Boolean, nullable=False, default=False)
+    api_access = Column(Boolean, nullable=False, default=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     last_modified_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)

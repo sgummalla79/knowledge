@@ -209,6 +209,9 @@ export interface Application {
   // methods, independent of scopes/execute_as_identity_id above. See MCPSettings for the
   // org-level tier toggles that gate what it can actually do once connected.
   mcp_access: boolean
+  // Symmetric channel flag for the REST API side: without it, this application can't call any
+  // REST endpoint at all regardless of what its scopes/profile would otherwise grant.
+  api_access: boolean
   created_at: string
   last_modified_at: string
   revoked_at: string | null

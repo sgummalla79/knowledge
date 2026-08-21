@@ -297,6 +297,10 @@ class Application:
     # methods (see api/mcp_server/ and MCPSettings below) — independent of application_scopes/profile,
     # a channel flag rather than a resource permission.
     mcp_access: bool
+    # Symmetric channel flag for the other direction: whether this application may call the plain
+    # REST API at all, independent of what application_scopes/profile would otherwise grant.
+    # Defaults true (see migration 0009) since REST API access is this app's original purpose.
+    api_access: bool
     created_by: UUID | None
     last_modified_by: UUID | None
     revoked_at: datetime | None
@@ -396,3 +400,7 @@ class ResolvedCaller:
     # Mirrors Application.mcp_access — unused by the REST API's own require_permission, only
     # consulted by api/mcp_server/permissions.py's require_tier_permission.
     mcp_access: bool
+    # Mirrors Application.api_access — checked by require_permission before the scope check, for
+    # bearer-token (application) callers only. Not consulted by api/mcp_server/, which has its own
+    # independent mcp_access gate; a caller can be REST-only, MCP-only, both, or neither.
+    api_access: bool

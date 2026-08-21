@@ -580,6 +580,9 @@ class ApplicationCreateRequest(BaseModel):
     # Whether this application may reach the MCP server at all — uniform across all three auth
     # methods, independent of the auth-method radio selection above (see api/mcp_server/).
     mcp_access: bool = False
+    # Symmetric channel flag for the REST API side — defaults true since that's this app's
+    # original, primary purpose (see migration 0009).
+    api_access: bool = True
 
 
 class ApplicationUpdateRequest(BaseModel):
@@ -600,6 +603,7 @@ class ApplicationResponse(BaseModel):
     scopes: list[str]
     execute_as_identity_id: UUID | None
     mcp_access: bool
+    api_access: bool
     created_at: datetime
     last_modified_at: datetime
     revoked_at: datetime | None
@@ -616,6 +620,7 @@ class ApplicationResponse(BaseModel):
             scopes=scopes,
             execute_as_identity_id=application.execute_as_identity_id,
             mcp_access=application.mcp_access,
+            api_access=application.api_access,
             created_at=application.created_at,
             last_modified_at=application.last_modified_at,
             revoked_at=application.revoked_at,

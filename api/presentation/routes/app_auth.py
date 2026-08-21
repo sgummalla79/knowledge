@@ -41,7 +41,12 @@ def require_permission(permission: str):
     routes) are checked against *that* org, not the caller's active/token org — a human can
     administer an org they're not currently "active" in, and a bearer-token caller is naturally
     restricted to its own org since it has no membership anywhere else. Routes without an
-    `org_id` kwarg (the common case) are checked against the resolved org as usual."""
+    `org_id` kwarg (the common case) are checked against the resolved org as usual.
+
+    Bearer-token callers also need `caller.api_access` set — a channel flag on the application
+    itself (mirrors `mcp_access`'s gate on the MCP side), checked before the scope/permission
+    check so a caller without it is rejected regardless of what its scopes/profile would otherwise
+    allow. Not applicable to session (human) callers, which have no `api_access` concept."""
 
     def decorator(view):
         @wraps(view)
@@ -65,6 +70,8 @@ def require_permission(permission: str):
             caller = _app_auth_service().authenticate_bearer_token(auth_header[len("Bearer ") :])
             if caller is None:
                 raise AuthenticationError("Invalid or missing API key.")
+            if not caller.api_access:
+                raise ForbiddenError("This application does not have REST API access.")
             if target_org_id is not None and target_org_id != caller.org_id:
                 raise ForbiddenError("This application does not belong to that organization.")
             if permission not in caller.scopes:

@@ -45,7 +45,14 @@ def create_application():
     dto = ApplicationCreateRequest.model_validate(request.get_json(silent=True) or {})
     if dto.auth_method == "api_key":
         application, api_key = _service().create(
-            g.org_id, dto.name, dto.description, "api_key", dto.scopes, g.user_id, mcp_access=dto.mcp_access
+            g.org_id,
+            dto.name,
+            dto.description,
+            "api_key",
+            dto.scopes,
+            g.user_id,
+            mcp_access=dto.mcp_access,
+            api_access=dto.api_access,
         )
         response = jsonify(
             ApplicationSecretResponse.from_application_entity(application, dto.scopes, api_key).model_dump(mode="json")
@@ -58,7 +65,13 @@ def create_application():
                 field="execute_as_identity_id",
             )
         application, client_secret = _service().create_client_credentials(
-            g.org_id, dto.name, dto.description, dto.execute_as_identity_id, g.user_id, mcp_access=dto.mcp_access
+            g.org_id,
+            dto.name,
+            dto.description,
+            dto.execute_as_identity_id,
+            g.user_id,
+            mcp_access=dto.mcp_access,
+            api_access=dto.api_access,
         )
         response = jsonify(
             ApplicationOAuthClientSecretResponse.from_application_entity(application, client_secret).model_dump(mode="json")
@@ -66,7 +79,13 @@ def create_application():
     else:
         # oauth_authorization_code — a public, PKCE-only client, nothing secret to reveal.
         application = _service().create_authorization_code_client(
-            g.org_id, dto.name, dto.description, dto.redirect_uris, g.user_id, mcp_access=dto.mcp_access
+            g.org_id,
+            dto.name,
+            dto.description,
+            dto.redirect_uris,
+            g.user_id,
+            mcp_access=dto.mcp_access,
+            api_access=dto.api_access,
         )
         response = jsonify(ApplicationResponse.from_entity(application, []).model_dump(mode="json"))
     response.status_code = 201

@@ -37,6 +37,7 @@ def _application(**overrides):
         service_identity_id=uuid4(),
         execute_as_identity_id=None,
         mcp_access=False,
+        api_access=True,
         created_by=None,
         last_modified_by=None,
         revoked_at=None,

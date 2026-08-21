@@ -7,6 +7,7 @@ import { BrowsePage } from './pages/BrowsePage'
 import { CategoriesSettingsPage } from './pages/CategoriesSettingsPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { AuthorizePage } from './pages/AuthorizePage'
+import { ApplicationCreatePage } from './pages/ApplicationCreatePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ConnectedApplicationsPage } from './pages/ConnectedApplicationsPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -16,6 +17,7 @@ import { HomePage } from './pages/HomePage'
 import { ItemPage } from './pages/ItemPage'
 import { MCPSettingsPage } from './pages/MCPSettingsPage'
 import { OrgSettingsPage } from './pages/OrgSettingsPage'
+import { ProfileFormPage } from './pages/ProfileFormPage'
 import { ProfilesSettingsPage } from './pages/ProfilesSettingsPage'
 import { SearchPage } from './pages/SearchPage'
 import { ShelvesSettingsPage } from './pages/ShelvesSettingsPage'
@@ -49,10 +51,13 @@ export default function App() {
                 <Route path="org/settings" element={<GeneralSettingsPage />} />
                 <Route path="org/members" element={<OrgSettingsPage />} />
                 <Route path="org/profiles" element={<ProfilesSettingsPage />} />
+                <Route path="org/profiles/new" element={<ProfileFormPage />} />
+                <Route path="org/profiles/:id/edit" element={<ProfileFormPage />} />
                 <Route path="org/shelves" element={<ShelvesSettingsPage />} />
                 <Route path="org/categories" element={<CategoriesSettingsPage />} />
                 <Route path="org/embedding-models" element={<EmbeddingModelsPage />} />
                 <Route path="org/applications" element={<ConnectedApplicationsPage />} />
+                <Route path="org/applications/new" element={<ApplicationCreatePage />} />
                 <Route path="org/mcp" element={<MCPSettingsPage />} />
               </Route>
             </Route>

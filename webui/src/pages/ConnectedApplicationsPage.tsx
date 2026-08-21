@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import { useApplications, useOrgMembers, useOrgs } from '../api/queries'
 import { currentOrgId } from '../api/shell'
 import type { Application, ApplicationWithClientSecret, ApplicationWithSecret } from '../api/types'
-import { ApplicationCreateModal } from '../components/ApplicationCreateModal'
 import { ApplicationSecretRevealModal } from '../components/ApplicationSecretRevealModal'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { useToast } from '../components/toastContext'
@@ -30,8 +30,22 @@ export function ConnectedApplicationsPage() {
   const members = useOrgMembers(orgId ?? undefined)
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const [creating, setCreating] = useState(false)
-  const [revealing, setRevealing] = useState<CreatedApplication | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  // ApplicationCreatePage (org/applications/new) hands the freshly created application back via
+  // router state rather than a callback prop, since it's a separate routed page now, not a modal
+  // rendered inline here. oauth_authorization_code has nothing secret to show (a public,
+  // PKCE-only client), so only open the reveal step when there's actually a secret to reveal.
+  const justCreated = location.state?.justCreated as CreatedApplication | undefined
+  const [revealing, setRevealing] = useState<CreatedApplication | null>(
+    justCreated && secretFields(justCreated).length > 0 ? justCreated : null
+  )
+  useEffect(() => {
+    // Runs once per navigation into this page with fresh state — clears it immediately so a
+    // later back-navigation or refresh doesn't reopen the reveal modal (setRevealing above
+    // already captured what it needed from justCreated before this fires).
+    if (justCreated) navigate(location.pathname, { replace: true, state: null })
+  }, [justCreated])
 
   const org = orgs.data?.find((entry) => entry.id === orgId)
   const canManage = org?.permissions.includes('applications:write') ?? false
@@ -83,7 +97,7 @@ export function ConnectedApplicationsPage() {
         {canManage && (
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => navigate('/org/applications/new')}
             className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             New application
@@ -107,20 +121,6 @@ export function ConnectedApplicationsPage() {
           onRotateKey={(application) => void handleRotateKey(application)}
           onRevoke={(application) => void handleRevoke(application)}
           onDelete={(application) => void handleDelete(application)}
-        />
-      )}
-
-      {creating && (
-        <ApplicationCreateModal
-          orgId={orgId}
-          onClose={() => setCreating(false)}
-          onCreated={(application) => {
-            invalidate()
-            setCreating(false)
-            // oauth_authorization_code has nothing secret to show (a public, PKCE-only client) —
-            // skip the reveal step and go straight back to the refreshed list.
-            if (secretFields(application).length > 0) setRevealing(application)
-          }}
         />
       )}
 

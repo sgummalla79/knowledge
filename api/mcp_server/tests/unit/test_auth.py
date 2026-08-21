@@ -15,6 +15,7 @@ def test_verify_token_maps_resolved_caller_to_access_token():
         scopes=frozenset({"documents:read", "categories:read"}),
         auth_method="oauth_client_credentials",
         mcp_access=True,
+        api_access=True,
     )
     with patch("api.mcp_server.auth.AppAuthService.authenticate_bearer_token", return_value=caller):
         access_token = asyncio.run(KnowledgeTokenVerifier().verify_token("the-raw-token"))

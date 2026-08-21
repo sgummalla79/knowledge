@@ -45,6 +45,7 @@ class AppAuthService:
             scopes=granted,
             auth_method=application.auth_method,
             mcp_access=application.mcp_access,
+            api_access=application.api_access,
         )
 
     def _authenticate_api_key(self, token: str) -> ResolvedCaller | None:
@@ -63,6 +64,7 @@ class AppAuthService:
             scopes=scopes,
             auth_method=application.auth_method,
             mcp_access=application.mcp_access,
+            api_access=application.api_access,
         )
 
     def authenticate_bearer_token(self, token: str) -> ResolvedCaller | None:

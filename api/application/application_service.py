@@ -57,6 +57,7 @@ class ApplicationService:
         scopes: list[str],
         created_by: UUID,
         mcp_access: bool = False,
+        api_access: bool = True,
     ) -> tuple[Application, str]:
         self._validate_scopes(scopes)
         # A service identity that can never log in — satisfies every created_by/owner_id-style FK
@@ -76,6 +77,7 @@ class ApplicationService:
             service_identity.id,
             description=description,
             mcp_access=mcp_access,
+            api_access=api_access,
             created_by=created_by,
             last_modified_by=created_by,
         )
@@ -143,6 +145,7 @@ class ApplicationService:
         execute_as_identity_id: UUID,
         created_by: UUID,
         mcp_access: bool = False,
+        api_access: bool = True,
     ) -> tuple[Application, str]:
         """No synthetic identity, no new org_members row (unlike create()/api_key) — the
         execute-as identity is a real, already-existing member, and PermissionService resolves
@@ -163,6 +166,7 @@ class ApplicationService:
             execute_as_identity_id=execute_as_identity_id,
             description=description,
             mcp_access=mcp_access,
+            api_access=api_access,
             created_by=created_by,
             last_modified_by=created_by,
         )
@@ -184,6 +188,7 @@ class ApplicationService:
         redirect_uris: list[str],
         created_by: UUID,
         mcp_access: bool = False,
+        api_access: bool = True,
     ) -> Application:
         """No execute-as identity to pick — whoever completes the consent screen each time is the
         identity a token resolves to (see OAuthAuthorizationService.exchange_authorization_code).
@@ -209,6 +214,7 @@ class ApplicationService:
             placeholder_identity.id,
             description=description,
             mcp_access=mcp_access,
+            api_access=api_access,
             created_by=created_by,
             last_modified_by=created_by,
         )

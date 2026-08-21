@@ -21,6 +21,7 @@ def _to_entity(model: ApplicationModel) -> ApplicationEntity:
         service_identity_id=model.service_identity_id,
         execute_as_identity_id=model.execute_as_identity_id,
         mcp_access=model.mcp_access,
+        api_access=model.api_access,
         created_by=model.created_by,
         last_modified_by=model.last_modified_by,
         revoked_at=model.revoked_at,

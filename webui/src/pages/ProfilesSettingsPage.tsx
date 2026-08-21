@@ -1,11 +1,10 @@
-import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import { useOrgs, useProfiles } from '../api/queries'
 import { currentOrgId } from '../api/shell'
 import type { Profile } from '../api/types'
-import { ProfileFormModal } from '../components/ProfileFormModal'
 import { useToast } from '../components/toastContext'
 
 export function ProfilesSettingsPage() {
@@ -14,27 +13,16 @@ export function ProfilesSettingsPage() {
   const profiles = useProfiles()
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
-  const [creating, setCreating] = useState(false)
+  const navigate = useNavigate()
 
   const org = orgs.data?.find((entry) => entry.id === orgId)
   const canManage = org?.permissions.includes('profiles:write') ?? false
-
-  function invalidate() {
-    void queryClient.invalidateQueries({ queryKey: ['profiles'] })
-  }
-
-  function handleSaved() {
-    invalidate()
-    setEditingProfile(null)
-    setCreating(false)
-  }
 
   async function handleDelete(profile: Profile) {
     if (!window.confirm(`Delete "${profile.name}"? Members assigned to it must be moved to another profile first.`)) return
     try {
       await api.delete(`/profiles/${profile.id}`)
-      invalidate()
+      void queryClient.invalidateQueries({ queryKey: ['profiles'] })
       showToast('Profile deleted.')
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : 'Something went wrong — please try again.', 'error')
@@ -48,7 +36,7 @@ export function ProfilesSettingsPage() {
         {canManage && (
           <button
             type="button"
-            onClick={() => setCreating(true)}
+            onClick={() => navigate('/org/profiles/new')}
             className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             New profile
@@ -101,7 +89,7 @@ export function ProfilesSettingsPage() {
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
-                          onClick={() => setEditingProfile(profile)}
+                          onClick={() => navigate(`/org/profiles/${profile.id}/edit`)}
                           className="text-[13px] text-primary hover:underline"
                         >
                           Edit
@@ -118,7 +106,7 @@ export function ProfilesSettingsPage() {
                     {canManage && profile.is_admin && (
                       <button
                         type="button"
-                        onClick={() => setEditingProfile(profile)}
+                        onClick={() => navigate(`/org/profiles/${profile.id}/edit`)}
                         className="text-[13px] text-primary hover:underline"
                       >
                         Rename
@@ -130,10 +118,6 @@ export function ProfilesSettingsPage() {
             </tbody>
           </table>
         </div>
-      )}
-
-      {(creating || editingProfile) && (
-        <ProfileFormModal profile={editingProfile} onClose={() => { setCreating(false); setEditingProfile(null) }} onSaved={handleSaved} />
       )}
     </div>
   )
