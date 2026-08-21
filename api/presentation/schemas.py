@@ -21,6 +21,7 @@ from api.domain.entities import (
     MCPSettings,
     MostRetrievedDocument,
     Organization,
+    PersonalAccessToken,
     Profile,
     Query,
     RoutedScoredChunk,
@@ -30,10 +31,11 @@ from api.domain.entities import (
 )
 
 DocumentType = Literal["article", "document"]
-# Only these 3 are creatable today — the DB's application_auth_method enum already includes
-# "certificate" too, so a later phase's migration doesn't need to touch this column, but this
-# Literal only widens once that method's issuance/verification is actually built.
-ApplicationAuthMethod = Literal["api_key", "oauth_client_credentials", "oauth_authorization_code"]
+# The DB's application_auth_method enum still has "api_key" and "certificate" values (the former
+# vestigial after api_key moved to personal access tokens — see migration 0010 — the latter never
+# built), so a later migration doesn't need to touch this column, but this Literal only widens once
+# a method actually has issuance/verification support.
+ApplicationAuthMethod = Literal["oauth_client_credentials", "oauth_authorization_code"]
 
 
 class OrgCreateRequest(BaseModel):
@@ -567,18 +569,15 @@ class ApplicationCreateRequest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    auth_method: ApplicationAuthMethod = "api_key"
-    # Only meaningful/required for api_key (validated in ApplicationService.create); ignored for
-    # oauth_client_credentials, which has no scopes of its own — see execute_as_identity_id below.
-    scopes: list[str] = []
+    auth_method: ApplicationAuthMethod = "oauth_client_credentials"
     # Only meaningful/required for oauth_client_credentials — an existing org member whose profile
     # this application's tokens inherit permissions from.
     execute_as_identity_id: UUID | None = None
     # Only meaningful/required for oauth_authorization_code — the callback URL(s) this app is
     # allowed to redirect to after a member consents.
     redirect_uris: list[str] = []
-    # Whether this application may reach the MCP server at all — uniform across all three auth
-    # methods, independent of the auth-method radio selection above (see api/mcp_server/).
+    # Whether this application may reach the MCP server at all — uniform across both auth methods,
+    # independent of the auth-method radio selection above (see api/mcp_server/).
     mcp_access: bool = False
     # Symmetric channel flag for the REST API side — defaults true since that's this app's
     # original, primary purpose (see migration 0009).
@@ -590,7 +589,6 @@ class ApplicationUpdateRequest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    scopes: list[str] = []
 
 
 class ApplicationResponse(BaseModel):
@@ -600,7 +598,6 @@ class ApplicationResponse(BaseModel):
     description: str | None
     auth_method: str
     status: str
-    scopes: list[str]
     execute_as_identity_id: UUID | None
     mcp_access: bool
     api_access: bool
@@ -609,7 +606,7 @@ class ApplicationResponse(BaseModel):
     revoked_at: datetime | None
 
     @classmethod
-    def from_entity(cls, application: Application, scopes: list[str]) -> "ApplicationResponse":
+    def from_entity(cls, application: Application) -> "ApplicationResponse":
         return cls(
             id=application.id,
             org_id=application.org_id,
@@ -617,7 +614,6 @@ class ApplicationResponse(BaseModel):
             description=application.description,
             auth_method=application.auth_method,
             status=application.status,
-            scopes=scopes,
             execute_as_identity_id=application.execute_as_identity_id,
             mcp_access=application.mcp_access,
             api_access=application.api_access,
@@ -640,9 +636,9 @@ class ProfileUpdateRequest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
-    # Ignored for the Admin profile — its permissions are structurally always everything (see
-    # ProfileService.update), but a plain list default keeps this field required for every other
-    # profile without a separate request shape.
+    # A request against a system profile (Admin/Contributor/Viewer — see Profile.is_system) is
+    # rejected outright by ProfileService.update before this field is even consulted; the plain
+    # default just keeps this field required for every other profile without a separate shape.
     permissions: list[str] = []
 
 
@@ -652,6 +648,7 @@ class ProfileResponse(BaseModel):
     name: str
     description: str | None
     is_admin: bool
+    is_system: bool
     permissions: list[str]
     created_at: datetime
     last_modified_at: datetime
@@ -664,30 +661,17 @@ class ProfileResponse(BaseModel):
             name=profile.name,
             description=profile.description,
             is_admin=profile.is_admin,
+            is_system=profile.is_system,
             permissions=permissions,
             created_at=profile.created_at,
             last_modified_at=profile.last_modified_at,
         )
 
 
-class ApplicationSecretResponse(ApplicationResponse):
-    """Same shape as ApplicationResponse plus the one-time-reveal API key — returned only from
-    create/rotate, never from a plain GET, since the raw key isn't persisted anywhere (only its
-    HMAC hash is)."""
-
-    api_key: str
-
-    @classmethod
-    def from_application_entity(
-        cls, application: Application, scopes: list[str], api_key: str
-    ) -> "ApplicationSecretResponse":
-        return cls(**ApplicationResponse.from_entity(application, scopes).model_dump(), api_key=api_key)
-
-
 class ApplicationOAuthClientSecretResponse(ApplicationResponse):
-    """oauth_client_credentials' counterpart to ApplicationSecretResponse — client_id is just
-    application.id (already in the base response), client_secret is the one-time-reveal secret
-    (returned only from create/rotate, never persisted in raw form)."""
+    """client_credentials' one-time-reveal counterpart — client_id is just application.id (already
+    in the base response), client_secret is the one-time-reveal secret (returned only from
+    create/rotate, never persisted in raw form)."""
 
     client_id: UUID
     client_secret: str
@@ -695,10 +679,53 @@ class ApplicationOAuthClientSecretResponse(ApplicationResponse):
     @classmethod
     def from_application_entity(cls, application: Application, client_secret: str) -> "ApplicationOAuthClientSecretResponse":
         return cls(
-            **ApplicationResponse.from_entity(application, []).model_dump(),
+            **ApplicationResponse.from_entity(application).model_dump(),
             client_id=application.id,
             client_secret=client_secret,
         )
+
+
+class PersonalAccessTokenCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    # Same channel-flag concept as Application.mcp_access — opt-in, since REST access is this
+    # entity's unconditional purpose (no api_access toggle exists for it at all).
+    mcp_access: bool = False
+
+
+class PersonalAccessTokenResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    name: str
+    token_prefix: str
+    mcp_access: bool
+    created_at: datetime
+    last_used_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, token: PersonalAccessToken) -> "PersonalAccessTokenResponse":
+        return cls(
+            id=token.id,
+            org_id=token.org_id,
+            name=token.name,
+            token_prefix=token.token_prefix,
+            mcp_access=token.mcp_access,
+            created_at=token.created_at,
+            last_used_at=token.last_used_at,
+        )
+
+
+class PersonalAccessTokenSecretResponse(PersonalAccessTokenResponse):
+    """Same shape as PersonalAccessTokenResponse plus the one-time-reveal raw token — returned only
+    from create, never from a plain GET, since the raw value isn't persisted anywhere (only its
+    HMAC hash is)."""
+
+    token: str
+
+    @classmethod
+    def from_token_entity(cls, token: PersonalAccessToken, raw_token: str) -> "PersonalAccessTokenSecretResponse":
+        return cls(**PersonalAccessTokenResponse.from_entity(token).model_dump(), token=raw_token)
 
 
 class MCPSettingsUpdateRequest(BaseModel):

@@ -7,9 +7,9 @@ from api.application.app_auth_service import AppAuthService
 from api.application.permission_service import PermissionService
 from api.container import get_session, set_rls_session_vars
 from api.domain.errors import AuthenticationError, ForbiddenError
-from api.infrastructure.repositories.application_api_key_repository import ApplicationApiKeyRepository
 from api.infrastructure.repositories.application_repository import ApplicationRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
+from api.infrastructure.repositories.personal_access_token_repository import PersonalAccessTokenRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
 
 
@@ -20,7 +20,9 @@ def _permission_service() -> PermissionService:
 
 def _app_auth_service() -> AppAuthService:
     session_ = get_session()
-    return AppAuthService(ApplicationRepository(session_), ApplicationApiKeyRepository(session_), _permission_service())
+    return AppAuthService(
+        ApplicationRepository(session_), PersonalAccessTokenRepository(session_), _permission_service()
+    )
 
 
 def require_permission(permission: str):
@@ -32,10 +34,10 @@ def require_permission(permission: str):
     Humans are resolved via their org membership's profile (PermissionService) — this is the
     first time a session request is actually checked against a specific permission at all; before
     profiles existed, any authenticated member could reach any mutating route. Bearer tokens
-    resolve via AppAuthService, which tries a client_credentials-issued JWT (permissions from the
-    execute-as identity's profile, via PermissionService) before falling back to an api_key
-    (Phase 1, checked against the application's own application_scopes, deliberately not migrated
-    to profiles — see api/application/permission_service.py's docstring).
+    resolve via AppAuthService, which tries a client_credentials-issued JWT before falling back to
+    a personal access token — both resolve permissions via the identical
+    PermissionService.resolve_permissions(identity_id, org_id) call a session request also uses,
+    just for a different identity (the execute-as identity, or the token's own owner).
 
     Routes whose URL includes an `org_id` path parameter (e.g. orgs.py's member-management
     routes) are checked against *that* org, not the caller's active/token org — a human can
@@ -44,9 +46,11 @@ def require_permission(permission: str):
     `org_id` kwarg (the common case) are checked against the resolved org as usual.
 
     Bearer-token callers also need `caller.api_access` set — a channel flag on the application
-    itself (mirrors `mcp_access`'s gate on the MCP side), checked before the scope/permission
-    check so a caller without it is rejected regardless of what its scopes/profile would otherwise
-    allow. Not applicable to session (human) callers, which have no `api_access` concept."""
+    itself for an Application-backed caller (mirrors `mcp_access`'s gate on the MCP side); always
+    True for a personal access token, which has no such toggle (its whole purpose is REST access).
+    Checked before the scope/permission check so a caller without it is rejected regardless of what
+    its scopes/profile would otherwise allow. Not applicable to session (human) callers, which have
+    no `api_access` concept."""
 
     def decorator(view):
         @wraps(view)
@@ -71,11 +75,11 @@ def require_permission(permission: str):
             if caller is None:
                 raise AuthenticationError("Invalid or missing API key.")
             if not caller.api_access:
-                raise ForbiddenError("This application does not have REST API access.")
+                raise ForbiddenError("This credential does not have REST API access.")
             if target_org_id is not None and target_org_id != caller.org_id:
-                raise ForbiddenError("This application does not belong to that organization.")
+                raise ForbiddenError("This credential does not belong to that organization.")
             if permission not in caller.scopes:
-                raise ForbiddenError(f"This application is not authorized for permission '{permission}'.")
+                raise ForbiddenError(f"This credential is not authorized for permission '{permission}'.")
 
             g.org_id = caller.org_id
             g.user_id = caller.identity_id

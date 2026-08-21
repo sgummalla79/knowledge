@@ -55,9 +55,17 @@ def bootstrap_default_identity(session) -> None:
             name=DEFAULT_ADMIN_NAME,
         )
         profiles = ProfileRepository(session)
+        profile_service = ProfileService(profiles)
         admin_profile = profiles.get_admin_profile(organization.id)
         if admin_profile is None:
-            admin_profile = ProfileService(profiles).create_admin_profile(organization.id, identity.id)
+            admin_profile = profile_service.create_admin_profile(organization.id, identity.id)
+        # Contributor/Viewer are seeded alongside Admin for every org — same idempotent
+        # check-then-create as above, since this whole function can race across concurrently
+        # starting workers (see the module docstring).
+        if profiles.get_by_name(organization.id, "Contributor") is None:
+            profile_service.create_contributor_profile(organization.id, identity.id)
+        if profiles.get_by_name(organization.id, "Viewer") is None:
+            profile_service.create_viewer_profile(organization.id, identity.id)
         OrgMemberRepository(session).create(organization.id, identity.id, admin_profile.id)
         session.commit()
     except ConflictError:

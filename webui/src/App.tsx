@@ -7,6 +7,7 @@ import { BrowsePage } from './pages/BrowsePage'
 import { CategoriesSettingsPage } from './pages/CategoriesSettingsPage'
 import { CategoryPage } from './pages/CategoryPage'
 import { AuthorizePage } from './pages/AuthorizePage'
+import { ApiKeysPage } from './pages/ApiKeysPage'
 import { ApplicationCreatePage } from './pages/ApplicationCreatePage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ConnectedApplicationsPage } from './pages/ConnectedApplicationsPage'
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="search" element={<SearchPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="upload" element={<UploadPage />} />
+              <Route path="account/api-keys" element={<ApiKeysPage />} />
 
               <Route element={<SettingsLayout />}>
                 <Route path="org/settings" element={<GeneralSettingsPage />} />

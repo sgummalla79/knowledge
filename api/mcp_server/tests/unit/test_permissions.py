@@ -26,7 +26,7 @@ def _set_access_token(org_id, identity_id, application_id, scopes, mcp_access=Tr
         claims={
             "org_id": str(org_id),
             "identity_id": str(identity_id),
-            "auth_method": "api_key",
+            "auth_method": "personal_access_token",
             "mcp_access": mcp_access,
         },
     )

@@ -45,8 +45,8 @@ export function ProfilesSettingsPage() {
       </div>
       <p className="mb-6 max-w-xl text-[13.5px] text-muted-foreground">
         A profile is a reusable bundle of read/write permissions, assigned to org members (and,
-        for a connected application, to whoever it acts as). Admin always has full access and
-        can't be edited or deleted.
+        for a connected application, to whoever it acts as). Admin, Contributor, and Viewer are
+        seeded for every org and can't be edited or deleted.
       </p>
 
       {profiles.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -85,7 +85,7 @@ export function ProfilesSettingsPage() {
                     )}
                   </td>
                   <td className="py-3.5 text-right">
-                    {canManage && !profile.is_admin && (
+                    {canManage && !profile.is_system && (
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
@@ -103,13 +103,13 @@ export function ProfilesSettingsPage() {
                         </button>
                       </div>
                     )}
-                    {canManage && profile.is_admin && (
+                    {profile.is_system && (
                       <button
                         type="button"
                         onClick={() => navigate(`/org/profiles/${profile.id}/edit`)}
                         className="text-[13px] text-primary hover:underline"
                       >
-                        Rename
+                        View
                       </button>
                     )}
                   </td>

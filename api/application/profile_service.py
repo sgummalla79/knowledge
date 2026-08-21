@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from api.constants import OBJECT_PERMISSIONS
+from api.constants import DEFAULT_CONTRIBUTOR_PERMISSIONS, DEFAULT_VIEWER_PERMISSIONS, OBJECT_PERMISSIONS
 from api.domain import error_codes
 from api.domain.entities import Profile
 from api.domain.errors import ForbiddenError, NotFoundError, ValidationError
@@ -19,14 +19,36 @@ class ProfileService:
             )
 
     def create_admin_profile(self, org_id: UUID, created_by: UUID | None = None) -> Profile:
-        """Seeded once per org (org creation / signup) — the one non-deletable profile whose
-        permissions are always every OBJECT_PERMISSIONS entry, kept in sync here rather than
-        editable through the normal update path (see update()/set_permissions())."""
+        """Seeded once per org (org creation / signup) alongside Contributor and Viewer below —
+        the one profile whose permissions are always every OBJECT_PERMISSIONS entry, kept in sync
+        here rather than editable through the normal update path (see update()/set_permissions())."""
         profile = self._profiles.create(
-            org_id, "Admin", is_admin=True, description="Full access to every object.",
+            org_id, "Admin", is_admin=True, is_system=True, description="Full access to every object.",
             created_by=created_by, last_modified_by=created_by,
         )
         self._profiles.set_permissions(profile.id, list(OBJECT_PERMISSIONS), granted_by=created_by)
+        return profile
+
+    def create_contributor_profile(self, org_id: UUID, created_by: UUID | None = None) -> Profile:
+        """Seeded once per org alongside Admin/Viewer — read/write on the core content objects,
+        no org-admin surface. See DEFAULT_CONTRIBUTOR_PERMISSIONS for the exact set."""
+        profile = self._profiles.create(
+            org_id, "Contributor", is_system=True,
+            description="Read/write access to documents, categories, shelves, and tags.",
+            created_by=created_by, last_modified_by=created_by,
+        )
+        self._profiles.set_permissions(profile.id, list(DEFAULT_CONTRIBUTOR_PERMISSIONS), granted_by=created_by)
+        return profile
+
+    def create_viewer_profile(self, org_id: UUID, created_by: UUID | None = None) -> Profile:
+        """Seeded once per org alongside Admin/Contributor — read-only across the same content
+        surface Contributor covers. See DEFAULT_VIEWER_PERMISSIONS for the exact set."""
+        profile = self._profiles.create(
+            org_id, "Viewer", is_system=True,
+            description="Read-only access to documents, categories, shelves, and tags.",
+            created_by=created_by, last_modified_by=created_by,
+        )
+        self._profiles.set_permissions(profile.id, list(DEFAULT_VIEWER_PERMISSIONS), granted_by=created_by)
         return profile
 
     def create(
@@ -57,11 +79,8 @@ class ProfileService:
         self, org_id: UUID, profile_id: UUID, name: str, description: str | None, permissions: list[str]
     ) -> tuple[Profile, list[str]]:
         profile = self._get_or_404(org_id, profile_id)
-        if profile.is_admin:
-            # Name/description can still be personalized; permissions are structurally always
-            # "everything," not something a form submission gets to narrow.
-            updated = self._profiles.update(profile_id, name, description)
-            return updated, self._profiles.list_permissions(profile_id)
+        if profile.is_system:
+            raise ForbiddenError(f"The {profile.name} profile can't be edited.")
         self._validate_permissions(permissions)
         updated = self._profiles.update(profile_id, name, description)
         self._profiles.set_permissions(profile_id, permissions, granted_by=None)
@@ -69,6 +88,6 @@ class ProfileService:
 
     def delete(self, org_id: UUID, profile_id: UUID) -> None:
         profile = self._get_or_404(org_id, profile_id)
-        if profile.is_admin:
-            raise ForbiddenError("The Admin profile can't be deleted.")
+        if profile.is_system:
+            raise ForbiddenError(f"The {profile.name} profile can't be deleted.")
         self._profiles.delete(profile_id)

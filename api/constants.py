@@ -153,33 +153,11 @@ DEFAULT_ADMIN_NAME = "Admin"
 DEFAULT_ORGANIZATION_NAME = "Default Organization"
 DEFAULT_ORGANIZATION_SLUG = "default"
 
-# Per-resource read/write scope vocabulary a connected application can be granted — the
-# wire-format string require_scope() checks against an authenticated caller's granted scopes.
-# Inherently a fixed protocol vocabulary (like an HTTP method name), not environment config: a new
-# resource area needs a new route + service anyway, so its scope pair is added here in the same
-# commit (Open/Closed via code review, same convention as EMBEDDING_PROVIDERS_REQUIRING_API_KEY
-# above). Deliberately excludes ingestion jobs, dashboard stats, and query history (no scope, so
-# those routes stay session-only) and `sources` (no presentation route exists for it yet).
-APPLICATION_SCOPES = (
-    "documents:read",
-    "documents:write",
-    "categories:read",
-    "categories:write",
-    "shelves:read",
-    "shelves:write",
-    "tags:read",
-    "tags:write",
-    "embedding_models:read",
-    "embedding_models:write",
-    "org_members:read",
-    "org_members:write",
-    "queries:execute",
-)
-
-# Bytes of entropy (secrets.token_urlsafe input) for a connected application's API key — 256 bits,
-# well beyond brute-forceable regardless of the hash used to store it (see
-# api/infrastructure/auth/token_hashing.py).
-APPLICATION_API_KEY_TOKEN_BYTES = 32
+# Bytes of entropy (secrets.token_urlsafe input) for a personal API key — 256 bits, well beyond
+# brute-forceable regardless of the hash used to store it (see
+# api/infrastructure/auth/token_hashing.py). Same budget the removed Connected Applications
+# api_key method used.
+PERSONAL_ACCESS_TOKEN_BYTES = 32
 
 # Same entropy budget as an API key, for an oauth_client_credentials application's client secret.
 APPLICATION_CLIENT_SECRET_BYTES = 32
@@ -199,13 +177,10 @@ REFRESH_TOKEN_TTL_DAYS = 90
 AUTHORIZATION_CODE_BYTES = 32
 REFRESH_TOKEN_BYTES = 32
 
-# Per-object-type read/write permission vocabulary a profile can grant to whoever holds it (org
-# members today; a connected application's execute-as user or authorization_code-consenting user
-# in a later phase — see api/application/permission_service.py). Deliberately a *separate*
-# constant from APPLICATION_SCOPES above, even though the values mostly overlap: APPLICATION_SCOPES
-# is Phase 1's api_key auth method, which keeps its own independent application_scopes table and
-# is not migrated to profiles — keeping two constants means that path never becomes coupled to a
-# vocabulary the profile system also controls. Includes org/org_members/applications/profiles
+# Per-object-type read/write permission vocabulary a profile can grant to whoever holds it — org
+# members, a connected application's execute-as/authorization_code-consenting user, or a personal
+# access token's owning identity (all resolved via api/application/permission_service.py's
+# resolve_permissions, the single source of truth). Includes org/org_members/applications/profiles
 # themselves as ordinary delegable entries (a custom profile can be granted the power to manage
 # members or connected applications) rather than hardcoding those as Admin-only.
 OBJECT_PERMISSIONS = (
@@ -228,5 +203,35 @@ OBJECT_PERMISSIONS = (
     "profiles:write",
     "mcp_settings:read",
     "mcp_settings:write",
+    "queries:execute",
+)
+
+# Seeded alongside Admin for every org (ProfileService.create_contributor_profile) — read/write on
+# the core content objects a day-to-day contributor manages, deliberately excluding the org-admin
+# surface (org:write, org_members, applications, profiles, mcp_settings) and embedding_models:write
+# (changing the active embedding model is a global, destructive-ish operation, not routine content
+# work).
+DEFAULT_CONTRIBUTOR_PERMISSIONS = (
+    "documents:read",
+    "documents:write",
+    "categories:read",
+    "categories:write",
+    "shelves:read",
+    "shelves:write",
+    "tags:read",
+    "tags:write",
+    "embedding_models:read",
+    "queries:execute",
+)
+
+# Seeded alongside Admin for every org (ProfileService.create_viewer_profile) — read-only across
+# the same content surface Contributor covers, no write anywhere. Intended as the profile for an
+# identity that mostly interacts via MCP (read/search tools) rather than the web UI.
+DEFAULT_VIEWER_PERMISSIONS = (
+    "documents:read",
+    "categories:read",
+    "shelves:read",
+    "tags:read",
+    "embedding_models:read",
     "queries:execute",
 )

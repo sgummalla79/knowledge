@@ -260,15 +260,19 @@ class OrgMember:
 class Profile:
     """An org-scoped, reusable bundle of per-object-type read/write grants — assigned to org
     members (and, later, to a connected application's execute-as user) rather than access being
-    granted to a person or app directly. `is_admin` marks the one seeded, non-deletable profile
-    per org whose permissions are always every OBJECT_PERMISSIONS entry — enforced by
-    ProfileService, not something a permission grid ever edits."""
+    granted to a person or app directly. `is_admin` marks the one profile per org whose permissions
+    are always every OBJECT_PERMISSIONS entry — enforced by ProfileService, not something a
+    permission grid ever edits. `is_system` marks all three seeded-per-org default profiles (Admin,
+    Contributor, Viewer) as fully locked — no name/description/permission edits, no deletion — a
+    strict superset of is_admin (every is_admin profile is also is_system, but Contributor/Viewer
+    are is_system without being is_admin, since they don't get every permission)."""
 
     id: UUID
     org_id: UUID
     name: str
     description: str | None
     is_admin: bool
+    is_system: bool
     created_by: UUID | None
     last_modified_by: UUID | None
     created_at: datetime
@@ -324,18 +328,6 @@ class MCPSettings:
 
 
 @dataclass(frozen=True)
-class ApplicationApiKey:
-    id: UUID
-    application_id: UUID
-    key_hash: str
-    key_prefix: str
-    created_at: datetime
-    last_rotated_at: datetime
-    last_used_at: datetime | None
-    revoked_at: datetime | None
-
-
-@dataclass(frozen=True)
 class ApplicationOAuthClient:
     """Shared credential row for both oauth_client_credentials and oauth_authorization_code —
     application_id itself is the wire-format client_id, so there's no separate client_id column.
@@ -386,6 +378,30 @@ class RefreshToken:
 
 
 @dataclass(frozen=True)
+class PersonalAccessToken:
+    """A self-service, per-user API key — created by an identity for themselves, in whichever org
+    is active at creation time (org_id is then fixed; same per-request-org model every other
+    credential here already uses). No revoked_at/rotation: deleting the row is the only
+    lifecycle-ending action. Authority is never baked into the token itself — AppAuthService
+    resolves (identity_id, org_id) from token_hash, then calls the identical
+    PermissionService.resolve_permissions() a session or oauth_client_credentials caller uses, so a
+    token's effective permissions always track that identity's *current* profile in that org."""
+
+    id: UUID
+    identity_id: UUID
+    org_id: UUID
+    name: str
+    token_hash: str
+    token_prefix: str
+    # Same channel-flag concept as Application.mcp_access — opt-in, since a personal key's default
+    # purpose is REST access (unconditional for this entity, unlike Application.api_access, which
+    # doesn't exist here at all).
+    mcp_access: bool
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+@dataclass(frozen=True)
 class ResolvedCaller:
     """What a verified machine-caller bearer token resolves to. Returned by
     AppAuthService.authenticate_bearer_token, which is deliberately framework-free so this same
@@ -394,13 +410,18 @@ class ResolvedCaller:
 
     org_id: UUID
     identity_id: UUID
-    application_id: UUID
+    # Only set for an Application-backed caller (oauth_client_credentials/oauth_authorization_code)
+    # — a personal_access_token caller has no application at all, identified purely by identity_id.
+    application_id: UUID | None
     scopes: frozenset[str]
     auth_method: str
-    # Mirrors Application.mcp_access — unused by the REST API's own require_permission, only
-    # consulted by api/mcp_server/permissions.py's require_tier_permission.
+    # Mirrors Application.mcp_access / PersonalAccessToken.mcp_access — unused by the REST API's
+    # own require_permission, only consulted by api/mcp_server/permissions.py's
+    # require_tier_permission.
     mcp_access: bool
-    # Mirrors Application.api_access — checked by require_permission before the scope check, for
-    # bearer-token (application) callers only. Not consulted by api/mcp_server/, which has its own
-    # independent mcp_access gate; a caller can be REST-only, MCP-only, both, or neither.
+    # Mirrors Application.api_access for an Application-backed caller; always True for a
+    # personal_access_token caller (that entity has no api_access column at all — a personal key's
+    # whole purpose is REST access, so it's unconditional, not a toggle). Checked by
+    # require_permission before the scope check. Not consulted by api/mcp_server/, which has its
+    # own independent mcp_access gate; a caller can be REST-only, MCP-only, both, or neither.
     api_access: bool

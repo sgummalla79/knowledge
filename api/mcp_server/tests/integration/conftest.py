@@ -61,7 +61,7 @@ def db_session(postgres_url):
             text(
                 "TRUNCATE TABLE chunks, documents, embedding_models, ingestion_jobs, sources, "
                 "document_tags, tags, categories, query_results, queries, user_shelf_access, document_shelves, "
-                "shelves, application_api_keys, application_oauth_clients, application_scopes, "
+                "shelves, application_oauth_clients, personal_access_tokens, "
                 "authorization_codes, refresh_tokens, applications, mcp_settings, "
                 "org_members, profile_permissions, profiles, identities, organizations "
                 "CASCADE"

@@ -80,6 +80,7 @@ def _profile(**overrides):
         name="Admin",
         description=None,
         is_admin=True,
+        is_system=True,
         created_by=None,
         last_modified_by=None,
         created_at=now,

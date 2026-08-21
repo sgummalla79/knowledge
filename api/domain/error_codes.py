@@ -33,7 +33,6 @@ SHELF_NOT_FOUND = "shelf_not_found"
 DEFAULT_SHELF_NOT_DELETABLE = "default_shelf_not_deletable"
 APPLICATION_NOT_FOUND = "application_not_found"
 APPLICATION_NAME_TAKEN = "application_name_taken"
-INVALID_SCOPE = "invalid_scope"
 PROFILE_NOT_FOUND = "profile_not_found"
 PROFILE_NAME_TAKEN = "profile_name_taken"
 PROFILE_IN_USE = "profile_in_use"
@@ -41,6 +40,7 @@ INVALID_PERMISSION = "invalid_permission"
 INVALID_EXECUTE_AS_IDENTITY = "invalid_execute_as_identity"
 INVALID_REDIRECT_URIS = "invalid_redirect_uris"
 APPLICATION_NOT_ROTATABLE = "application_not_rotatable"
+PERSONAL_ACCESS_TOKEN_NOT_FOUND = "personal_access_token_not_found"
 # RFC 6749 error values, used verbatim as POST /oauth/token's and GET/POST /oauth/authorize's
 # JSON/redirect "error" field — these endpoints speak standard OAuth2, not this app's usual
 # {code, message, field} envelope (see api/presentation/routes/oauth.py's module docstring).

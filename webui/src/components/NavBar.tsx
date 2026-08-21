@@ -92,6 +92,13 @@ export function NavBar() {
                   ) : null}
                 </div>
                 <NavLink
+                  to="/account/api-keys"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
+                >
+                  API keys
+                </NavLink>
+                <NavLink
                   to="/org/settings"
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"

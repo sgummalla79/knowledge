@@ -9,6 +9,7 @@ from api.presentation.routes.mcp_settings import mcp_settings_bp
 from api.presentation.routes.oauth import oauth_bp, well_known_bp
 from api.presentation.routes.options import options_bp
 from api.presentation.routes.orgs import orgs_bp
+from api.presentation.routes.personal_access_tokens import personal_access_tokens_bp
 from api.presentation.routes.profiles import profiles_bp
 from api.presentation.routes.queries import queries_bp
 from api.presentation.routes.query import query_bp
@@ -29,6 +30,7 @@ ALL_BLUEPRINTS = [
     oauth_bp,
     well_known_bp,
     orgs_bp,
+    personal_access_tokens_bp,
     profiles_bp,
     shelves_bp,
     tags_bp,

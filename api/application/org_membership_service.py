@@ -49,7 +49,12 @@ class OrgMembershipService:
                 continue
         else:
             raise ConflictError(error_codes.ORGANIZATION_SLUG_TAKEN, f"Could not allocate a slug for '{name}'.")
-        admin_profile = ProfileService(self._profiles).create_admin_profile(organization.id, owner_identity_id)
+        profile_service = ProfileService(self._profiles)
+        admin_profile = profile_service.create_admin_profile(organization.id, owner_identity_id)
+        # Contributor/Viewer are seeded alongside Admin for every org — see ProfileService's
+        # docstrings and api/constants.py's DEFAULT_CONTRIBUTOR_PERMISSIONS/DEFAULT_VIEWER_PERMISSIONS.
+        profile_service.create_contributor_profile(organization.id, owner_identity_id)
+        profile_service.create_viewer_profile(organization.id, owner_identity_id)
         self._org_members.create(organization.id, owner_identity_id, admin_profile.id)
         return organization
 

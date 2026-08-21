@@ -14,6 +14,7 @@ class Profile(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
     is_admin = Column(Boolean, nullable=False, default=False)
+    is_system = Column(Boolean, nullable=False, default=False)
     created_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     last_modified_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

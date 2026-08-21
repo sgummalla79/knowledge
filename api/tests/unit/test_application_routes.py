@@ -9,10 +9,9 @@ from api.domain.entities import Application
 from api.domain.errors import ConflictError, NotFoundError, ValidationError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — ApplicationService is mocked;
-# real create/rotate/revoke behavior (synthetic identity, scope validation, key hashing) is
-# exercised by api/tests/integration. The global _grant_every_permission fixture (unit/conftest.py)
-# means every request here already has every permission unless a test overrides it locally to
-# verify a denial.
+# real create/rotate/revoke behavior is exercised by api/tests/integration. The global
+# _grant_every_permission fixture (unit/conftest.py) means every request here already has every
+# permission unless a test overrides it locally to verify a denial.
 
 
 @pytest.fixture()
@@ -32,7 +31,7 @@ def _application(**overrides):
         org_id=uuid4(),
         name="CI integration",
         description=None,
-        auth_method="api_key",
+        auth_method="oauth_client_credentials",
         status="active",
         service_identity_id=uuid4(),
         execute_as_identity_id=None,
@@ -51,27 +50,12 @@ def _application(**overrides):
 
 def test_create_application_requires_permission(client):
     with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
-        response = client.post("/applications", json={"name": "x", "scopes": ["documents:read"]})
-
-    assert response.status_code == 403
-
-
-def test_create_application_returns_201_with_one_time_key(client):
-    application = _application()
-    with patch(
-        "api.presentation.routes.applications.ApplicationService.create",
-        return_value=(application, "raw-key-value"),
-    ):
         response = client.post(
-            "/applications", json={"name": "CI integration", "scopes": ["documents:read", "queries:execute"]}
+            "/applications",
+            json={"name": "x", "auth_method": "oauth_client_credentials", "execute_as_identity_id": str(uuid4())},
         )
 
-    assert response.status_code == 201
-    assert response.headers["Location"] == f"/applications/{application.id}"
-    body = response.get_json()
-    assert body["api_key"] == "raw-key-value"
-    assert body["name"] == "CI integration"
-    assert body["auth_method"] == "api_key"
+    assert response.status_code == 403
 
 
 def test_create_client_credentials_application_returns_201_with_client_secret(client):
@@ -91,6 +75,7 @@ def test_create_client_credentials_application_returns_201_with_client_secret(cl
         )
 
     assert response.status_code == 201
+    assert response.headers["Location"] == f"/applications/{application.id}"
     body = response.get_json()
     assert body["client_secret"] == "raw-client-secret"
     assert body["client_id"] == str(application.id)
@@ -120,30 +105,46 @@ def test_create_client_credentials_application_rejects_non_member(client):
     assert response.get_json()["error"]["code"] == "invalid_execute_as_identity"
 
 
+def test_create_authorization_code_application_returns_201(client):
+    application = _application(auth_method="oauth_authorization_code")
+    with patch(
+        "api.presentation.routes.applications.ApplicationService.create_authorization_code_client",
+        return_value=application,
+    ):
+        response = client.post(
+            "/applications",
+            json={
+                "name": "CI integration",
+                "auth_method": "oauth_authorization_code",
+                "redirect_uris": ["http://127.0.0.1:51000/callback"],
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert body["auth_method"] == "oauth_authorization_code"
+    assert "client_secret" not in body
+
+
 def test_create_application_missing_name_returns_structured_400(client):
-    response = client.post("/applications", json={"scopes": ["documents:read"]})
+    response = client.post(
+        "/applications",
+        json={"auth_method": "oauth_client_credentials", "execute_as_identity_id": str(uuid4())},
+    )
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "name"
 
 
-def test_create_application_invalid_scope_returns_structured_400(client):
-    with patch(
-        "api.presentation.routes.applications.ApplicationService.create",
-        side_effect=ValidationError("invalid_scope", "Unknown scope(s): not:a:scope", field="scopes"),
-    ):
-        response = client.post("/applications", json={"name": "x", "scopes": ["not:a:scope"]})
-
-    assert response.status_code == 400
-    assert response.get_json()["error"]["code"] == "invalid_scope"
-
-
 def test_create_application_duplicate_name_returns_409(client):
     with patch(
-        "api.presentation.routes.applications.ApplicationService.create",
+        "api.presentation.routes.applications.ApplicationService.create_client_credentials",
         side_effect=ConflictError("application_name_taken", "already exists", field="name"),
     ):
-        response = client.post("/applications", json={"name": "dup", "scopes": ["documents:read"]})
+        response = client.post(
+            "/applications",
+            json={"name": "dup", "auth_method": "oauth_client_credentials", "execute_as_identity_id": str(uuid4())},
+        )
 
     assert response.status_code == 409
     assert response.get_json()["error"]["code"] == "application_name_taken"
@@ -160,16 +161,14 @@ def test_list_applications_returns_all(client):
     application = _application()
     with patch(
         "api.presentation.routes.applications.ApplicationService.list_for_org",
-        return_value=[(application, ["documents:read"])],
+        return_value=[application],
     ):
         response = client.get("/applications")
 
     assert response.status_code == 200
     body = response.get_json()
     assert len(body) == 1
-    assert body[0]["scopes"] == ["documents:read"]
-    # The one-time secret is never present on a plain list/get response.
-    assert "api_key" not in body[0]
+    assert body[0]["id"] == str(application.id)
 
 
 def test_get_application_not_found_returns_structured_404(client):
@@ -187,38 +186,19 @@ def test_update_application_returns_updated(client):
     application = _application(name="renamed")
     with patch(
         "api.presentation.routes.applications.ApplicationService.update",
-        return_value=(application, ["documents:write"]),
+        return_value=application,
     ):
-        response = client.patch(
-            f"/applications/{application.id}", json={"name": "renamed", "scopes": ["documents:write"]}
-        )
+        response = client.patch(f"/applications/{application.id}", json={"name": "renamed"})
 
     assert response.status_code == 200
     body = response.get_json()
     assert body["name"] == "renamed"
-    assert body["scopes"] == ["documents:write"]
-
-
-def test_rotate_application_key_returns_new_key(client):
-    application = _application()
-    with (
-        patch("api.presentation.routes.applications.ApplicationService.get", return_value=(application, ["documents:read"])),
-        patch(
-            "api.presentation.routes.applications.ApplicationService.rotate_api_key",
-            return_value=(application, "new-raw-key"),
-        ),
-        patch("api.presentation.routes.applications.ApplicationRepository.list_scopes", return_value=["documents:read"]),
-    ):
-        response = client.post(f"/applications/{application.id}/rotate-key")
-
-    assert response.status_code == 200
-    assert response.get_json()["api_key"] == "new-raw-key"
 
 
 def test_rotate_client_credentials_secret_returns_new_secret(client):
     application = _application(auth_method="oauth_client_credentials", execute_as_identity_id=uuid4())
     with (
-        patch("api.presentation.routes.applications.ApplicationService.get", return_value=(application, [])),
+        patch("api.presentation.routes.applications.ApplicationService.get", return_value=application),
         patch(
             "api.presentation.routes.applications.ApplicationService.rotate_client_secret",
             return_value=(application, "new-raw-secret"),
@@ -232,11 +212,19 @@ def test_rotate_client_credentials_secret_returns_new_secret(client):
     assert body["client_id"] == str(application.id)
 
 
+def test_rotate_authorization_code_application_has_no_rotatable_secret(client):
+    application = _application(auth_method="oauth_authorization_code")
+    with patch("api.presentation.routes.applications.ApplicationService.get", return_value=application):
+        response = client.post(f"/applications/{application.id}/rotate-key")
+
+    assert response.status_code == 400
+
+
 def test_revoke_application_returns_revoked_status(client):
     application = _application(status="revoked", revoked_at=datetime.now(timezone.utc))
     with patch(
         "api.presentation.routes.applications.ApplicationService.revoke",
-        return_value=(application, ["documents:read"]),
+        return_value=application,
     ):
         response = client.post(f"/applications/{application.id}/revoke")
 

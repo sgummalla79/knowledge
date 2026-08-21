@@ -2,7 +2,7 @@ from uuid import UUID
 
 from api.application.permission_service import PermissionService
 from api.domain.entities import ResolvedCaller
-from api.domain.ports import ApplicationApiKeyRepositoryPort, ApplicationRepositoryPort
+from api.domain.ports import ApplicationRepositoryPort, PersonalAccessTokenRepositoryPort
 from api.infrastructure.auth.jwt_tokens import decode_access_token
 from api.infrastructure.auth.token_hashing import hash_token
 
@@ -13,20 +13,22 @@ class AppAuthService:
     both the Flask require_permission decorator (api/presentation/routes/app_auth.py) and
     api/mcp_server/ — no duplicated auth logic between the two.
 
-    Two independent verification paths coexist deliberately: a client_credentials-issued JWT
-    resolves permissions via PermissionService (the execute-as identity's profile — the same
-    function every human session request goes through), while an api_key (Phase 1) still checks
-    its own application_scopes directly, never touching PermissionService at all — that method
-    was intentionally left on its original, separate model."""
+    Two independent verification paths, both resolving permissions the identical way — via
+    PermissionService.resolve_permissions(identity_id, org_id), the same function every human
+    session request goes through: a client_credentials-issued JWT (the execute-as identity's
+    profile) and a personal access token (its owning identity's profile). Neither path keeps its
+    own separate scopes table — that model (Connected Applications' old api_key method) was
+    removed; see api/application/personal_access_token_service.py for the self-service
+    replacement."""
 
     def __init__(
         self,
         applications: ApplicationRepositoryPort,
-        api_keys: ApplicationApiKeyRepositoryPort,
+        personal_tokens: PersonalAccessTokenRepositoryPort,
         permissions: PermissionService,
     ):
         self._applications = applications
-        self._api_keys = api_keys
+        self._personal_tokens = personal_tokens
         self._permissions = permissions
 
     def _authenticate_jwt(self, token: str) -> ResolvedCaller | None:
@@ -48,27 +50,24 @@ class AppAuthService:
             api_access=application.api_access,
         )
 
-    def _authenticate_api_key(self, token: str) -> ResolvedCaller | None:
-        api_key = self._api_keys.get_by_key_hash(hash_token(token))
-        if api_key is None or api_key.revoked_at is not None:
+    def _authenticate_personal_token(self, token: str) -> ResolvedCaller | None:
+        personal_token = self._personal_tokens.get_by_token_hash(hash_token(token))
+        if personal_token is None:
             return None
-        application = self._applications.get(api_key.application_id)
-        if application is None or application.status != "active":
-            return None
-        scopes = frozenset(self._applications.list_scopes(application.id))
-        self._api_keys.touch_last_used(application.id)
+        granted = self._permissions.resolve_permissions(personal_token.identity_id, personal_token.org_id)
+        self._personal_tokens.touch_last_used(personal_token.id)
         return ResolvedCaller(
-            org_id=application.org_id,
-            identity_id=application.service_identity_id,
-            application_id=application.id,
-            scopes=scopes,
-            auth_method=application.auth_method,
-            mcp_access=application.mcp_access,
-            api_access=application.api_access,
+            org_id=personal_token.org_id,
+            identity_id=personal_token.identity_id,
+            application_id=None,
+            scopes=granted,
+            auth_method="personal_access_token",
+            mcp_access=personal_token.mcp_access,
+            api_access=True,
         )
 
     def authenticate_bearer_token(self, token: str) -> ResolvedCaller | None:
-        # A JWT is dot-delimited and fails decode fast if it isn't one — a bare api_key
-        # (secrets.token_urlsafe output) never collides with that shape, so trying JWT first is
-        # cheap and unambiguous.
-        return self._authenticate_jwt(token) or self._authenticate_api_key(token)
+        # A JWT is dot-delimited and fails decode fast if it isn't one — a bare personal access
+        # token (secrets.token_urlsafe output) never collides with that shape, so trying JWT first
+        # is cheap and unambiguous.
+        return self._authenticate_jwt(token) or self._authenticate_personal_token(token)

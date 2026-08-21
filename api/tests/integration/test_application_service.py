@@ -13,13 +13,13 @@ from api.application.permission_service import PermissionService
 from api.application.profile_service import ProfileService
 from api.domain.errors import AuthenticationError, ConflictError, ValidationError
 from api.infrastructure.auth.bootstrap import bootstrap_default_organization
-from api.infrastructure.repositories.application_api_key_repository import ApplicationApiKeyRepository
 from api.infrastructure.repositories.application_oauth_client_repository import ApplicationOAuthClientRepository
 from api.infrastructure.repositories.application_repository import ApplicationRepository
 from api.infrastructure.repositories.authorization_code_repository import AuthorizationCodeRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
+from api.infrastructure.repositories.personal_access_token_repository import PersonalAccessTokenRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
 from api.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 
@@ -37,7 +37,6 @@ def org_id(db_session):
 def _service(db_session) -> ApplicationService:
     return ApplicationService(
         ApplicationRepository(db_session),
-        ApplicationApiKeyRepository(db_session),
         IdentityRepository(db_session),
         OrgMemberRepository(db_session),
         ProfileRepository(db_session),
@@ -48,7 +47,7 @@ def _service(db_session) -> ApplicationService:
 def _auth_service(db_session) -> AppAuthService:
     return AppAuthService(
         ApplicationRepository(db_session),
-        ApplicationApiKeyRepository(db_session),
+        PersonalAccessTokenRepository(db_session),
         PermissionService(OrgMemberRepository(db_session), ProfileRepository(db_session)),
     )
 
@@ -60,106 +59,6 @@ def _oauth_service(db_session) -> OAuthAuthorizationService:
         AuthorizationCodeRepository(db_session),
         RefreshTokenRepository(db_session),
     )
-
-
-def test_create_issues_working_api_key_and_synthetic_admin_identity(db_session, org_id):
-    service = _service(db_session)
-
-    application, raw_key = service.create(org_id, "CI bot", "used by CI", "api_key", ["documents:read"], None)
-    db_session.commit()
-
-    assert application.status == "active"
-    assert application.auth_method == "api_key"
-    assert len(raw_key) > 20
-
-    # The synthetic service identity can never log in, but does have an admin membership in this org.
-    identity = IdentityRepository(db_session).get_by_id(application.service_identity_id)
-    assert identity.must_change_password is False
-    membership = OrgMemberRepository(db_session).get(org_id, application.service_identity_id)
-    profile = ProfileRepository(db_session).get(membership.profile_id)
-    assert profile.is_admin is True
-
-    # The raw key authenticates via AppAuthService end-to-end; a wrong key doesn't.
-    auth_service = _auth_service(db_session)
-    caller = auth_service.authenticate_bearer_token(raw_key)
-    assert caller.org_id == org_id
-    assert caller.application_id == application.id
-    assert caller.scopes == frozenset({"documents:read"})
-    assert auth_service.authenticate_bearer_token("not-the-real-key") is None
-
-
-def test_create_rejects_unknown_scope(db_session, org_id):
-    service = _service(db_session)
-
-    with pytest.raises(ValidationError):
-        service.create(org_id, "CI bot", None, "api_key", ["not:a:real:scope"], None)
-
-
-def test_create_mcp_access_defaults_to_false_and_persists_when_set(db_session, org_id):
-    service = _service(db_session)
-
-    default_app, _ = service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-    mcp_app, mcp_raw_key = service.create(org_id, "MCP bot", None, "api_key", ["documents:read"], None, mcp_access=True)
-    db_session.commit()
-
-    assert default_app.mcp_access is False
-    assert mcp_app.mcp_access is True
-    assert ApplicationRepository(db_session).get(mcp_app.id).mcp_access is True
-
-    # AppAuthService's api_key branch carries mcp_access through to ResolvedCaller too — the gate
-    # api/mcp_server/permissions.py's require_tier_permission will consult.
-    caller = _auth_service(db_session).authenticate_bearer_token(mcp_raw_key)
-    assert caller.mcp_access is True
-
-
-def test_create_duplicate_name_in_same_org_conflicts(db_session, org_id):
-    service = _service(db_session)
-    service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-    db_session.commit()
-
-    with pytest.raises(ConflictError):
-        service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-
-
-def test_revoke_blocks_further_authentication(db_session, org_id):
-    service = _service(db_session)
-    application, raw_key = service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-    db_session.commit()
-
-    service.revoke(org_id, application.id, None)
-    db_session.commit()
-
-    auth_service = _auth_service(db_session)
-    assert auth_service.authenticate_bearer_token(raw_key) is None
-
-
-def test_rotate_api_key_invalidates_the_old_key(db_session, org_id):
-    service = _service(db_session)
-    application, old_key = service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-    db_session.commit()
-
-    _, new_key = service.rotate_api_key(org_id, application.id)
-    db_session.commit()
-
-    auth_service = _auth_service(db_session)
-    assert auth_service.authenticate_bearer_token(old_key) is None
-    assert auth_service.authenticate_bearer_token(new_key).application_id == application.id
-
-
-def test_update_replaces_scopes(db_session, org_id):
-    service = _service(db_session)
-    application, _ = service.create(org_id, "CI bot", None, "api_key", ["documents:read"], None)
-    db_session.commit()
-
-    _, scopes = service.update(org_id, application.id, "CI bot renamed", "new description", ["shelves:write"])
-    db_session.commit()
-
-    assert scopes == ["shelves:write"]
-    _, fetched_scopes = service.get(org_id, application.id)
-    assert fetched_scopes == ["shelves:write"]
-
-
-# ── oauth_client_credentials ─────────────────────────────────────────────────────────────────
 
 
 def _member_with_profile(db_session, org_id, permissions, email):
@@ -175,11 +74,57 @@ def _member_with_profile(db_session, org_id, permissions, email):
     return identity
 
 
+def test_update_renames_application(db_session, org_id):
+    member = _member_with_profile(db_session, org_id, ["documents:read"], "rename@acme.com")
+    service = _service(db_session)
+    application, _ = service.create_client_credentials(org_id, "CI robot", None, member.id, None)
+    db_session.commit()
+
+    updated = service.update(org_id, application.id, "CI robot renamed", "new description")
+    db_session.commit()
+
+    assert updated.name == "CI robot renamed"
+    assert updated.description == "new description"
+    assert service.get(org_id, application.id).name == "CI robot renamed"
+
+
+# ── oauth_client_credentials ─────────────────────────────────────────────────────────────────
+
+
 def test_create_client_credentials_rejects_non_member_execute_as_identity(db_session, org_id):
     service = _service(db_session)
 
     with pytest.raises(ValidationError):
         service.create_client_credentials(org_id, "CI robot", None, uuid4(), None)
+
+
+def test_create_client_credentials_duplicate_name_in_same_org_conflicts(db_session, org_id):
+    member = _member_with_profile(db_session, org_id, ["documents:read"], "dup@acme.com")
+    service = _service(db_session)
+    service.create_client_credentials(org_id, "CI robot", None, member.id, None)
+    db_session.commit()
+
+    with pytest.raises(ConflictError):
+        service.create_client_credentials(org_id, "CI robot", None, member.id, None)
+
+
+def test_create_client_credentials_mcp_access_defaults_to_false_and_persists_when_set(db_session, org_id):
+    member = _member_with_profile(db_session, org_id, ["documents:read"], "mcp@acme.com")
+    service = _service(db_session)
+
+    default_app, _ = service.create_client_credentials(org_id, "CI robot", None, member.id, None)
+    mcp_app, mcp_raw_secret = service.create_client_credentials(org_id, "MCP robot", None, member.id, None, mcp_access=True)
+    db_session.commit()
+
+    assert default_app.mcp_access is False
+    assert mcp_app.mcp_access is True
+    assert ApplicationRepository(db_session).get(mcp_app.id).mcp_access is True
+
+    # ResolvedCaller carries mcp_access through too — the gate api/mcp_server/permissions.py's
+    # require_tier_permission will consult.
+    access_token = _oauth_service(db_session).issue_client_credentials_token(mcp_app.id, mcp_raw_secret)
+    caller = _auth_service(db_session).authenticate_bearer_token(access_token)
+    assert caller.mcp_access is True
 
 
 def test_client_credentials_token_resolves_to_execute_as_profile_end_to_end(db_session, org_id):

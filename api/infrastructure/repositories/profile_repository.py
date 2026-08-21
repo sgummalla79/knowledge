@@ -16,6 +16,7 @@ def _to_entity(model: ProfileModel) -> ProfileEntity:
         name=model.name,
         description=model.description,
         is_admin=model.is_admin,
+        is_system=model.is_system,
         created_by=model.created_by,
         last_modified_by=model.last_modified_by,
         created_at=model.created_at,
@@ -27,8 +28,8 @@ class ProfileRepository:
     def __init__(self, session):
         self._session = session
 
-    def create(self, org_id: UUID, name: str, *, is_admin: bool = False, **fields) -> ProfileEntity:
-        model = ProfileModel(org_id=org_id, name=name, is_admin=is_admin, **fields)
+    def create(self, org_id: UUID, name: str, *, is_admin: bool = False, is_system: bool = False, **fields) -> ProfileEntity:
+        model = ProfileModel(org_id=org_id, name=name, is_admin=is_admin, is_system=is_system, **fields)
         self._session.add(model)
         try:
             self._session.flush()
@@ -50,6 +51,12 @@ class ProfileRepository:
             self._session.query(ProfileModel)
             .filter(ProfileModel.org_id == org_id, ProfileModel.is_admin.is_(True))
             .first()
+        )
+        return _to_entity(model) if model is not None else None
+
+    def get_by_name(self, org_id: UUID, name: str) -> ProfileEntity | None:
+        model = (
+            self._session.query(ProfileModel).filter(ProfileModel.org_id == org_id, ProfileModel.name == name).first()
         )
         return _to_entity(model) if model is not None else None
 

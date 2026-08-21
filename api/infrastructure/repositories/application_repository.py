@@ -7,7 +7,6 @@ from api.domain import error_codes
 from api.domain.entities import Application as ApplicationEntity
 from api.domain.errors import ConflictError
 from api.infrastructure.orm import Application as ApplicationModel
-from api.infrastructure.orm.application_scope import ApplicationScope as ApplicationScopeModel
 
 
 def _to_entity(model: ApplicationModel) -> ApplicationEntity:
@@ -79,19 +78,3 @@ class ApplicationRepository:
         if model is not None:
             self._session.delete(model)
             self._session.flush()
-
-    def set_scopes(self, application_id: UUID, scopes: list[str], granted_by: UUID | None) -> None:
-        self._session.query(ApplicationScopeModel).filter(
-            ApplicationScopeModel.application_id == application_id
-        ).delete()
-        for scope in scopes:
-            self._session.add(ApplicationScopeModel(application_id=application_id, scope=scope, granted_by=granted_by))
-        self._session.flush()
-
-    def list_scopes(self, application_id: UUID) -> list[str]:
-        rows = (
-            self._session.query(ApplicationScopeModel.scope)
-            .filter(ApplicationScopeModel.application_id == application_id)
-            .all()
-        )
-        return [row[0] for row in rows]

@@ -5,15 +5,14 @@ import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import { useApplications, useOrgMembers, useOrgs } from '../api/queries'
 import { currentOrgId } from '../api/shell'
-import type { Application, ApplicationWithClientSecret, ApplicationWithSecret } from '../api/types'
+import type { Application, ApplicationWithClientSecret } from '../api/types'
 import { ApplicationSecretRevealModal } from '../components/ApplicationSecretRevealModal'
 import { ApplicationsTable } from '../components/ApplicationsTable'
 import { useToast } from '../components/toastContext'
 
-type CreatedApplication = ApplicationWithSecret | ApplicationWithClientSecret | Application
+type CreatedApplication = ApplicationWithClientSecret | Application
 
 function secretFields(application: CreatedApplication) {
-  if ('api_key' in application) return [{ label: 'API key', value: application.api_key }]
   if ('client_secret' in application) {
     return [
       { label: 'Client ID', value: application.client_id },
@@ -56,9 +55,7 @@ export function ConnectedApplicationsPage() {
 
   async function handleRotateKey(application: Application) {
     try {
-      const updated = await api.post<ApplicationWithSecret | ApplicationWithClientSecret>(
-        `/applications/${application.id}/rotate-key`
-      )
+      const updated = await api.post<ApplicationWithClientSecret>(`/applications/${application.id}/rotate-key`)
       invalidate()
       setRevealing(updated)
     } catch (err) {

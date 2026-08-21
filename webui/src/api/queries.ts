@@ -13,6 +13,7 @@ import type {
   MCPSettings,
   Org,
   OrgMember,
+  PersonalAccessToken,
   Profile,
   Shelf,
   Tag,
@@ -36,6 +37,13 @@ export function useApplications() {
 
 export function useProfiles() {
   return useQuery({ queryKey: ['profiles'], queryFn: () => api.get<Profile[]>('/profiles') })
+}
+
+export function usePersonalAccessTokens() {
+  return useQuery({
+    queryKey: ['personal-access-tokens'],
+    queryFn: () => api.get<PersonalAccessToken[]>('/personal-access-tokens'),
+  })
 }
 
 export function useMCPSettings() {

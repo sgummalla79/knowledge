@@ -1,7 +1,5 @@
 from api.infrastructure.orm.application import Application
-from api.infrastructure.orm.application_api_key import ApplicationApiKey
 from api.infrastructure.orm.application_oauth_client import ApplicationOAuthClient
-from api.infrastructure.orm.application_scope import ApplicationScope
 from api.infrastructure.orm.authorization_code import AuthorizationCode
 from api.infrastructure.orm.base import Base, SessionLocal, engine
 from api.infrastructure.orm.category import Category
@@ -15,6 +13,7 @@ from api.infrastructure.orm.ingestion_job import IngestionJob
 from api.infrastructure.orm.mcp_settings import MCPSettings
 from api.infrastructure.orm.org_member import OrgMember
 from api.infrastructure.orm.organization import Organization
+from api.infrastructure.orm.personal_access_token import PersonalAccessToken
 from api.infrastructure.orm.profile import Profile
 from api.infrastructure.orm.profile_permission import ProfilePermission
 from api.infrastructure.orm.query import Query
@@ -30,9 +29,7 @@ __all__ = [
     "SessionLocal",
     "engine",
     "Application",
-    "ApplicationApiKey",
     "ApplicationOAuthClient",
-    "ApplicationScope",
     "AuthorizationCode",
     "Category",
     "Chunk",
@@ -45,6 +42,7 @@ __all__ = [
     "MCPSettings",
     "OrgMember",
     "Organization",
+    "PersonalAccessToken",
     "Profile",
     "ProfilePermission",
     "Query",

@@ -39,9 +39,10 @@ def require_tier_permission(session, tier: str, permission: str | None) -> dict:
        row read).
     3. If a permission is given, the caller's already-resolved scopes grant it — the exact same
        `caller.scopes` AppAuthService.authenticate_bearer_token resolved fresh for this request
-       (profile permissions for client_credentials/authorization_code, application_scopes for
-       api_key), so this checks the identical vocabulary api_key/require_permission's HTTP-side
-       counterpart already checks — no separate profile re-resolution needed here.
+       (the execute-as identity's profile for client_credentials/authorization_code, the owning
+       identity's profile for a personal access token), so this checks the identical vocabulary
+       require_permission's HTTP-side counterpart already checks — no separate profile
+       re-resolution needed here.
 
     All three independent: a permissive profile doesn't help if the tier is off org-wide, and an
     active tier doesn't help an application without mcp_access."""

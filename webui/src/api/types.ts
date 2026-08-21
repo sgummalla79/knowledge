@@ -157,6 +157,9 @@ export interface Profile {
   name: string
   description: string | null
   is_admin: boolean
+  // True for all three profiles seeded per org (Admin, Contributor, Viewer) — fully locked, no
+  // name/description/permission edits, no deletion. A strict superset of is_admin.
+  is_system: boolean
   permissions: string[]
   created_at: string
   last_modified_at: string
@@ -187,10 +190,11 @@ export interface IngestionJob {
   finished_at: string | null
 }
 
-// Only "api_key" and "oauth_client_credentials" are creatable today — see
-// api/presentation/schemas.py's ApplicationAuthMethod comment for why the other 2 methods already
-// exist in the wire format but aren't selectable yet.
-export type ApplicationAuthMethod = 'api_key' | 'oauth_client_credentials' | 'oauth_authorization_code' | 'certificate'
+// api_key was removed as a Connected Applications auth method — see PersonalAccessToken below for
+// its self-service replacement. Only "oauth_client_credentials" is creatable today; the wire
+// format still includes "certificate" (never built) — see api/presentation/schemas.py's
+// ApplicationAuthMethod comment.
+export type ApplicationAuthMethod = 'oauth_client_credentials' | 'oauth_authorization_code' | 'certificate'
 export type ApplicationStatus = 'active' | 'revoked'
 
 export interface Application {
@@ -200,33 +204,46 @@ export interface Application {
   description: string | null
   auth_method: ApplicationAuthMethod
   status: ApplicationStatus
-  // Only meaningful for api_key.
-  scopes: string[]
   // Only set for oauth_client_credentials — the org member whose profile this application's
   // tokens inherit permissions from.
   execute_as_identity_id: string | null
-  // Whether this application may reach the MCP server at all — uniform across all three auth
-  // methods, independent of scopes/execute_as_identity_id above. See MCPSettings for the
-  // org-level tier toggles that gate what it can actually do once connected.
+  // Whether this application may reach the MCP server at all — uniform across both auth methods,
+  // independent of execute_as_identity_id above. See MCPSettings for the org-level tier toggles
+  // that gate what it can actually do once connected.
   mcp_access: boolean
   // Symmetric channel flag for the REST API side: without it, this application can't call any
-  // REST endpoint at all regardless of what its scopes/profile would otherwise grant.
+  // REST endpoint at all regardless of what its profile would otherwise grant.
   api_access: boolean
   created_at: string
   last_modified_at: string
   revoked_at: string | null
 }
 
-// Returned only from create/rotate — the raw API key is never persisted, so this is the only
-// response shape that ever carries it.
-export interface ApplicationWithSecret extends Application {
-  api_key: string
-}
-
-// oauth_client_credentials' counterpart to ApplicationWithSecret.
+// oauth_client_credentials' one-time-reveal response shape — client_secret is never persisted, so
+// this is the only response that ever carries it.
 export interface ApplicationWithClientSecret extends Application {
   client_id: string
   client_secret: string
+}
+
+// A self-service, per-user API key — created by an identity for themselves, in whichever org is
+// active at creation time (org_id is then fixed). See api/domain/entities.py's PersonalAccessToken.
+export interface PersonalAccessToken {
+  id: string
+  org_id: string
+  name: string
+  // Masked — only the first ~12 characters of the raw token, for the caller to recognize which
+  // key is which. The full value is shown exactly once, at creation (PersonalAccessTokenWithSecret).
+  token_prefix: string
+  mcp_access: boolean
+  created_at: string
+  last_used_at: string | null
+}
+
+// Returned only from create — the raw token is never persisted, so this is the only response
+// shape that ever carries it.
+export interface PersonalAccessTokenWithSecret extends PersonalAccessToken {
+  token: string
 }
 
 // One row per org: independent on/off switches for each of the three MCP tool tiers

@@ -6,9 +6,8 @@ import { ApiError } from '../api/errors'
 import { useProfiles } from '../api/queries'
 
 // Mirrors api/constants.py's OBJECT_PERMISSIONS — a fixed protocol vocabulary (a new object type
-// needs a new backend route anyway), same rationale ApplicationCreatePage's SCOPE_GROUPS already
-// hardcodes APPLICATION_SCOPES' values. A separate list from SCOPE_GROUPS since profiles also
-// cover org/org_members/applications/profiles themselves, which an application's own scopes don't.
+// needs a new backend route anyway). Covers org/org_members/applications/profiles themselves too,
+// unlike a connected application's own scopes (removed — see PersonalAccessToken/ApplicationCreatePage).
 const PERMISSION_GROUPS: { label: string; permissions: { value: string; label: string }[] }[] = [
   { label: 'Organization', permissions: [{ value: 'org:write', label: 'Rename / describe org' }] },
   {
@@ -67,6 +66,13 @@ const PERMISSION_GROUPS: { label: string; permissions: { value: string; label: s
       { value: 'profiles:write', label: 'Write' },
     ],
   },
+  {
+    label: 'MCP settings',
+    permissions: [
+      { value: 'mcp_settings:read', label: 'Read' },
+      { value: 'mcp_settings:write', label: 'Write' },
+    ],
+  },
   { label: 'Search', permissions: [{ value: 'queries:execute', label: 'Execute queries' }] },
 ]
 
@@ -88,6 +94,10 @@ export function ProfileFormPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isAdmin = profile?.is_admin ?? false
+  // Admin, Contributor, and Viewer are seeded per org and fully locked (see Profile.is_system) —
+  // this page renders read-only for them: no Save button, every field disabled, no dirty-check
+  // warning on Back (nothing can change, so there's nothing to lose).
+  const isSystem = profile?.is_system ?? false
 
   // Snapshot of the fields' just-loaded values, taken once (see the sync effect below) — compared
   // against current state to decide whether Back needs to warn about unsaved changes.
@@ -113,6 +123,7 @@ export function ProfileFormPage() {
   }
 
   function isDirty() {
+    if (isSystem) return false
     const initial = initialSnapshot.current
     if (!initial) return name !== '' || description !== '' || permissions.length > 0
     return (
@@ -130,6 +141,7 @@ export function ProfileFormPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (isSystem) return
     setError(null)
     setSaving(true)
     try {
@@ -161,15 +173,19 @@ export function ProfileFormPage() {
         <span aria-hidden="true">←</span> Back to profiles
       </button>
       <div className="mb-6 flex max-w-4xl items-center justify-between">
-        <h2 className="text-[22px] font-semibold text-foreground">{id ? 'Edit profile' : 'New profile'}</h2>
-        <button
-          type="submit"
-          form="profile-form"
-          disabled={saving || !name.trim() || (!isAdmin && permissions.length === 0)}
-          className="rounded-sm bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
+        <h2 className="text-[22px] font-semibold text-foreground">
+          {isSystem ? 'View profile' : id ? 'Edit profile' : 'New profile'}
+        </h2>
+        {!isSystem && (
+          <button
+            type="submit"
+            form="profile-form"
+            disabled={saving || !name.trim() || permissions.length === 0}
+            className="rounded-sm bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
       </div>
 
       <form id="profile-form" onSubmit={handleSubmit} className="flex max-w-4xl flex-col gap-4">
@@ -186,11 +202,12 @@ export function ProfileFormPage() {
               </label>
               <input
                 id="profile-name"
-                autoFocus
+                autoFocus={!isSystem}
+                disabled={isSystem}
                 placeholder="e.g. Read-only Analyst"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground"
+                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground disabled:opacity-70"
               />
             </div>
             <div>
@@ -200,9 +217,10 @@ export function ProfileFormPage() {
               <textarea
                 id="profile-description"
                 rows={3}
+                disabled={isSystem}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                className="w-full resize-y rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground"
+                className="w-full resize-y rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground disabled:opacity-70"
               />
             </div>
           </div>
@@ -224,9 +242,10 @@ export function ProfileFormPage() {
                         <label key={permission.value} className="flex items-center gap-1.5 text-[13.5px] text-foreground">
                           <input
                             type="checkbox"
+                            disabled={isSystem}
                             checked={permissions.includes(permission.value)}
                             onChange={() => togglePermission(permission.value)}
-                            className="h-3.5 w-3.5"
+                            className="h-3.5 w-3.5 disabled:opacity-70"
                           />
                           {permission.label}
                         </label>

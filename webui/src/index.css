@@ -7,14 +7,17 @@
    text-foreground, bg-primary, ...), never a raw color value.
 
    Current values are tweakcn's "Twitter" theme (https://tweakcn.com/r/themes/cmlznk552000004jubsv77roj)
-   — Open Sans throughout, Menlo for font-mono. One deliberate deviation from the raw export:
+   — Open Sans throughout, Menlo for font-mono. Two deliberate deviations from the raw export:
    --secondary/--secondary-foreground are remapped to mirror --muted/--foreground (same pairing
    this app's pre-tweakcn theme already used) instead of tweakcn's own values. tweakcn's "Twitter"
    theme pairs secondary with a shadcn "dark secondary button" in mind (near-black fill, white
    text in light mode; the inverse in dark mode) — but every input/select/badge in this app pairs
    bg-secondary with text-foreground expecting a light neutral fill, so the raw export made that
    text unreadable (dark-on-dark in light mode, light-on-light in dark mode) in every text box,
-   dropdown, and pill in the app. Every other token below is the tweakcn export verbatim. */
+   dropdown, and pill in the app. --radius is lowered from the export's 1.3rem to 0.75rem — at
+   1.3rem every button/input (rounded-sm = radius - 2px) reads as pill/oval-shaped rather than a
+   softly rounded rectangle, on the ~40px controls this app actually uses. Every other token below
+   is the tweakcn export verbatim. */
 :root {
   color-scheme: light;
   --background: oklch(1.0000 0 0);
@@ -36,7 +39,7 @@
   --border: oklch(0.9317 0.0118 231.6594);
   --input: oklch(0.9809 0.0025 228.7836);
   --ring: oklch(0.6818 0.1584 243.3540);
-  --radius: 1.3rem;
+  --radius: 0.75rem;
   --font-sans: "Open Sans", ui-sans-serif, sans-serif;
   --font-serif: Georgia, ui-serif, serif;
   --font-mono: Menlo, ui-monospace, monospace;

@@ -35,8 +35,20 @@ function OrgGeneralForm({ org }: { org: Org }) {
 
   return (
     <div className="max-w-lg">
-      <h2 className="mb-5 text-[22px] font-semibold text-foreground">Org settings</h2>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-[22px] font-semibold text-foreground">Org settings</h2>
+        {canEdit && (
+          <button
+            type="submit"
+            form="org-settings-form"
+            disabled={saving || !name.trim()}
+            className="rounded-sm bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
+      </div>
+      <form id="org-settings-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error && (
           <div className="rounded-sm border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
@@ -74,15 +86,6 @@ function OrgGeneralForm({ org }: { org: Org }) {
             className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground disabled:opacity-60"
           />
         </div>
-        {canEdit && (
-          <button
-            type="submit"
-            disabled={saving || !name.trim()}
-            className="w-fit rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        )}
       </form>
 
       <div className="mt-12 rounded-sm border border-destructive/30 p-5">

@@ -1,7 +1,6 @@
 import type { Application, OrgMember } from '../api/types'
 
 const AUTH_METHOD_LABELS: Record<string, string> = {
-  api_key: 'API key',
   oauth_client_credentials: 'OAuth 2.0 (client credentials)',
   oauth_authorization_code: 'OAuth 2.0 (authorization code)',
   certificate: 'Certificate',
@@ -50,17 +49,9 @@ export function ApplicationsTable({ applications, members, canManage, onRotateKe
               <td className="py-3.5 pr-4">
                 {application.auth_method === 'oauth_authorization_code' ? (
                   <div className="max-w-xs text-[12.5px] text-foreground">Any org member (via consent)</div>
-                ) : application.execute_as_identity_id ? (
+                ) : (
                   <div className="max-w-xs text-[12.5px] text-foreground">
                     Acts as <span className="font-semibold">{executeAsLabel(application)}</span>
-                  </div>
-                ) : (
-                  <div className="flex max-w-xs flex-wrap gap-1.5">
-                    {application.scopes.map((scope) => (
-                      <span key={scope} className="rounded-sm bg-secondary px-2 py-0.5 text-[11px] text-foreground">
-                        {scope}
-                      </span>
-                    ))}
                   </div>
                 )}
               </td>
@@ -82,7 +73,7 @@ export function ApplicationsTable({ applications, members, canManage, onRotateKe
                         onClick={() => onRotateKey(application)}
                         className="text-[13px] text-foreground/80 hover:underline"
                       >
-                        {application.auth_method === 'api_key' ? 'Rotate key' : 'Rotate secret'}
+                        Rotate secret
                       </button>
                     )}
                     <button
