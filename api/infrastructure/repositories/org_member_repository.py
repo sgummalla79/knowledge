@@ -13,7 +13,7 @@ def _to_entity(model: OrgMemberModel) -> OrgMemberEntity:
         id=model.id,
         org_id=model.org_id,
         identity_id=model.identity_id,
-        role=model.role,
+        profile_id=model.profile_id,
         invited_by=model.invited_by,
         last_modified_by=model.last_modified_by,
         created_at=model.created_at,
@@ -25,8 +25,10 @@ class OrgMemberRepository:
     def __init__(self, session):
         self._session = session
 
-    def create(self, org_id: UUID, identity_id: UUID, role: str, *, invited_by: UUID | None = None) -> OrgMemberEntity:
-        model = OrgMemberModel(org_id=org_id, identity_id=identity_id, role=role, invited_by=invited_by)
+    def create(
+        self, org_id: UUID, identity_id: UUID, profile_id: UUID, *, invited_by: UUID | None = None
+    ) -> OrgMemberEntity:
+        model = OrgMemberModel(org_id=org_id, identity_id=identity_id, profile_id=profile_id, invited_by=invited_by)
         self._session.add(model)
         try:
             self._session.flush()
@@ -54,7 +56,7 @@ class OrgMemberRepository:
         models = self._session.query(OrgMemberModel).filter(OrgMemberModel.org_id == org_id).all()
         return [_to_entity(model) for model in models]
 
-    def update_role(self, org_id: UUID, identity_id: UUID, role: str) -> OrgMemberEntity:
+    def update_profile(self, org_id: UUID, identity_id: UUID, profile_id: UUID) -> OrgMemberEntity:
         model = (
             self._session.query(OrgMemberModel)
             .filter(OrgMemberModel.org_id == org_id, OrgMemberModel.identity_id == identity_id)
@@ -62,7 +64,7 @@ class OrgMemberRepository:
         )
         if model is None:
             raise NotFoundError(error_codes.NOT_AN_ORG_MEMBER, "This identity is not a member of this organization.")
-        model.role = role
+        model.profile_id = profile_id
         self._session.flush()
         return _to_entity(model)
 

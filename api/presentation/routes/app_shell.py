@@ -35,6 +35,5 @@ def app_shell(subpath: str | None = None):
             "USERNAME": identity.email if identity is not None else "",
             "ORG_ID": str(g.org_id) if g.org_id is not None else None,
             "ORG_NAME": organization.name if organization is not None else None,
-            "ROLE": g.role,
         }
     )

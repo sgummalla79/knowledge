@@ -241,7 +241,82 @@ stack as the rest of the API — see session history item 8.
     stopped excluding them (confirmed via a throwaway container export showing `api/.venv` actually
     landing in the image). Fixed with explicit `**/` prefixes.
 
-Current test suite: **305 tests passing** (`python -m pytest api/tests/`).
+16. **MCP redesigned: merged into the `api` process as three permission-gated tool tiers, then
+    moved to `api/mcp_server/`.** Items 8/9 above describe the *first* MCP pass (a separate
+    `mcp_server` container/process, 6 hand-picked read-only tools, `list_libraries`/
+    `query_library`-style naming, its own `MCP_PORT`/`mcp-entrypoint.sh`) — **none of that exists
+    anymore**; if this file, comments, or memory mention a standalone `mcp` compose service,
+    `mcp-entrypoint.sh`, `mcp_server/client.py`, `KnowledgeApiTokenVerifier`, or a loopback-only
+    `MCP_PORT`, that reference is stale.
+
+    The redesign, in one paragraph: MCP now exposes this app's *actual* API surface, gated by the
+    same mechanisms the REST API already has, not a bespoke curated subset. Three separate
+    endpoints — `/mcp/rag`, `/mcp/read`, `/mcp/write` — each a fixed, non-overlapping tool set,
+    served by the same process/port as the REST API (`api/asgi.py`: Flask wrapped via
+    `a2wsgi.WSGIMiddleware`, merged with three native-ASGI `FastMCP` instances into one Starlette
+    app — `gunicorn -k uvicorn.workers.UvicornWorker api.asgi:app`, not `api.wsgi:app`). Three
+    independent gates, checked in this order by `mcp_server/permissions.py`'s
+    `require_tier_permission`: **this application has `mcp_access`** (new `applications.mcp_access`
+    boolean, uniform across all three auth methods, migration `0008`) → **this tier is enabled for
+    the org** (new `mcp_settings` table, one row per org, three independent booleans, all off by
+    default — `api/application/mcp_settings_service.py`, `GET/PUT /mcp-settings`, permissions
+    `mcp_settings:read`/`:write`) → **the connecting identity's already-resolved scopes grant this
+    specific permission** (reuses `ResolvedCaller.scopes` from `AppAuthService`, the same value
+    `require_permission` checks on the HTTP side — no separate profile re-resolution). Tool tiers:
+    RAG (`search`, `list_categories`, `get_document`, `get_document_chunks`), object read
+    (`list_shelves`, `list_documents`, `list_tags`, `list_embedding_models` — deliberately no org
+    member/profile/application visibility, a later "admin capabilities" pass), object write
+    (create/rename/delete for documents — inline markdown/text content via `start_ingestion`, not a
+    file upload; create/update/delete for categories; create/update/delete +
+    add/remove-document for shelves; create/tag/untag for tags — content only, org
+    members/profiles/applications are never reachable over MCP regardless of profile, same
+    privilege-escalation reasoning item 4 already used for keeping application registration off the
+    bearer-token API).
+
+    One real routing bug found and fixed during this pass, worth remembering for any future
+    FastMCP-under-Starlette work: nesting a `FastMCP.streamable_http_app()` under an additional
+    `Starlette Mount(f"/mcp/{tier}", ...)` breaks its RFC 9728 well-known discovery route (computed
+    relative to that sub-app's *own* root, so it ends up double-nested and unreachable at the real
+    top-level path). Fixed by setting `streamable_http_path` to the tier's *full* external path
+    (e.g. `/mcp/rag`) and merging each server's `.routes` directly into the combined app's
+    top-level route list (`api/presentation/web/asgi_bridge.py`) instead of wrapping in `Mount()`.
+    Each `FastMCP` server's own lifespan (which starts its `session_manager`) is likewise never
+    triggered by Starlette's router unless entered explicitly — the combined app's own `lifespan`
+    enters every server's `session_manager.run()` via `contextlib.AsyncExitStack`.
+
+    Also settled during discussion: MCP tiers now share the REST API's port, published the same way
+    (not loopback-only like the old separate `mcp` service) — an inherent, accepted consequence of
+    one process/one port, not a separate loopback door anymore, offset by the mcp_access + tier +
+    permission gate chain above being strictly more restrictive than the old design's bare OAuth2
+    check.
+
+    `deploy/`: `mcp`/`mcp-test` compose services and `mcp-entrypoint.sh` deleted;
+    `entrypoint.sh`/`docker-compose*.yml` updated as above; `.env.example` drops
+    `MCP_PORT`/`MCP_ISSUER_URL`/`MCP_RESOURCE_URL` for a single optional `MCP_BASE_URL`.
+    Frontend: `mcp_access` checkbox in `ApplicationCreateModal.tsx` (applies regardless of the
+    auth-method radio), new Settings > MCP page (`webui/src/pages/MCPSettingsPage.tsx`, route
+    `/org/mcp`) with the three tier toggles.
+
+    **Folder move, same session:** `mcp_server/` (top-level) → `api/mcp_server/` — it was never a
+    standalone deployable unit even before this item (no separate entrypoint/container once the
+    merge above landed), so it now follows the same "one self-contained `api/` folder" consolidation
+    item 15 already did for `app/` → `api/`. Every internal `from mcp_server.X import Y` →
+    `from api.mcp_server.X import Y` (including `unittest.mock.patch(...)` target strings in
+    `api/mcp_server/tests/`); `api/asgi.py`'s import updated to match. `api/mcp_server/pyproject.toml`
+    deleted (redundant — `api/pyproject.toml` already governs everything under `api/`, whose
+    `testpaths` gained `"mcp_server/tests"` alongside `"tests"`). `api/mcp_server/tests/integration/
+    conftest.py`'s `REPO_ROOT` gained one more `.parent` (one directory deeper now).
+    `deploy/Dockerfile.dockerignore`'s bare `mcp_server/tests` entry → `api/mcp_server/tests`;
+    `deploy/Dockerfile`'s separate `COPY mcp_server mcp_server` line removed — the existing
+    `COPY api api` already brings it in. `deploy/test-image.sh`'s `pytest api/tests/ mcp_server/tests/`
+    → `pytest api/tests/ api/mcp_server/tests/`. Full suite (`api/tests/` + `api/mcp_server/tests/`):
+    **505 tests passing**.
+
+    `docs/DATA_MODEL.md` still describes an even earlier state (says `mcp_server/` was "removed
+    entirely") — that predates this whole item and items 8/9 too; **stale, not yet reconciled with
+    any of the OAuth2/profiles/applications/MCP work in this file.**
+
+Current test suite: **505 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
@@ -257,7 +332,7 @@ database.
 
 All deploy-related files (`Dockerfile`, both compose files, the container entrypoint, and these
 two scripts) live under `deploy/` — everything else in the repo is app code. The Dockerfile's
-build *context* is still the repo root (it COPYs `api/`, `mcp_server/`, etc.), set via `context: ..`
+build *context* is still the repo root (it COPYs `api/`, `VERSION`, etc.), set via `context: ..`
 in both compose files; only the compose/Dockerfile *files themselves* moved.
 
 Instead:

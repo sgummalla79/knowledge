@@ -11,7 +11,7 @@ from api.infrastructure.repositories.document_repository import DocumentReposito
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.category_repository import CategoryRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
-from api.presentation.routes.auth_ui import require_org_session
+from api.presentation.routes.app_auth import require_permission
 from api.presentation.schemas import QueryRequest, RoutedScoredChunkResponse
 
 router_query_bp = Blueprint("router_query", __name__)
@@ -31,7 +31,7 @@ def _history_service() -> QueryHistoryService:
 
 
 @router_query_bp.post("/query")
-@require_org_session
+@require_permission("queries:execute")
 def query_all_categories():
     dto = QueryRequest.model_validate(request.get_json(silent=True) or {})
     start = time.monotonic()

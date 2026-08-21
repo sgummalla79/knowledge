@@ -152,3 +152,81 @@ DEFAULT_ADMIN_NAME = "Admin"
 # creation/invites exist behind a real auth layer (see docs/DATA_MODEL.md).
 DEFAULT_ORGANIZATION_NAME = "Default Organization"
 DEFAULT_ORGANIZATION_SLUG = "default"
+
+# Per-resource read/write scope vocabulary a connected application can be granted — the
+# wire-format string require_scope() checks against an authenticated caller's granted scopes.
+# Inherently a fixed protocol vocabulary (like an HTTP method name), not environment config: a new
+# resource area needs a new route + service anyway, so its scope pair is added here in the same
+# commit (Open/Closed via code review, same convention as EMBEDDING_PROVIDERS_REQUIRING_API_KEY
+# above). Deliberately excludes ingestion jobs, dashboard stats, and query history (no scope, so
+# those routes stay session-only) and `sources` (no presentation route exists for it yet).
+APPLICATION_SCOPES = (
+    "documents:read",
+    "documents:write",
+    "categories:read",
+    "categories:write",
+    "shelves:read",
+    "shelves:write",
+    "tags:read",
+    "tags:write",
+    "embedding_models:read",
+    "embedding_models:write",
+    "org_members:read",
+    "org_members:write",
+    "queries:execute",
+)
+
+# Bytes of entropy (secrets.token_urlsafe input) for a connected application's API key — 256 bits,
+# well beyond brute-forceable regardless of the hash used to store it (see
+# api/infrastructure/auth/token_hashing.py).
+APPLICATION_API_KEY_TOKEN_BYTES = 32
+
+# Same entropy budget as an API key, for an oauth_client_credentials application's client secret.
+APPLICATION_CLIENT_SECRET_BYTES = 32
+
+# How long a client_credentials-issued JWT access token is valid for before it must be reissued —
+# short, since permissions are resolved fresh per-request anyway (not embedded in the token), so a
+# short TTL only affects how often POST /oauth/token gets called, not how quickly a profile change
+# takes effect (that's already immediate).
+ACCESS_TOKEN_TTL_MINUTES = 15
+
+JWT_ALGORITHM = "HS256"
+
+# authorization_code grant (Phase C): short-lived single-use code, and a much longer-lived opaque
+# refresh token issued only when the authorization request's scope includes "offline_access".
+AUTHORIZATION_CODE_TTL_SECONDS = 120
+REFRESH_TOKEN_TTL_DAYS = 90
+AUTHORIZATION_CODE_BYTES = 32
+REFRESH_TOKEN_BYTES = 32
+
+# Per-object-type read/write permission vocabulary a profile can grant to whoever holds it (org
+# members today; a connected application's execute-as user or authorization_code-consenting user
+# in a later phase — see api/application/permission_service.py). Deliberately a *separate*
+# constant from APPLICATION_SCOPES above, even though the values mostly overlap: APPLICATION_SCOPES
+# is Phase 1's api_key auth method, which keeps its own independent application_scopes table and
+# is not migrated to profiles — keeping two constants means that path never becomes coupled to a
+# vocabulary the profile system also controls. Includes org/org_members/applications/profiles
+# themselves as ordinary delegable entries (a custom profile can be granted the power to manage
+# members or connected applications) rather than hardcoding those as Admin-only.
+OBJECT_PERMISSIONS = (
+    "org:write",
+    "documents:read",
+    "documents:write",
+    "categories:read",
+    "categories:write",
+    "shelves:read",
+    "shelves:write",
+    "tags:read",
+    "tags:write",
+    "embedding_models:read",
+    "embedding_models:write",
+    "org_members:read",
+    "org_members:write",
+    "applications:read",
+    "applications:write",
+    "profiles:read",
+    "profiles:write",
+    "mcp_settings:read",
+    "mcp_settings:write",
+    "queries:execute",
+)

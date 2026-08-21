@@ -1,13 +1,12 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
 import { useOrgMembers, useOrgs } from '../api/queries'
 import { currentOrgId, currentUsername } from '../api/shell'
-import type { OrgRole } from '../api/types'
 import { InviteMemberModal } from '../components/InviteMemberModal'
 import { MembersTable } from '../components/MembersTable'
-import { RoleLegend } from '../components/RoleLegend'
 import { useToast } from '../components/toastContext'
 
 export function OrgSettingsPage() {
@@ -19,18 +18,18 @@ export function OrgSettingsPage() {
   const [inviting, setInviting] = useState(false)
 
   const org = orgs.data?.find((entry) => entry.id === orgId)
-  const canManage = org?.role === 'admin'
+  const canManage = org?.permissions.includes('org_members:write') ?? false
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ['orgs', orgId, 'members'] })
   }
 
-  async function handleRoleChange(identityId: string, role: OrgRole) {
+  async function handleProfileChange(identityId: string, profileId: string) {
     if (!orgId) return
     try {
-      await api.patch(`/orgs/${orgId}/members/${identityId}`, { role })
+      await api.patch(`/orgs/${orgId}/members/${identityId}`, { profile_id: profileId })
       invalidate()
-      showToast('Role updated.')
+      showToast('Profile updated.')
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : 'Something went wrong — please try again.', 'error')
     }
@@ -64,8 +63,13 @@ export function OrgSettingsPage() {
         )}
       </div>
       <p className="mb-6 max-w-xl text-[13.5px] text-muted-foreground">
-        Role sets what a member can do; shelf access sets which shelves of documents they can see
-        and search. A member with no shelves assigned sees none.
+        A member's profile sets what they can do; shelf access sets which shelves of documents
+        they can see and search. A member with no shelves assigned sees none.{' '}
+        {canManage && (
+          <Link to="/org/profiles" className="text-foreground underline">
+            Manage profiles
+          </Link>
+        )}
       </p>
 
       {members.isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -75,14 +79,10 @@ export function OrgSettingsPage() {
           members={members.data}
           canManage={canManage}
           currentUserEmail={currentUsername()}
-          onRoleChange={(identityId, role) => void handleRoleChange(identityId, role)}
+          onProfileChange={(identityId, profileId) => void handleProfileChange(identityId, profileId)}
           onRemove={(identityId) => void handleRemove(identityId)}
         />
       )}
-
-      <div className="mt-8 max-w-md">
-        <RoleLegend />
-      </div>
 
       {inviting && (
         <InviteMemberModal

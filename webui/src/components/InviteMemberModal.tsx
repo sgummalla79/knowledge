@@ -1,15 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
-import type { OrgRole } from '../api/types'
+import { useProfiles } from '../api/queries'
 import { Modal } from './Modal'
 import { Select } from './Select'
-
-const ROLE_OPTIONS = [
-  { value: 'viewer', label: 'Viewer' },
-  { value: 'contributor', label: 'Contributor' },
-  { value: 'admin', label: 'Admin' },
-]
 
 interface Props {
   orgId: string
@@ -18,17 +12,28 @@ interface Props {
 }
 
 export function InviteMemberModal({ orgId, onClose, onInvited }: Props) {
+  const profiles = useProfiles()
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState<OrgRole>('viewer')
+  const [profileId, setProfileId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Profiles are custom per org — there's no fixed default like the old "viewer" role, so seed
+  // the picker with whichever profile loads first once the list is in.
+  useEffect(() => {
+    if (!profileId && profiles.data && profiles.data.length > 0) {
+      setProfileId(profiles.data[0].id)
+    }
+  }, [profileId, profiles.data])
+
+  const profileOptions = (profiles.data ?? []).map((profile) => ({ value: profile.id, label: profile.name }))
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
     setSaving(true)
     try {
-      await api.post(`/orgs/${orgId}/invites`, { email, role })
+      await api.post(`/orgs/${orgId}/invites`, { email, profile_id: profileId })
       onInvited()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
@@ -59,14 +64,14 @@ export function InviteMemberModal({ orgId, onClose, onInvited }: Props) {
           />
         </div>
         <div>
-          <label htmlFor="invite-role" className="mb-1.5 block text-sm text-foreground">
-            Role
+          <label htmlFor="invite-profile" className="mb-1.5 block text-sm text-foreground">
+            Profile
           </label>
           <Select
-            id="invite-role"
-            value={role}
-            options={ROLE_OPTIONS}
-            onChange={(value) => setRole(value as OrgRole)}
+            id="invite-profile"
+            value={profileId}
+            options={profileOptions}
+            onChange={(value) => setProfileId(value)}
             className="w-full px-4 py-2.5 text-[15px]"
           />
         </div>
@@ -76,7 +81,7 @@ export function InviteMemberModal({ orgId, onClose, onInvited }: Props) {
           </button>
           <button
             type="submit"
-            disabled={saving || !email.trim()}
+            disabled={saving || !email.trim() || !profileId}
             className="rounded-sm bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
             {saving ? 'Inviting…' : 'Invite member'}

@@ -23,9 +23,10 @@ class AuthService:
             raise AuthenticationError("Invalid email or password.")
         return identity
 
-    def list_orgs_for_identity(self, identity_id: UUID) -> list[tuple[UUID, str]]:
-        """Returns (org_id, role) pairs — the org switcher's source of truth."""
-        return [(member.org_id, member.role) for member in self._org_members.list_for_identity(identity_id)]
+    def list_orgs_for_identity(self, identity_id: UUID) -> list[UUID]:
+        """The org switcher's source of truth. No role/profile in the return value — permissions
+        are resolved fresh per request (PermissionService), never cached in the session."""
+        return [member.org_id for member in self._org_members.list_for_identity(identity_id)]
 
     def change_password(self, identity_id: UUID, new_password: str) -> None:
         self._repository.update_password(identity_id, hash_password(new_password))

@@ -13,6 +13,7 @@ from api.infrastructure.auth.password_identity_verifier import PasswordIdentityV
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
+from api.infrastructure.repositories.profile_repository import ProfileRepository
 from api.presentation.web.csrf import validate_csrf
 from api.presentation.web.spa import serve_spa_shell
 
@@ -35,7 +36,12 @@ def _auth_service() -> AuthService:
 
 def _org_membership_service() -> OrgMembershipService:
     session_ = get_session()
-    return OrgMembershipService(OrganizationRepository(session_), OrgMemberRepository(session_), IdentityRepository(session_))
+    return OrgMembershipService(
+        OrganizationRepository(session_),
+        OrgMemberRepository(session_),
+        IdentityRepository(session_),
+        ProfileRepository(session_),
+    )
 
 
 def _signup_service() -> SignupService:
@@ -64,7 +70,6 @@ def login_required(view):
         # it itself — see workspace._serve_spa_page.
         g.user_id = UUID(raw_identity_id)
         g.org_id = UUID(session["active_org_id"]) if session.get("active_org_id") else None
-        g.role = session.get("active_role")
         if g.org_id is not None:
             set_rls_session_vars(g.org_id, g.user_id)
         return view(*args, **kwargs)
@@ -75,7 +80,9 @@ def login_required(view):
 def require_org_session(view):
     """JSON API gate — every resource route (categories/documents/query/...) needs both an
     authenticated identity and an active org membership. Raises AuthenticationError (401 JSON)
-    rather than redirecting, since these are fetch()-called from within the already-gated SPA."""
+    rather than redirecting, since these are fetch()-called from within the already-gated SPA.
+    Does not check any specific permission itself (see require_permission in app_auth.py, which
+    wraps this for routes that need one) — only identity/org-membership."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -85,7 +92,6 @@ def require_org_session(view):
             raise AuthenticationError("Not authenticated.")
         g.user_id = UUID(raw_identity_id)
         g.org_id = UUID(raw_org_id)
-        g.role = session.get("active_role")
         set_rls_session_vars(g.org_id, g.user_id)
         return view(*args, **kwargs)
 
@@ -112,9 +118,7 @@ def _establish_session(identity_id: UUID) -> None:
     memberships = _auth_service().list_orgs_for_identity(identity_id)
     session["identity_id"] = str(identity_id)
     if memberships:
-        org_id, role = memberships[0]
-        session["active_org_id"] = str(org_id)
-        session["active_role"] = role
+        session["active_org_id"] = str(memberships[0])
 
 
 @auth_ui_bp.get("/sign-in")

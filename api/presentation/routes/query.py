@@ -9,7 +9,7 @@ from api.container import get_session
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
-from api.presentation.routes.auth_ui import require_org_session
+from api.presentation.routes.app_auth import require_permission
 from api.presentation.schemas import QueryRequest, ScoredChunkResponse
 
 # Queries one specific category directly, bypassing the router — see router_query.py for the
@@ -27,7 +27,7 @@ def _history_service() -> QueryHistoryService:
 
 
 @query_bp.post("/query")
-@require_org_session
+@require_permission("queries:execute")
 def query_category(category_id: UUID):
     dto = QueryRequest.model_validate(request.get_json(silent=True) or {})
     start = time.monotonic()

@@ -12,6 +12,7 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
+from api.presentation.routes.app_auth import require_permission
 from api.presentation.routes.auth_ui import require_org_session
 from api.presentation.schemas import (
     ChunkResponse,
@@ -37,7 +38,7 @@ def _service() -> DocumentService:
 
 
 @documents_bp.post("/documents")
-@require_org_session
+@require_permission("documents:write")
 def upload_document():
     if "file" not in request.files:
         raise ValidationError(error_codes.VALIDATION_ERROR, "file is required", field="file")
@@ -56,7 +57,7 @@ def upload_document():
 
 
 @documents_bp.post("/documents/crawl")
-@require_org_session
+@require_permission("documents:write")
 @limiter.limit(WEB_CRAWL_RATE_LIMIT)
 def crawl_documents():
     """Ingests one or more pages starting from a URL — max_pages=1 (the default) ingests just
@@ -81,7 +82,7 @@ def get_crawl_job(job_id: str):
 
 
 @documents_bp.get("/documents")
-@require_org_session
+@require_permission("documents:read")
 def list_documents():
     query = PaginationQuery.model_validate(request.args.to_dict())
     documents, total = _service().list_documents(
@@ -99,7 +100,7 @@ def list_documents():
 
 
 @documents_bp.get("/documents/<uuid:document_id>")
-@require_org_session
+@require_permission("documents:read")
 def get_document(document_id: UUID):
     document = _service().get_document(g.org_id, document_id)
     retrieval_count, avg_similarity = QueryRepository(get_session()).retrieval_stats_for_document(document_id)
@@ -108,7 +109,7 @@ def get_document(document_id: UUID):
 
 
 @documents_bp.get("/documents/<uuid:document_id>/chunks")
-@require_org_session
+@require_permission("documents:read")
 def list_document_chunks(document_id: UUID):
     query = LimitOffsetQuery.model_validate(request.args.to_dict())
     chunks = _service().list_chunks(g.org_id, document_id, query.limit, query.offset)
@@ -133,14 +134,14 @@ def cancel_job(job_id: str):
 
 
 @documents_bp.delete("/documents/<uuid:document_id>")
-@require_org_session
+@require_permission("documents:write")
 def delete_document(document_id: UUID):
     _service().delete_document(g.org_id, document_id)
     return "", 204
 
 
 @documents_bp.patch("/documents/<uuid:document_id>")
-@require_org_session
+@require_permission("documents:write")
 def rename_document(document_id: UUID):
     dto = DocumentRenameRequest.model_validate(request.get_json(silent=True) or {})
     document = _service().rename_document(g.org_id, document_id, dto.title)
@@ -148,7 +149,7 @@ def rename_document(document_id: UUID):
 
 
 @documents_bp.patch("/documents/<uuid:document_id>/metadata")
-@require_org_session
+@require_permission("documents:write")
 def update_document_metadata(document_id: UUID):
     dto = DocumentMetadataUpdateRequest.model_validate(request.get_json(silent=True) or {})
     document = _service().update_metadata(g.org_id, document_id, dto.category_id, dto.type)
@@ -156,7 +157,7 @@ def update_document_metadata(document_id: UUID):
 
 
 @documents_bp.post("/documents/<uuid:document_id>/retry")
-@require_org_session
+@require_permission("documents:write")
 def retry_document(document_id: UUID):
     job_id = _service().start_retry(g.org_id, document_id, g.user_id)
     return jsonify({"job_id": job_id}), 202

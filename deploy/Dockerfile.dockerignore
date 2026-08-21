@@ -16,3 +16,4 @@
 webui/node_modules
 api/static/workspace
 api/tests
+api/mcp_server/tests

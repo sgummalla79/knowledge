@@ -16,7 +16,7 @@ function OrgGeneralForm({ org }: { org: Org }) {
   const [description, setDescription] = useState(org.description ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const canEdit = org.role === 'admin'
+  const canEdit = org.permissions.includes('org:write')
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()

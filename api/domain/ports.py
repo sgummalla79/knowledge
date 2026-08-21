@@ -5,6 +5,10 @@ from typing import Protocol
 from uuid import UUID
 
 from api.domain.entities import (
+    Application,
+    ApplicationApiKey,
+    ApplicationOAuthClient,
+    AuthorizationCode,
     Category,
     Chunk,
     Document,
@@ -12,10 +16,13 @@ from api.domain.entities import (
     EmbeddingSettings,
     Identity,
     IngestionJob,
+    MCPSettings,
     OrgMember,
     Organization,
+    Profile,
     Query,
     QueryResult,
+    RefreshToken,
     ScoredChunk,
     Shelf,
     Source,
@@ -255,7 +262,7 @@ class IdentityRepositoryPort(Protocol):
 
 
 class OrgMemberRepositoryPort(Protocol):
-    def create(self, org_id: UUID, identity_id: UUID, role: str, *, invited_by: UUID | None = None) -> OrgMember: ...
+    def create(self, org_id: UUID, identity_id: UUID, profile_id: UUID, *, invited_by: UUID | None = None) -> OrgMember: ...
 
     def get(self, org_id: UUID, identity_id: UUID) -> OrgMember | None: ...
 
@@ -263,7 +270,7 @@ class OrgMemberRepositoryPort(Protocol):
 
     def list_for_org(self, org_id: UUID) -> list[OrgMember]: ...
 
-    def update_role(self, org_id: UUID, identity_id: UUID, role: str) -> OrgMember: ...
+    def update_profile(self, org_id: UUID, identity_id: UUID, profile_id: UUID) -> OrgMember: ...
 
     def delete(self, org_id: UUID, identity_id: UUID) -> None: ...
 
@@ -274,3 +281,88 @@ class IdentityVerifierPort(Protocol):
     depend on this Protocol, never the concrete verifier."""
 
     def verify(self, email: str, password: str) -> Identity | None: ...
+
+
+class ApplicationRepositoryPort(Protocol):
+    def create(self, org_id: UUID, name: str, auth_method: str, service_identity_id: UUID, **fields) -> Application: ...
+
+    def get(self, application_id: UUID) -> Application | None: ...
+
+    def list_by_org(self, org_id: UUID) -> list[Application]: ...
+
+    def update(self, application_id: UUID, name: str, description: str | None) -> Application: ...
+
+    def revoke(self, application_id: UUID, revoked_by: UUID) -> Application: ...
+
+    def delete(self, application_id: UUID) -> None: ...
+
+    def set_scopes(self, application_id: UUID, scopes: list[str], granted_by: UUID | None) -> None: ...
+
+    def list_scopes(self, application_id: UUID) -> list[str]: ...
+
+
+class MCPSettingsRepositoryPort(Protocol):
+    def get(self, org_id: UUID) -> MCPSettings | None: ...
+
+    def upsert(
+        self,
+        org_id: UUID,
+        rag_read_enabled: bool,
+        object_read_enabled: bool,
+        object_write_enabled: bool,
+        modified_by: UUID | None,
+    ) -> MCPSettings: ...
+
+
+class ApplicationApiKeyRepositoryPort(Protocol):
+    def create(self, application_id: UUID, key_hash: str, key_prefix: str) -> ApplicationApiKey: ...
+
+    def get_by_key_hash(self, key_hash: str) -> ApplicationApiKey | None: ...
+
+    def rotate(self, application_id: UUID, key_hash: str, key_prefix: str) -> ApplicationApiKey: ...
+
+    def touch_last_used(self, application_id: UUID) -> None: ...
+
+
+class ApplicationOAuthClientRepositoryPort(Protocol):
+    def create(
+        self, application_id: UUID, client_secret_hash: str | None, redirect_uris: list[str]
+    ) -> ApplicationOAuthClient: ...
+
+    def get_by_application(self, application_id: UUID) -> ApplicationOAuthClient | None: ...
+
+    def rotate(self, application_id: UUID, client_secret_hash: str) -> ApplicationOAuthClient: ...
+
+
+class AuthorizationCodeRepositoryPort(Protocol):
+    def create(self, application_id: UUID, org_id: UUID, identity_id: UUID, **fields) -> AuthorizationCode: ...
+
+    def get_by_code_hash(self, code_hash: str) -> AuthorizationCode | None: ...
+
+    def mark_consumed(self, authorization_code_id: UUID) -> None: ...
+
+
+class RefreshTokenRepositoryPort(Protocol):
+    def create(self, application_id: UUID, org_id: UUID, identity_id: UUID, token_hash: str, expires_at) -> RefreshToken: ...
+
+    def get_by_token_hash(self, token_hash: str) -> RefreshToken | None: ...
+
+    def touch_last_used(self, refresh_token_id: UUID) -> None: ...
+
+
+class ProfileRepositoryPort(Protocol):
+    def create(self, org_id: UUID, name: str, *, is_admin: bool = False, **fields) -> Profile: ...
+
+    def get(self, profile_id: UUID) -> Profile | None: ...
+
+    def get_admin_profile(self, org_id: UUID) -> Profile | None: ...
+
+    def list_by_org(self, org_id: UUID) -> list[Profile]: ...
+
+    def update(self, profile_id: UUID, name: str, description: str | None) -> Profile: ...
+
+    def delete(self, profile_id: UUID) -> None: ...
+
+    def set_permissions(self, profile_id: UUID, permissions: list[str], granted_by: UUID | None) -> None: ...
+
+    def list_permissions(self, profile_id: UUID) -> list[str]: ...

@@ -33,3 +33,9 @@ services:
       # 13199: deliberately outside the 13100 series used by the real api, so this stack can never
       # collide with a live knowledge instance running at the same time.
       - "13199:13199"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:13199/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

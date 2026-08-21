@@ -242,14 +242,157 @@ class DashboardStats:
 
 @dataclass(frozen=True)
 class OrgMember:
-    """Which orgs an Identity belongs to, and with what role in each — a person can hold a
-    different membership (and role) in several orgs and switch between them."""
+    """Which orgs an Identity belongs to, and with what profile (object-level read/write grants)
+    in each — a person can hold a different membership (and profile) in several orgs and switch
+    between them."""
 
     id: UUID
     org_id: UUID
     identity_id: UUID
-    role: str
+    profile_id: UUID
     invited_by: UUID | None
     last_modified_by: UUID | None
     created_at: datetime
     last_modified_at: datetime
+
+
+@dataclass(frozen=True)
+class Profile:
+    """An org-scoped, reusable bundle of per-object-type read/write grants — assigned to org
+    members (and, later, to a connected application's execute-as user) rather than access being
+    granted to a person or app directly. `is_admin` marks the one seeded, non-deletable profile
+    per org whose permissions are always every OBJECT_PERMISSIONS entry — enforced by
+    ProfileService, not something a permission grid ever edits."""
+
+    id: UUID
+    org_id: UUID
+    name: str
+    description: str | None
+    is_admin: bool
+    created_by: UUID | None
+    last_modified_by: UUID | None
+    created_at: datetime
+    last_modified_at: datetime
+
+
+@dataclass(frozen=True)
+class Application:
+    """An org-scoped connected application (MCP client / external integration) — its actual
+    request-time authority is its granted scopes (see application_scopes / ApplicationRepositoryPort.
+    list_scopes), not org role; service_identity_id exists only to satisfy this schema's
+    created_by/owner_id-style FKs, which all point at identities.id."""
+
+    id: UUID
+    org_id: UUID
+    name: str
+    description: str | None
+    auth_method: str
+    status: str
+    service_identity_id: UUID
+    # Only set for oauth_client_credentials — the real, already-existing member a token from this
+    # application resolves to (PermissionService.resolve_permissions is keyed off this, not
+    # service_identity_id, which client_credentials never meaningfully reads).
+    execute_as_identity_id: UUID | None
+    # Whether this application may reach the MCP server at all, uniform across all three auth
+    # methods (see api/mcp_server/ and MCPSettings below) — independent of application_scopes/profile,
+    # a channel flag rather than a resource permission.
+    mcp_access: bool
+    created_by: UUID | None
+    last_modified_by: UUID | None
+    revoked_at: datetime | None
+    revoked_by: UUID | None
+    created_at: datetime
+    last_modified_at: datetime
+
+
+@dataclass(frozen=True)
+class MCPSettings:
+    """One row per org: independent on/off switches for each of the three MCP tool tiers
+    (api/mcp_server/). Absent row means all three off — see MCPSettingsService's "no row yet" default,
+    same convention embedding_settings historically used before it went per-provider."""
+
+    org_id: UUID
+    rag_read_enabled: bool
+    object_read_enabled: bool
+    object_write_enabled: bool
+    last_modified_by: UUID | None
+    last_modified_at: datetime
+
+
+@dataclass(frozen=True)
+class ApplicationApiKey:
+    id: UUID
+    application_id: UUID
+    key_hash: str
+    key_prefix: str
+    created_at: datetime
+    last_rotated_at: datetime
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ApplicationOAuthClient:
+    """Shared credential row for both oauth_client_credentials and oauth_authorization_code —
+    application_id itself is the wire-format client_id, so there's no separate client_id column.
+    client_secret_hash is required for client_credentials and always None for authorization_code
+    (a public, PKCE-only client — see api/infrastructure/auth/pkce.py). redirect_uris is only
+    populated for authorization_code."""
+
+    id: UUID
+    application_id: UUID
+    client_secret_hash: str | None
+    redirect_uris: list[str]
+    created_at: datetime
+    last_rotated_at: datetime
+    revoked_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AuthorizationCode:
+    """A single-use, short-lived authorization_code grant — identity_id is whoever completed the
+    consent screen, resolved fresh at exchange time via PermissionService just like every other
+    request path."""
+
+    id: UUID
+    code_hash: str
+    application_id: UUID
+    org_id: UUID
+    identity_id: UUID
+    redirect_uri: str
+    code_challenge: str
+    code_challenge_method: str
+    scope: str
+    expires_at: datetime
+    consumed_at: datetime | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class RefreshToken:
+    id: UUID
+    token_hash: str
+    application_id: UUID
+    org_id: UUID
+    identity_id: UUID
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ResolvedCaller:
+    """What a verified machine-caller bearer token resolves to. Returned by
+    AppAuthService.authenticate_bearer_token, which is deliberately framework-free so this same
+    entity (and the service that produces it) is reusable by both the Flask require_scope
+    decorator and api/mcp_server/."""
+
+    org_id: UUID
+    identity_id: UUID
+    application_id: UUID
+    scopes: frozenset[str]
+    auth_method: str
+    # Mirrors Application.mcp_access — unused by the REST API's own require_permission, only
+    # consulted by api/mcp_server/permissions.py's require_tier_permission.
+    mcp_access: bool

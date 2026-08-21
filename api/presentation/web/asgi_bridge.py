@@ -1,0 +1,52 @@
+from contextlib import AsyncExitStack, asynccontextmanager
+
+from a2wsgi import WSGIMiddleware
+from flask import Flask
+from mcp.server.fastmcp import FastMCP
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+
+def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -> Starlette:
+    """Wraps a Flask (WSGI) app for ASGI serving, optionally alongside one or more FastMCP
+    instances, via a2wsgi.WSGIMiddleware (Starlette's own WSGIMiddleware is deprecated in favor of
+    this). Kept import-side-effect-free (unlike api/asgi.py, which also imports the real
+    api.wsgi.app singleton — that triggers a real DB bootstrap at import time) so tests can build a
+    combined app around a create_app(testing=True) instance instead, with or without any MCP
+    servers mounted.
+
+    Each FastMCP server's own Starlette app (streamable_http_app()) already carries both its
+    streamable-http endpoint and its RFC 9728 well-known discovery route at real, full top-level
+    paths (see mcp_server/server.py's streamable_http_path/resource_server_url) — those routes are
+    merged directly into this app's own top-level route list rather than nested under an extra
+    Mount(), since nesting would double the path prefix and break the well-known route's path-
+    insertion (which is computed relative to that sub-app's own root). Flask's catch-all is listed
+    last for readability — a route with a real path always wins over it regardless of order, same
+    precedence rule api/presentation/routes/app_shell.py's favicon-before-catch-all comment
+    documents.
+
+    Each FastMCP server's own internal lifespan (which enters its session_manager.run() — see the
+    installed SDK's FastMCP.streamable_http_app) is never triggered just by merging its routes in:
+    Starlette's Router only dispatches the ASGI "lifespan" scope type to itself, not to routes that
+    originated from another app, so a merged-in MCP server would silently never start its session
+    manager without this. The combined app's own lifespan enters every server's
+    session_manager.run() itself instead.
+    """
+    mcp_servers = mcp_servers or []
+
+    routes = []
+    for mcp in mcp_servers:
+        routes.extend(mcp.streamable_http_app().routes)
+    routes.append(Mount("/", app=WSGIMiddleware(flask_app)))
+
+    lifespan = None
+    if mcp_servers:
+
+        @asynccontextmanager
+        async def lifespan(_app):
+            async with AsyncExitStack() as stack:
+                for mcp in mcp_servers:
+                    await stack.enter_async_context(mcp.session_manager.run())
+                yield
+
+    return Starlette(routes=routes, lifespan=lifespan)

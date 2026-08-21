@@ -1,3 +1,4 @@
+from api.application.profile_service import ProfileService
 from api.domain.errors import ConflictError
 from api.constants import (
     DEFAULT_ADMIN_NAME,
@@ -10,6 +11,7 @@ from api.infrastructure.auth.passwords import hash_password
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
+from api.infrastructure.repositories.profile_repository import ProfileRepository
 
 
 def bootstrap_default_organization(session):
@@ -52,7 +54,11 @@ def bootstrap_default_identity(session) -> None:
             hash_password(DEFAULT_ADMIN_PASSWORD),
             name=DEFAULT_ADMIN_NAME,
         )
-        OrgMemberRepository(session).create(organization.id, identity.id, "admin")
+        profiles = ProfileRepository(session)
+        admin_profile = profiles.get_admin_profile(organization.id)
+        if admin_profile is None:
+            admin_profile = ProfileService(profiles).create_admin_profile(organization.id, identity.id)
+        OrgMemberRepository(session).create(organization.id, identity.id, admin_profile.id)
         session.commit()
     except ConflictError:
         session.rollback()

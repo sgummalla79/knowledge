@@ -5,12 +5,12 @@ from uuid import uuid4
 import pytest
 
 from api import create_app
-from api.domain.entities import Identity, OrgMember, Organization, Shelf
-from api.domain.errors import ConflictError, ForbiddenError, NotFoundError
+from api.domain.entities import Identity, OrgMember, Organization, Profile, Shelf
+from api.domain.errors import ConflictError, NotFoundError
 
-# HTTP-layer wiring only (status codes, headers, error envelope) — services are mocked. `orgs.py`
-# had zero dedicated test coverage before this file; added alongside the new PATCH /orgs/<id>
-# route (A.8) rather than deferred, since the route file was already being touched.
+# HTTP-layer wiring only (status codes, headers, error envelope) — services are mocked. The global
+# _grant_every_permission fixture (unit/conftest.py) means every request here already has every
+# permission unless a test overrides it locally to verify a denial.
 
 
 @pytest.fixture()
@@ -20,7 +20,6 @@ def client():
     with test_client.session_transaction() as sess:
         sess["identity_id"] = str(uuid4())
         sess["active_org_id"] = str(uuid4())
-        sess["active_role"] = "admin"
     return test_client
 
 
@@ -47,7 +46,7 @@ def _member(**overrides):
         id=uuid4(),
         org_id=uuid4(),
         identity_id=uuid4(),
-        role="admin",
+        profile_id=uuid4(),
         invited_by=None,
         last_modified_by=None,
         created_at=now,
@@ -73,9 +72,26 @@ def _identity(**overrides):
     return Identity(**fields)
 
 
+def _profile(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(),
+        org_id=uuid4(),
+        name="Admin",
+        description=None,
+        is_admin=True,
+        created_by=None,
+        last_modified_by=None,
+        created_at=now,
+        last_modified_at=now,
+    )
+    fields.update(overrides)
+    return Profile(**fields)
+
+
 def test_list_orgs_returns_memberships(client):
     org = _org()
-    member = _member(org_id=org.id, role="admin")
+    member = _member(org_id=org.id)
     with (
         patch("api.presentation.routes.orgs.OrganizationRepository.get", return_value=org),
         patch("api.presentation.routes.orgs.OrgMemberRepository.list_for_identity", return_value=[member]),
@@ -86,20 +102,17 @@ def test_list_orgs_returns_memberships(client):
     body = response.get_json()
     assert len(body) == 1
     assert body[0]["id"] == str(org.id)
-    assert body[0]["role"] == "admin"
+    assert "applications:write" in body[0]["permissions"]
 
 
 def test_create_org_returns_201(client):
     org = _org()
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.create_org_with_owner", return_value=org
-    ):
+    with patch("api.presentation.routes.orgs.OrgMembershipService.create_org_with_owner", return_value=org):
         response = client.post("/orgs", json={"name": "Acme Corp"})
 
     assert response.status_code == 201
     body = response.get_json()
     assert body["name"] == "Acme Corp"
-    assert body["role"] == "admin"
 
 
 def test_create_org_missing_name_returns_structured_400(client):
@@ -122,15 +135,8 @@ def test_create_org_duplicate_slug_returns_409(client):
 
 def test_update_org_returns_updated_org(client):
     org = _org(name="renamed", description="new description")
-    with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
-        patch(
-            "api.presentation.routes.orgs.OrgMembershipService.update_organization", return_value=org
-        ),
-    ):
-        response = client.patch(
-            f"/orgs/{org.id}", json={"name": "renamed", "description": "new description"}
-        )
+    with patch("api.presentation.routes.orgs.OrgMembershipService.update_organization", return_value=org):
+        response = client.patch(f"/orgs/{org.id}", json={"name": "renamed", "description": "new description"})
 
     assert response.status_code == 200
     body = response.get_json()
@@ -138,31 +144,24 @@ def test_update_org_returns_updated_org(client):
     assert body["description"] == "new description"
 
 
-def test_update_org_requires_admin(client):
-    with patch(
-        "api.presentation.routes.orgs._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage members."),
-    ):
+def test_update_org_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
         response = client.patch(f"/orgs/{uuid4()}", json={"name": "renamed"})
 
     assert response.status_code == 403
 
 
 def test_update_org_missing_name_returns_structured_400(client):
-    with patch("api.presentation.routes.orgs._require_admin", return_value=None):
-        response = client.patch(f"/orgs/{uuid4()}", json={"description": "no name"})
+    response = client.patch(f"/orgs/{uuid4()}", json={"description": "no name"})
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "name"
 
 
 def test_update_missing_org_returns_structured_404(client):
-    with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
-        patch(
-            "api.presentation.routes.orgs.OrgMembershipService.update_organization",
-            side_effect=NotFoundError("organization_not_found", "Organization not found."),
-        ),
+    with patch(
+        "api.presentation.routes.orgs.OrgMembershipService.update_organization",
+        side_effect=NotFoundError("organization_not_found", "Organization not found."),
     ):
         response = client.patch(f"/orgs/{uuid4()}", json={"name": "renamed"})
 
@@ -171,13 +170,10 @@ def test_update_missing_org_returns_structured_404(client):
 
 
 def test_switch_org_updates_session(client):
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.switch_active_org", return_value="contributor"
-    ):
+    with patch("api.presentation.routes.orgs.OrgMembershipService.switch_active_org", return_value=None):
         response = client.post(f"/orgs/{uuid4()}/switch")
 
     assert response.status_code == 200
-    assert response.get_json()["role"] == "contributor"
 
 
 def test_switch_org_not_a_member_returns_structured_404(client):
@@ -193,9 +189,11 @@ def test_switch_org_not_a_member_returns_structured_404(client):
 
 def test_list_members_returns_all(client):
     identity = _identity()
-    member = _member(identity_id=identity.id)
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.list_members", return_value=[(member, identity)]
+    profile = _profile()
+    member = _member(identity_id=identity.id, profile_id=profile.id)
+    with (
+        patch("api.presentation.routes.orgs.OrgMembershipService.list_members", return_value=[(member, identity)]),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
         response = client.get(f"/orgs/{uuid4()}/members")
 
@@ -203,71 +201,71 @@ def test_list_members_returns_all(client):
     body = response.get_json()
     assert len(body) == 1
     assert body[0]["email"] == "ada@acme.com"
+    assert body[0]["profile_name"] == "Admin"
+    assert body[0]["profile_is_admin"] is True
 
 
-def test_invite_member_requires_admin(client):
-    with patch(
-        "api.presentation.routes.orgs._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage members."),
-    ):
-        response = client.post(f"/orgs/{uuid4()}/invites", json={"email": "new@acme.com"})
+def test_list_members_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
+        response = client.get(f"/orgs/{uuid4()}/members")
+
+    assert response.status_code == 403
+
+
+def test_invite_member_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
+        response = client.post(f"/orgs/{uuid4()}/invites", json={"email": "new@acme.com", "profile_id": str(uuid4())})
 
     assert response.status_code == 403
 
 
 def test_invite_member_returns_201(client):
     identity = _identity(email="new@acme.com")
-    member = _member(identity_id=identity.id, role="viewer")
+    profile = _profile(name="Viewer", is_admin=False)
+    member = _member(identity_id=identity.id, profile_id=profile.id)
     with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
         patch("api.presentation.routes.orgs.OrgMembershipService.invite_member", return_value=member),
         patch("api.presentation.routes.orgs.IdentityRepository.get_by_id", return_value=identity),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
-        response = client.post(f"/orgs/{uuid4()}/invites", json={"email": "new@acme.com"})
+        response = client.post(f"/orgs/{uuid4()}/invites", json={"email": "new@acme.com", "profile_id": str(profile.id)})
 
     assert response.status_code == 201
     assert response.get_json()["email"] == "new@acme.com"
+    assert response.get_json()["profile_name"] == "Viewer"
 
 
-def test_update_member_role_requires_admin(client):
-    with patch(
-        "api.presentation.routes.orgs._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage members."),
-    ):
-        response = client.patch(f"/orgs/{uuid4()}/members/{uuid4()}", json={"role": "admin"})
+def test_update_member_profile_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
+        response = client.patch(f"/orgs/{uuid4()}/members/{uuid4()}", json={"profile_id": str(uuid4())})
 
     assert response.status_code == 403
 
 
-def test_update_member_role_returns_updated_member(client):
+def test_update_member_profile_returns_updated_member(client):
     identity = _identity()
-    member = _member(identity_id=identity.id, role="admin")
+    profile = _profile()
+    member = _member(identity_id=identity.id, profile_id=profile.id)
     with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
-        patch("api.presentation.routes.orgs.OrgMembershipService.update_role", return_value=member),
+        patch("api.presentation.routes.orgs.OrgMembershipService.update_member_profile", return_value=member),
         patch("api.presentation.routes.orgs.IdentityRepository.get_by_id", return_value=identity),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
-        response = client.patch(f"/orgs/{uuid4()}/members/{identity.id}", json={"role": "admin"})
+        response = client.patch(f"/orgs/{uuid4()}/members/{identity.id}", json={"profile_id": str(profile.id)})
 
     assert response.status_code == 200
-    assert response.get_json()["role"] == "admin"
+    assert response.get_json()["profile_id"] == str(profile.id)
 
 
-def test_remove_member_requires_admin(client):
-    with patch(
-        "api.presentation.routes.orgs._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage members."),
-    ):
+def test_remove_member_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
         response = client.delete(f"/orgs/{uuid4()}/members/{uuid4()}")
 
     assert response.status_code == 403
 
 
 def test_remove_member_returns_204(client):
-    with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
-        patch("api.presentation.routes.orgs.OrgMembershipService.remove_member", return_value=None),
-    ):
+    with patch("api.presentation.routes.orgs.OrgMembershipService.remove_member", return_value=None):
         response = client.delete(f"/orgs/{uuid4()}/members/{uuid4()}")
 
     assert response.status_code == 204
@@ -291,11 +289,8 @@ def _shelf(**overrides):
     return Shelf(**fields)
 
 
-def test_get_member_shelf_access_requires_admin(client):
-    with patch(
-        "api.presentation.routes.orgs._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage members."),
-    ):
+def test_get_member_shelf_access_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
         response = client.get(f"/orgs/{uuid4()}/members/{uuid4()}/shelf-access")
 
     assert response.status_code == 403
@@ -303,10 +298,7 @@ def test_get_member_shelf_access_requires_admin(client):
 
 def test_get_member_shelf_access_returns_shelves(client):
     shelf = _shelf()
-    with (
-        patch("api.presentation.routes.orgs._require_admin", return_value=None),
-        patch("api.presentation.routes.orgs.ShelfService.list_accessible_shelves", return_value=[shelf]),
-    ):
+    with patch("api.presentation.routes.orgs.ShelfService.list_accessible_shelves", return_value=[shelf]):
         response = client.get(f"/orgs/{uuid4()}/members/{uuid4()}/shelf-access")
 
     assert response.status_code == 200

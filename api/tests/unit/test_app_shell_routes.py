@@ -19,7 +19,6 @@ def _logged_in(client):
     with client.session_transaction() as sess:
         sess["identity_id"] = str(uuid4())
         sess["active_org_id"] = str(org_id)
-        sess["active_role"] = "admin"
     return org_id
 
 
@@ -47,7 +46,6 @@ def test_root_serves_built_shell_with_injected_globals(_get_org, _get_user, clie
     assert response.status_code == 200
     assert b"__CSRF_TOKEN__" in response.data
     assert b"__ORG_ID__" in response.data
-    assert b"__ROLE__" in response.data
 
 
 @patch("api.presentation.routes.app_shell.IdentityRepository.get_by_id", return_value=None)

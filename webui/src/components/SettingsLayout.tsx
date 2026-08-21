@@ -3,9 +3,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 const LINKS = [
   { to: '/org/settings', label: 'General' },
   { to: '/org/members', label: 'Members & access' },
+  { to: '/org/profiles', label: 'Profiles' },
   { to: '/org/shelves', label: 'Shelves' },
   { to: '/org/categories', label: 'Data categories' },
   { to: '/org/embedding-models', label: 'Embedding model' },
+  { to: '/org/applications', label: 'Connected applications' },
+  { to: '/org/mcp', label: 'MCP' },
 ]
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -14,7 +17,7 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`
 
 // Same sidebar + content layout as BrowsePage's FilterSidebar (w-56 shrink-0 aside, flex-1
-// content) — settings has enough sections now (5) that a horizontal tab row wrapped awkwardly.
+// content) — settings has enough sections now that a horizontal tab row wrapped awkwardly.
 export function SettingsLayout() {
   return (
     <div className="py-12">

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
 import type {
+  Application,
   Category,
   Chunk,
   CrawlOptions,
@@ -9,8 +10,10 @@ import type {
   EmbeddingOptions,
   EmbeddingProviderConfig,
   IngestionJob,
+  MCPSettings,
   Org,
   OrgMember,
+  Profile,
   Shelf,
   Tag,
 } from './types'
@@ -25,6 +28,18 @@ export function useOrgMembers(orgId: string | undefined) {
     queryFn: () => api.get<OrgMember[]>(`/orgs/${orgId}/members`),
     enabled: orgId !== undefined,
   })
+}
+
+export function useApplications() {
+  return useQuery({ queryKey: ['applications'], queryFn: () => api.get<Application[]>('/applications') })
+}
+
+export function useProfiles() {
+  return useQuery({ queryKey: ['profiles'], queryFn: () => api.get<Profile[]>('/profiles') })
+}
+
+export function useMCPSettings() {
+  return useQuery({ queryKey: ['mcp-settings'], queryFn: () => api.get<MCPSettings>('/mcp-settings') })
 }
 
 export function useCategories() {

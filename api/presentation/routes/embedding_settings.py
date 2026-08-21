@@ -7,7 +7,7 @@ from api.infrastructure.repositories.embedding_provider_settings_repository impo
     EmbeddingProviderSettingsRepository,
 )
 from api.infrastructure.repositories.category_repository import CategoryRepository
-from api.presentation.routes.auth_ui import require_org_session
+from api.presentation.routes.app_auth import require_permission
 from api.presentation.schemas import EmbeddingProviderConfigResponse, EmbeddingProviderConfigUpdateRequest
 
 embedding_settings_bp = Blueprint("embedding_settings", __name__)
@@ -23,21 +23,21 @@ def _service() -> EmbeddingProviderConfigService:
 
 
 @embedding_settings_bp.get("/embedding-settings")
-@require_org_session
+@require_permission("embedding_models:read")
 def list_embedding_settings():
     statuses = _service().list_status(g.org_id)
     return jsonify([EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json") for status in statuses])
 
 
 @embedding_settings_bp.get("/embedding-settings/<provider>")
-@require_org_session
+@require_permission("embedding_models:read")
 def get_embedding_settings(provider: str):
     status = _service().get_status(g.org_id, provider)
     return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))
 
 
 @embedding_settings_bp.put("/embedding-settings/<provider>")
-@require_org_session
+@require_permission("embedding_models:write")
 def update_embedding_settings(provider: str):
     dto = EmbeddingProviderConfigUpdateRequest.model_validate(request.get_json(silent=True) or {})
     api_key = dto.api_key
@@ -61,14 +61,14 @@ def update_embedding_settings(provider: str):
 
 
 @embedding_settings_bp.post("/embedding-settings/<provider>/enable")
-@require_org_session
+@require_permission("embedding_models:write")
 def enable_embedding_provider(provider: str):
     status = _service().enable(g.org_id, provider)
     return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))
 
 
 @embedding_settings_bp.post("/embedding-settings/<provider>/disable")
-@require_org_session
+@require_permission("embedding_models:write")
 def disable_embedding_provider(provider: str):
     status = _service().disable(g.org_id, provider)
     return jsonify(EmbeddingProviderConfigResponse.from_status(status).model_dump(mode="json"))

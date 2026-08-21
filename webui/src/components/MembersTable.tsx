@@ -1,24 +1,22 @@
 import { useQueries } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { OrgMember, OrgRole, Shelf } from '../api/types'
+import { useProfiles } from '../api/queries'
+import type { OrgMember, Shelf } from '../api/types'
 import { Select } from './Select'
-
-const ROLE_OPTIONS = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'contributor', label: 'Contributor' },
-  { value: 'viewer', label: 'Viewer' },
-]
 
 interface Props {
   orgId: string
   members: OrgMember[]
   canManage: boolean
   currentUserEmail: string
-  onRoleChange: (identityId: string, role: OrgRole) => void
+  onProfileChange: (identityId: string, profileId: string) => void
   onRemove: (identityId: string) => void
 }
 
-export function MembersTable({ orgId, members, canManage, currentUserEmail, onRoleChange, onRemove }: Props) {
+export function MembersTable({ orgId, members, canManage, currentUserEmail, onProfileChange, onRemove }: Props) {
+  const profiles = useProfiles()
+  const profileOptions = (profiles.data ?? []).map((profile) => ({ value: profile.id, label: profile.name }))
+
   const shelfAccess = useQueries({
     queries: members.map((member) => ({
       queryKey: ['orgs', orgId, 'members', member.identity_id, 'shelf-access'],
@@ -33,7 +31,7 @@ export function MembersTable({ orgId, members, canManage, currentUserEmail, onRo
         <thead>
           <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
             <th className="pb-2.5 font-semibold">Member</th>
-            <th className="pb-2.5 font-semibold">Role</th>
+            <th className="pb-2.5 font-semibold">Profile</th>
             <th className="pb-2.5 font-semibold">Shelf access</th>
             <th className="pb-2.5 font-semibold"></th>
           </tr>
@@ -50,15 +48,15 @@ export function MembersTable({ orgId, members, canManage, currentUserEmail, onRo
                 </td>
                 <td className="py-3.5 pr-4">
                   <Select
-                    value={member.role}
-                    options={ROLE_OPTIONS}
+                    value={member.profile_id}
+                    options={profileOptions}
                     disabled={!canManage || isSelf}
-                    onChange={(value) => onRoleChange(member.identity_id, value as OrgRole)}
+                    onChange={(value) => onProfileChange(member.identity_id, value)}
                     className="px-2.5 py-1.5 text-[13px]"
                   />
                 </td>
                 <td className="py-3.5 pr-4">
-                  {member.role === 'admin' ? (
+                  {member.profile_is_admin ? (
                     <span className="rounded-sm bg-accent px-2.5 py-0.5 text-xs text-accent-foreground">All shelves</span>
                   ) : shelves.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">

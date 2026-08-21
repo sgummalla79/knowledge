@@ -41,8 +41,18 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       # 13102: same 13100 series as rag-desktop's dev ports (13100 vite, 13101 HMR) —
-      # keeps every port this project touches in one clearly-distinct block.
+      # keeps every port this project touches in one clearly-distinct block. Also serves the three
+      # MCP tool tiers (/mcp/rag, /mcp/read, /mcp/write — api/mcp_server/), merged into this same
+      # process/port (see api/asgi.py) rather than a separate loopback-only service — each tier is
+      # off by default (mcp_settings) and gated by mcp_access + profile permission per call.
       - "${PORT:-13102}:${PORT:-13102}"
+    healthcheck:
+      # No curl/wget in this image; Python is always there.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-13102}/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     logging:
       driver: json-file
       options:

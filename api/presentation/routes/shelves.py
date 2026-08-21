@@ -6,11 +6,10 @@ from api.application.shelf_service import ShelfService
 from api.container import get_session
 from api.domain import error_codes
 from api.domain.entities import Shelf
-from api.domain.errors import ForbiddenError, NotFoundError
+from api.domain.errors import NotFoundError
 from api.infrastructure.repositories.document_repository import DocumentRepository
-from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.shelf_repository import ShelfRepository
-from api.presentation.routes.auth_ui import require_org_session
+from api.presentation.routes.app_auth import require_permission
 from api.presentation.schemas import (
     ShelfAccessRequest,
     ShelfCreateRequest,
@@ -24,14 +23,6 @@ shelves_bp = Blueprint("shelves", __name__)
 
 def _service() -> ShelfService:
     return ShelfService(ShelfRepository(get_session()))
-
-
-def _require_admin(org_id: UUID) -> None:
-    # Checked against the specific org_id being acted on, not g.role — see orgs.py's identical
-    # helper for why (g.role only reflects the session's currently *active* org).
-    member = OrgMemberRepository(get_session()).get(org_id, g.user_id)
-    if member is None or member.role != "admin":
-        raise ForbiddenError("Only an org admin can manage shelf access.")
 
 
 def _verify_document_ownership(org_id: UUID, document_id: UUID) -> None:
@@ -48,7 +39,7 @@ def _to_response(service: ShelfService, shelf: Shelf) -> ShelfResponse:
 
 
 @shelves_bp.post("/shelves")
-@require_org_session
+@require_permission("shelves:write")
 def create_shelf():
     dto = ShelfCreateRequest.model_validate(request.get_json(silent=True) or {})
     shelf = _service().create_shelf(g.org_id, dto.name, dto.description)
@@ -59,7 +50,7 @@ def create_shelf():
 
 
 @shelves_bp.get("/shelves")
-@require_org_session
+@require_permission("shelves:read")
 def list_shelves():
     service = _service()
     shelves = service.list_shelves(g.org_id)
@@ -67,7 +58,7 @@ def list_shelves():
 
 
 @shelves_bp.get("/shelves/<uuid:shelf_id>")
-@require_org_session
+@require_permission("shelves:read")
 def get_shelf(shelf_id: UUID):
     service = _service()
     shelf = service.get_shelf(g.org_id, shelf_id)
@@ -75,7 +66,7 @@ def get_shelf(shelf_id: UUID):
 
 
 @shelves_bp.patch("/shelves/<uuid:shelf_id>")
-@require_org_session
+@require_permission("shelves:write")
 def update_shelf(shelf_id: UUID):
     dto = ShelfUpdateRequest.model_validate(request.get_json(silent=True) or {})
     service = _service()
@@ -84,14 +75,14 @@ def update_shelf(shelf_id: UUID):
 
 
 @shelves_bp.delete("/shelves/<uuid:shelf_id>")
-@require_org_session
+@require_permission("shelves:write")
 def delete_shelf(shelf_id: UUID):
     _service().delete_shelf(g.org_id, shelf_id)
     return "", 204
 
 
 @shelves_bp.post("/shelves/<uuid:shelf_id>/documents")
-@require_org_session
+@require_permission("shelves:write")
 def add_document_to_shelf(shelf_id: UUID):
     dto = ShelfDocumentRequest.model_validate(request.get_json(silent=True) or {})
     _verify_document_ownership(g.org_id, dto.document_id)
@@ -100,7 +91,7 @@ def add_document_to_shelf(shelf_id: UUID):
 
 
 @shelves_bp.delete("/shelves/<uuid:shelf_id>/documents/<uuid:document_id>")
-@require_org_session
+@require_permission("shelves:write")
 def remove_document_from_shelf(shelf_id: UUID, document_id: UUID):
     _verify_document_ownership(g.org_id, document_id)
     _service().remove_document(g.org_id, shelf_id, document_id)
@@ -108,24 +99,22 @@ def remove_document_from_shelf(shelf_id: UUID, document_id: UUID):
 
 
 @shelves_bp.post("/shelves/<uuid:shelf_id>/access")
-@require_org_session
+@require_permission("shelves:write")
 def grant_shelf_access(shelf_id: UUID):
-    _require_admin(g.org_id)
     dto = ShelfAccessRequest.model_validate(request.get_json(silent=True) or {})
     _service().grant_access(g.org_id, shelf_id, dto.user_id, g.user_id)
     return "", 204
 
 
 @shelves_bp.delete("/shelves/<uuid:shelf_id>/access/<uuid:user_id>")
-@require_org_session
+@require_permission("shelves:write")
 def revoke_shelf_access(shelf_id: UUID, user_id: UUID):
-    _require_admin(g.org_id)
     _service().revoke_access(g.org_id, shelf_id, user_id)
     return "", 204
 
 
 @shelves_bp.get("/documents/<uuid:document_id>/shelves")
-@require_org_session
+@require_permission("shelves:read")
 def list_document_shelves(document_id: UUID):
     _verify_document_ownership(g.org_id, document_id)
     service = _service()

@@ -12,13 +12,16 @@ from api.constants import (
 )
 from api.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
 from api.domain.entities import (
+    Application,
     Category,
     Chunk,
     DashboardStats,
     Document,
     IngestionJob,
+    MCPSettings,
     MostRetrievedDocument,
     Organization,
+    Profile,
     Query,
     RoutedScoredChunk,
     ScoredChunk,
@@ -26,8 +29,11 @@ from api.domain.entities import (
     Tag,
 )
 
-OrgRole = Literal["admin", "contributor", "viewer"]
 DocumentType = Literal["article", "document"]
+# Only these 3 are creatable today — the DB's application_auth_method enum already includes
+# "certificate" too, so a later phase's migration doesn't need to touch this column, but this
+# Literal only widens once that method's issuance/verification is actually built.
+ApplicationAuthMethod = Literal["api_key", "oauth_client_credentials", "oauth_authorization_code"]
 
 
 class OrgCreateRequest(BaseModel):
@@ -48,16 +54,19 @@ class OrgResponse(BaseModel):
     name: str
     slug: str
     description: str | None
-    role: str
+    # The resolved permission set for the *current* identity in this org (PermissionService),
+    # replacing the old bare role string — the frontend checks e.g.
+    # permissions.includes("applications:write") instead of role === "admin".
+    permissions: list[str]
 
     @classmethod
-    def from_entity(cls, organization: Organization, role: str) -> "OrgResponse":
+    def from_entity(cls, organization: Organization, permissions: list[str]) -> "OrgResponse":
         return cls(
             id=organization.id,
             name=organization.name,
             slug=organization.slug,
             description=organization.description,
-            role=role,
+            permissions=permissions,
         )
 
 
@@ -65,20 +74,25 @@ class OrgInviteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(min_length=1)
-    role: OrgRole = "viewer"
+    # No default — unlike the old fixed 3-value role, profiles are custom per org, so there's no
+    # guaranteed non-admin profile to fall back to. The inviter must pick one of this org's
+    # existing profiles explicitly.
+    profile_id: UUID
 
 
-class OrgMemberRoleUpdateRequest(BaseModel):
+class OrgMemberProfileUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: OrgRole
+    profile_id: UUID
 
 
 class OrgMemberResponse(BaseModel):
     identity_id: UUID
     email: str
     name: str
-    role: str
+    profile_id: UUID
+    profile_name: str
+    profile_is_admin: bool
 
 
 class CategoryCreateRequest(BaseModel):
@@ -545,6 +559,166 @@ class DashboardStatsResponse(BaseModel):
             most_retrieved_documents=[
                 MostRetrievedDocumentResponse.from_entity(document) for document in stats.most_retrieved_documents
             ],
+        )
+
+
+class ApplicationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    auth_method: ApplicationAuthMethod = "api_key"
+    # Only meaningful/required for api_key (validated in ApplicationService.create); ignored for
+    # oauth_client_credentials, which has no scopes of its own — see execute_as_identity_id below.
+    scopes: list[str] = []
+    # Only meaningful/required for oauth_client_credentials — an existing org member whose profile
+    # this application's tokens inherit permissions from.
+    execute_as_identity_id: UUID | None = None
+    # Only meaningful/required for oauth_authorization_code — the callback URL(s) this app is
+    # allowed to redirect to after a member consents.
+    redirect_uris: list[str] = []
+    # Whether this application may reach the MCP server at all — uniform across all three auth
+    # methods, independent of the auth-method radio selection above (see api/mcp_server/).
+    mcp_access: bool = False
+
+
+class ApplicationUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    scopes: list[str] = []
+
+
+class ApplicationResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    name: str
+    description: str | None
+    auth_method: str
+    status: str
+    scopes: list[str]
+    execute_as_identity_id: UUID | None
+    mcp_access: bool
+    created_at: datetime
+    last_modified_at: datetime
+    revoked_at: datetime | None
+
+    @classmethod
+    def from_entity(cls, application: Application, scopes: list[str]) -> "ApplicationResponse":
+        return cls(
+            id=application.id,
+            org_id=application.org_id,
+            name=application.name,
+            description=application.description,
+            auth_method=application.auth_method,
+            status=application.status,
+            scopes=scopes,
+            execute_as_identity_id=application.execute_as_identity_id,
+            mcp_access=application.mcp_access,
+            created_at=application.created_at,
+            last_modified_at=application.last_modified_at,
+            revoked_at=application.revoked_at,
+        )
+
+
+class ProfileCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    permissions: list[str] = Field(min_length=1)
+
+
+class ProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    # Ignored for the Admin profile — its permissions are structurally always everything (see
+    # ProfileService.update), but a plain list default keeps this field required for every other
+    # profile without a separate request shape.
+    permissions: list[str] = []
+
+
+class ProfileResponse(BaseModel):
+    id: UUID
+    org_id: UUID
+    name: str
+    description: str | None
+    is_admin: bool
+    permissions: list[str]
+    created_at: datetime
+    last_modified_at: datetime
+
+    @classmethod
+    def from_entity(cls, profile: Profile, permissions: list[str]) -> "ProfileResponse":
+        return cls(
+            id=profile.id,
+            org_id=profile.org_id,
+            name=profile.name,
+            description=profile.description,
+            is_admin=profile.is_admin,
+            permissions=permissions,
+            created_at=profile.created_at,
+            last_modified_at=profile.last_modified_at,
+        )
+
+
+class ApplicationSecretResponse(ApplicationResponse):
+    """Same shape as ApplicationResponse plus the one-time-reveal API key — returned only from
+    create/rotate, never from a plain GET, since the raw key isn't persisted anywhere (only its
+    HMAC hash is)."""
+
+    api_key: str
+
+    @classmethod
+    def from_application_entity(
+        cls, application: Application, scopes: list[str], api_key: str
+    ) -> "ApplicationSecretResponse":
+        return cls(**ApplicationResponse.from_entity(application, scopes).model_dump(), api_key=api_key)
+
+
+class ApplicationOAuthClientSecretResponse(ApplicationResponse):
+    """oauth_client_credentials' counterpart to ApplicationSecretResponse — client_id is just
+    application.id (already in the base response), client_secret is the one-time-reveal secret
+    (returned only from create/rotate, never persisted in raw form)."""
+
+    client_id: UUID
+    client_secret: str
+
+    @classmethod
+    def from_application_entity(cls, application: Application, client_secret: str) -> "ApplicationOAuthClientSecretResponse":
+        return cls(
+            **ApplicationResponse.from_entity(application, []).model_dump(),
+            client_id=application.id,
+            client_secret=client_secret,
+        )
+
+
+class MCPSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rag_read_enabled: bool
+    object_read_enabled: bool
+    object_write_enabled: bool
+
+
+class MCPSettingsResponse(BaseModel):
+    org_id: UUID
+    rag_read_enabled: bool
+    object_read_enabled: bool
+    object_write_enabled: bool
+    last_modified_at: datetime
+
+    @classmethod
+    def from_entity(cls, settings: MCPSettings) -> "MCPSettingsResponse":
+        return cls(
+            org_id=settings.org_id,
+            rag_read_enabled=settings.rag_read_enabled,
+            object_read_enabled=settings.object_read_enabled,
+            object_write_enabled=settings.object_write_enabled,
+            last_modified_at=settings.last_modified_at,
         )
 
 

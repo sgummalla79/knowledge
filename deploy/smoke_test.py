@@ -23,7 +23,7 @@ BASE_URL = "http://localhost:13199"
 _ADMIN_USERNAME = "admin"
 _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
-# /login and /change-password both serve the React SPA shell (api/presentation/web/spa.py), which
+# /sign-in and /change-password both serve the React SPA shell (api/presentation/web/spa.py), which
 # carries its CSRF token as a JS global — every JSON POST in this app sends it back via the
 # X-CSRF-Token header, not a form field.
 _CSRF_JS_RE = re.compile(r'window\.__CSRF_TOKEN__="([^"]+)"')
@@ -39,12 +39,12 @@ def _extract(pattern: re.Pattern, text: str, what: str) -> str:
 def main() -> None:
     session = requests.Session()
 
-    login_page = session.get(f"{BASE_URL}/login")
+    login_page = session.get(f"{BASE_URL}/sign-in")
     login_page.raise_for_status()
     csrf = _extract(_CSRF_JS_RE, login_page.text, "login csrf token")
 
     login_response = session.post(
-        f"{BASE_URL}/login",
+        f"{BASE_URL}/sign-in",
         json={"email": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
         headers={"X-CSRF-Token": csrf},
     )

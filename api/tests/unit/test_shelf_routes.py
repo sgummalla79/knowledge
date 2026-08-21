@@ -6,7 +6,7 @@ import pytest
 
 from api import create_app
 from api.domain.entities import Shelf
-from api.domain.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
+from api.domain.errors import ConflictError, NotFoundError, ValidationError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — ShelfService is mocked.
 # Real DB behavior (slug uniqueness, document/member counts) belongs in an integration suite.
@@ -188,31 +188,22 @@ def test_list_document_shelves_missing_document_returns_structured_404(client):
     assert response.status_code == 404
 
 
-def test_grant_shelf_access_requires_admin(client):
-    with patch(
-        "api.presentation.routes.shelves._require_admin",
-        side_effect=ForbiddenError("Only an org admin can manage shelf access."),
-    ):
+def test_grant_shelf_access_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
         response = client.post(f"/shelves/{uuid4()}/access", json={"user_id": str(uuid4())})
 
     assert response.status_code == 403
 
 
 def test_grant_shelf_access_returns_204(client):
-    with (
-        patch("api.presentation.routes.shelves._require_admin", return_value=None),
-        patch("api.presentation.routes.shelves.ShelfService.grant_access", return_value=None),
-    ):
+    with patch("api.presentation.routes.shelves.ShelfService.grant_access", return_value=None):
         response = client.post(f"/shelves/{uuid4()}/access", json={"user_id": str(uuid4())})
 
     assert response.status_code == 204
 
 
 def test_revoke_shelf_access_returns_204(client):
-    with (
-        patch("api.presentation.routes.shelves._require_admin", return_value=None),
-        patch("api.presentation.routes.shelves.ShelfService.revoke_access", return_value=None),
-    ):
+    with patch("api.presentation.routes.shelves.ShelfService.revoke_access", return_value=None):
         response = client.delete(f"/shelves/{uuid4()}/access/{uuid4()}")
 
     assert response.status_code == 204
