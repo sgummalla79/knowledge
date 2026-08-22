@@ -1,55 +1,179 @@
-/* Tokens copied from app/templates/base.html (tweakcn "Professional Theme", dark-only — the
-   Flask-rendered dashboard has no light/dark toggle, so neither does this SPA). */
+@import "tailwindcss";
+
+/* Theme tokens, tweakcn/shadcn convention — this file is the single source of truth for the
+   app's visual identity. Re-theming later means pasting a new tweakcn.com export's `:root`/
+   `.dark` (or [data-theme="dark"], see below) blocks over these two blocks and nothing else;
+   every component references these variable names via Tailwind utilities (bg-background,
+   text-foreground, bg-primary, ...), never a raw color value.
+
+   Current values are tweakcn's "Twitter" theme (https://tweakcn.com/r/themes/cmlznk552000004jubsv77roj)
+   — Open Sans throughout, Menlo for font-mono. Two deliberate deviations from the raw export:
+   --secondary/--secondary-foreground are remapped to mirror --muted/--foreground (same pairing
+   this app's pre-tweakcn theme already used) instead of tweakcn's own values. tweakcn's "Twitter"
+   theme pairs secondary with a shadcn "dark secondary button" in mind (near-black fill, white
+   text in light mode; the inverse in dark mode) — but every input/select/badge in this app pairs
+   bg-secondary with text-foreground expecting a light neutral fill, so the raw export made that
+   text unreadable (dark-on-dark in light mode, light-on-light in dark mode) in every text box,
+   dropdown, and pill in the app. --radius is lowered from the export's 1.3rem to 0.75rem — at
+   1.3rem every button/input (rounded-sm = radius - 2px) reads as pill/oval-shaped rather than a
+   softly rounded rectangle, on the ~40px controls this app actually uses. Every other token below
+   is the tweakcn export verbatim. */
 :root {
-  --background: oklch(0.1371 0.036 258.5258);
-  --foreground: oklch(0.9838 0.0035 247.8583);
-  --card: oklch(0.1371 0.036 258.5258);
-  --card-foreground: oklch(0.9838 0.0035 247.8583);
-  --primary: oklch(0.6232 0.1879 259.7964);
-  --primary-foreground: oklch(0.2079 0.0399 265.7275);
-  --secondary: oklch(0.28 0.0369 259.974);
-  --secondary-foreground: oklch(0.9838 0.0035 247.8583);
-  --muted: oklch(0.28 0.0369 259.974);
-  --muted-foreground: oklch(0.7107 0.0351 256.7877);
-  --destructive: oklch(0.3959 0.1331 25.7205);
-  --destructive-foreground: oklch(0.9838 0.0035 247.8583);
-  --border: oklch(0.28 0.0369 259.974);
-  --input: oklch(0.28 0.0369 259.974);
-  --ring: oklch(0.4878 0.217 264.3876);
-  --radius: 0.375rem;
-  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  color-scheme: light;
+  --background: oklch(1.0000 0 0);
+  --foreground: oklch(0.1884 0.0128 248.5103);
+  --card: oklch(0.9784 0.0011 197.1387);
+  --card-foreground: oklch(0.1884 0.0128 248.5103);
+  --popover: oklch(1.0000 0 0);
+  --popover-foreground: oklch(0.1884 0.0128 248.5103);
+  --primary: oklch(0.6723 0.1606 244.9955);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.9222 0.0013 286.3737);
+  --secondary-foreground: oklch(0.1884 0.0128 248.5103);
+  --muted: oklch(0.9222 0.0013 286.3737);
+  --muted-foreground: oklch(0.1884 0.0128 248.5103);
+  --accent: oklch(0.9392 0.0166 250.8453);
+  --accent-foreground: oklch(0.6723 0.1606 244.9955);
+  --destructive: oklch(0.6188 0.2376 25.7658);
+  --destructive-foreground: oklch(1.0000 0 0);
+  /* Not part of the tweakcn export — added for the one amber warning-banner use case (see
+     UserSettingsPage.tsx). Same value in every block below (light, explicit dark, and the
+     system-preference dark fallback), same pattern --destructive already uses: one oklch value
+     with roughly-balanced contrast against both a near-white and a near-black background, rather
+     than a separate tuned value per theme. */
+  --warning: oklch(0.55 0.15 70);
+  --border: oklch(0.9317 0.0118 231.6594);
+  --input: oklch(0.9809 0.0025 228.7836);
+  --ring: oklch(0.6818 0.1584 243.3540);
+  --radius: 0.75rem;
+  --font-sans: "Open Sans", ui-sans-serif, sans-serif;
+  --font-serif: Georgia, ui-serif, serif;
+  --font-mono: Menlo, ui-monospace, monospace;
 }
 
-* {
-  box-sizing: border-box;
+/* Explicit dark override — wins regardless of system preference. Toggled via NavBar setting
+   document.documentElement.dataset.theme, persisted to localStorage (see main.tsx). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.9328 0.0025 228.7857);
+  --card: oklch(0.2097 0.0080 274.5332);
+  --card-foreground: oklch(0.8853 0 0);
+  --popover: oklch(0 0 0);
+  --popover-foreground: oklch(0.9328 0.0025 228.7857);
+  --primary: oklch(0.6692 0.1607 245.0110);
+  --primary-foreground: oklch(1.0000 0 0);
+  --secondary: oklch(0.2090 0 0);
+  --secondary-foreground: oklch(0.9328 0.0025 228.7857);
+  --muted: oklch(0.2090 0 0);
+  --muted-foreground: oklch(0.5637 0.0078 247.9662);
+  --accent: oklch(0.1928 0.0331 242.5459);
+  --accent-foreground: oklch(0.6692 0.1607 245.0110);
+  --destructive: oklch(0.6188 0.2376 25.7658);
+  --destructive-foreground: oklch(1.0000 0 0);
+  --warning: oklch(0.55 0.15 70);
+  --border: oklch(0.2674 0.0047 248.0045);
+  --input: oklch(0.3020 0.0288 244.8244);
+  --ring: oklch(0.6818 0.1584 243.3540);
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* Falls back to system preference only when the user hasn't made an explicit choice — an explicit
+   [data-theme="light"] (also set by the toggle) always wins over this. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --background: oklch(0 0 0);
+    --foreground: oklch(0.9328 0.0025 228.7857);
+    --card: oklch(0.2097 0.0080 274.5332);
+    --card-foreground: oklch(0.8853 0 0);
+    --popover: oklch(0 0 0);
+    --popover-foreground: oklch(0.9328 0.0025 228.7857);
+    --primary: oklch(0.6692 0.1607 245.0110);
+    --primary-foreground: oklch(1.0000 0 0);
+    --secondary: oklch(0.2090 0 0);
+    --secondary-foreground: oklch(0.9328 0.0025 228.7857);
+    --muted: oklch(0.2090 0 0);
+    --muted-foreground: oklch(0.5637 0.0078 247.9662);
+    --accent: oklch(0.1928 0.0331 242.5459);
+    --accent-foreground: oklch(0.6692 0.1607 245.0110);
+    --destructive: oklch(0.6188 0.2376 25.7658);
+    --destructive-foreground: oklch(1.0000 0 0);
+    --warning: oklch(0.55 0.15 70);
+    --border: oklch(0.2674 0.0047 248.0045);
+    --input: oklch(0.3020 0.0288 244.8244);
+    --ring: oklch(0.6818 0.1584 243.3540);
+  }
 }
 
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  letter-spacing: -0.015em;
-  line-height: 1.5;
-  background: var(--background);
-  color: var(--foreground);
+/* Maps the semantic tokens above onto Tailwind v4 utilities (bg-background, text-primary,
+   border-border, rounded-md, font-sans, ...) — this block is generic infra, never touched when
+   re-theming; only the variable values above change. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+/* @layer base (not bare CSS) matters here, not just style: Tailwind v4 emits its own utility
+   classes inside `@layer utilities`, and CSS cascade layers give ANY layered rule priority over
+   ANY unlayered one regardless of specificity — so a bare `a { color: inherit }` below would
+   silently beat every text-color utility ever applied to a link (text-primary, text-foreground/80,
+   ...), no matter how specific. Confirmed exactly this bug: a NavLink correctly received its
+   `text-primary` class on isActive, but the rendered color stayed the inherited one until this
+   block moved into @layer base, which Tailwind places below `utilities` in its own priority order. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-button {
-  font-family: inherit;
-}
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button {
+    font-family: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }

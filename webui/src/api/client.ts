@@ -1,78 +1,64 @@
 import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
 
-// Bridges the admin's session-cookie login (already established by the Flask dashboard) to a real
-// OAuth2 bearer token for this app's own REST API — see app/presentation/routes/workspace.py's
-// POST /dashboard/token. Held in memory only, never persisted, mirroring the retry-once-on-401
-// shape mcp_server/client.py's RagApiClient uses for its own (separate) service-account credential.
-let accessToken: string | null = null
+// Cookie-session + CSRF client for every resource route (categories, documents, shelves, orgs,
+// ...) — there is no bearer-token/API-key concept in this app's auth model (plain Flask session
+// cookie, see api/presentation/routes/auth_ui.py), so every call just rides the browser's session
+// cookie and attaches X-CSRF-Token on mutations, the same way auth.ts's login/signup calls do.
 
-async function mintToken(): Promise<string> {
-  const response = await fetch('/dashboard/token', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'X-CSRF-Token': csrfToken() },
-  })
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+async function request(path: string, init: RequestInit = {}): Promise<Response> {
+  const method = (init.method ?? 'GET').toUpperCase()
+  const headers = new Headers(init.headers)
+  if (MUTATING_METHODS.has(method)) {
+    headers.set('X-CSRF-Token', csrfToken())
+  }
+
+  const response = await fetch(path, { ...init, method, headers, credentials: 'include' })
   if (!response.ok) {
-    throw new ApiError('Your session has expired — please reload the page and log in again.', response.status)
-  }
-  const body = (await response.json()) as { access_token: string }
-  accessToken = body.access_token
-  return accessToken
-}
-
-interface RequestOptions {
-  method?: string
-  json?: unknown
-  formData?: FormData
-}
-
-async function rawRequest(path: string, options: RequestOptions = {}, retried = false): Promise<Response> {
-  if (accessToken === null) await mintToken()
-
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` }
-  let body: BodyInit | undefined
-  if (options.json !== undefined) {
-    headers['Content-Type'] = 'application/json'
-    body = JSON.stringify(options.json)
-  } else if (options.formData) {
-    body = options.formData
-  }
-
-  const response = await fetch(path, { method: options.method ?? 'GET', headers, body })
-
-  if (response.status === 401 && !retried) {
-    accessToken = null
-    return rawRequest(path, options, true)
-  }
-  if (!response.ok) {
-    const { message, code } = await parseErrorBody(response)
-    throw new ApiError(message, response.status, code)
+    if (response.status === 401) {
+      // Session expired mid-use (every page load is already server-gated, so this only fires
+      // once a previously-valid session lapses) — same full navigation login.tsx would do, so a
+      // fresh CSRF token and shell globals load with the sign-in page.
+      window.location.href = '/sign-in'
+    }
+    const { message, code, field } = await parseErrorBody(response)
+    throw new ApiError(message, response.status, code, field)
   }
   return response
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await rawRequest(path, options)
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (init.body !== undefined && !(init.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const response = await request(path, { ...init, headers })
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
-// For list endpoints that report their total row count via X-Total-Count (see PaginationQuery in
-// app/presentation/schemas.py) rather than in the JSON body itself.
-async function requestPaginated<T>(path: string): Promise<{ items: T[]; total: number }> {
-  const response = await rawRequest(path)
-  const items = (await response.json()) as T[]
-  const total = Number(response.headers.get('X-Total-Count') ?? items.length)
-  return { items, total }
-}
-
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  getPaginated: <T>(path: string) => requestPaginated<T>(path),
-  post: <T>(path: string, json?: unknown) => request<T>(path, { method: 'POST', json }),
-  patch: <T>(path: string, json?: unknown) => request<T>(path, { method: 'PATCH', json }),
-  put: <T>(path: string, json?: unknown) => request<T>(path, { method: 'PUT', json }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
-  upload: <T>(path: string, formData: FormData) => request<T>(path, { method: 'POST', formData }),
+  get: <T>(path: string) => requestJson<T>(path),
+
+  getPaginated: async <T>(path: string): Promise<{ items: T[]; total: number }> => {
+    const response = await request(path)
+    const items = (await response.json()) as T[]
+    const total = Number(response.headers.get('X-Total-Count') ?? items.length)
+    return { items, total }
+  },
+
+  post: <T>(path: string, body?: unknown) =>
+    requestJson<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
+
+  patch: <T>(path: string, body?: unknown) =>
+    requestJson<T>(path, { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) }),
+
+  put: <T>(path: string, body?: unknown) =>
+    requestJson<T>(path, { method: 'PUT', body: body === undefined ? undefined : JSON.stringify(body) }),
+
+  delete: <T>(path: string) => requestJson<T>(path, { method: 'DELETE' }),
+
+  upload: <T>(path: string, formData: FormData) => requestJson<T>(path, { method: 'POST', body: formData }),
 }
