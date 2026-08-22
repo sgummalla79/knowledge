@@ -28,11 +28,14 @@ services:
       DATABASE_URL: postgresql://rag_test:rag_test@knowledge-db-test:5432/rag_test
       SECRET_KEY: test-secret-key
       PORT: 13199
-      MCP_HTTP_PORT: 13198
       LOG_LEVEL: DEBUG
     ports:
-      # 13199/13198: deliberately outside the 13100 series used by the real api/rag-desktop, so
-      # this stack can never collide with a live knowledge/rag-desktop instance running at the
-      # same time.
+      # 13199: deliberately outside the 13100 series used by the real api, so this stack can never
+      # collide with a live knowledge instance running at the same time.
       - "13199:13199"
-      - "127.0.0.1:13198:13198"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:13199/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

@@ -1,0 +1,42 @@
+import os
+
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+# VERSION lives at the repo root; this file is at api/config.py, so one parent up.
+_VERSION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+
+
+class Config:
+    def __init__(self):
+        self.database_url = self._require("DATABASE_URL")
+        # Signs the admin dashboard's session cookies.
+        self.secret_key = self._require("SECRET_KEY")
+        self.port = int(os.environ.get("PORT", "13102"))
+        self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))
+        self.version = self._read_version()
+        # Set only for local `npm run dev` (webui/) iteration — when present, serve_spa_shell()
+        # points the SPA shell at this Vite dev server (HMR) instead of the built webui/ bundle.
+        # Unset in every real deployment, which always serves the built bundle.
+        self.webui_dev_server = os.environ.get("WEBUI_DEV_SERVER")
+
+    @staticmethod
+    def _require(name):
+        value = os.environ.get(name)
+        if not value:
+            raise RuntimeError(f"Missing required environment variable: {name}")
+        return value
+
+    @staticmethod
+    def _read_version() -> str:
+        with open(_VERSION_FILE) as f:
+            return f.read().strip()
+
+    @staticmethod
+    def _validated_log_level(value: str) -> str:
+        upper = value.upper()
+        if upper not in _VALID_LOG_LEVELS:
+            raise RuntimeError(f"Invalid LOG_LEVEL '{value}'; must be one of {sorted(_VALID_LOG_LEVELS)}")
+        return upper
+
+
+config = Config()

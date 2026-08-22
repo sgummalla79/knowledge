@@ -1,32 +1,39 @@
-export interface OAuthAuthorizeParams {
-  response_type: string
+export interface OAuthAuthorizeRequest {
+  application_name: string
+  org_name: string
   client_id: string
   redirect_uri: string
-  scope: string[]
-  state: string
+  response_type: string
   code_challenge: string
   code_challenge_method: string
+  scope: string
+  state: string
 }
 
-export interface OAuthAuthorizeData {
-  application_name: string
-  params: OAuthAuthorizeParams
+export interface OAuthErrorInfo {
+  message: string
 }
 
 declare global {
   interface Window {
     __CSRF_TOKEN__?: string
     __USERNAME__?: string
-    __OAUTH_AUTHORIZE__?: OAuthAuthorizeData
-    __OAUTH_ERROR__?: string
+    __ORG_ID__?: string | null
+    // The session's real org slug — drives the app's URL prefix (see App.tsx). Never injected on
+    // the pre-login pages (sign-in/sign-up/change-password/oauth-authorize), only by app_shell.py.
+    __ORG_SLUG__?: string | null
+    // Injected only on GET /oauth/authorize — see api/presentation/routes/oauth.py.
+    __OAUTH_AUTHORIZE__?: OAuthAuthorizeRequest
+    __OAUTH_ERROR__?: OAuthErrorInfo
   }
 }
 
-// Globals injected into the served SPA shell by app/presentation/web/spa.py (serve_spa_shell) —
-// every page this app renders (login, change-password, workspace, oauth/authorize) gets a fresh
-// CSRF token on load; /workspace also gets the logged-in username (for the sidebar's account
-// menu), and /oauth/authorize gets exactly one of __OAUTH_AUTHORIZE__ (render the consent form)
-// or __OAUTH_ERROR__ (render the error page) — see app/presentation/routes/oauth.py's authorize().
+// Globals injected into the served SPA shell by api/presentation/web/spa.py (serve_spa_shell) —
+// every logged-in page gets a fresh CSRF token, the logged-in identity's username, and the active
+// org's id on first load, so the nav bar can render without an extra round trip (see
+// api/presentation/routes/app_shell.py). Permissions aren't injected here — they're resolved
+// fresh per request server-side, so the frontend reads them from GET /orgs (Org.permissions)
+// instead of a page-load snapshot that could go stale.
 export function csrfToken(): string {
   return window.__CSRF_TOKEN__ ?? ''
 }
@@ -35,10 +42,10 @@ export function currentUsername(): string {
   return window.__USERNAME__ ?? ''
 }
 
-export function oauthAuthorizeData(): OAuthAuthorizeData | null {
-  return window.__OAUTH_AUTHORIZE__ ?? null
+export function currentOrgId(): string | null {
+  return window.__ORG_ID__ ?? null
 }
 
-export function oauthError(): string | null {
-  return window.__OAUTH_ERROR__ ?? null
+export function currentOrgSlug(): string | null {
+  return window.__ORG_SLUG__ ?? null
 }

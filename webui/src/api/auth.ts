@@ -1,10 +1,11 @@
 import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
-import type { OAuthAuthorizeParams } from './shell'
 
-// Session+CSRF authenticated, not bearer-token — these run before any access token can exist
-// (minting one itself requires being logged in), so they bypass client.ts's `api` helper
-// entirely and talk to Flask's session-cookie surface directly, same as a browser form post would.
+// Session+CSRF authenticated, not the resource client's cookie+CSRF fetch (client.ts) — these run
+// before any session may even exist yet (sign-up/sign-in themselves), and always trigger a full
+// page navigation on success (see each caller below) rather than client-side routing, since the
+// destination may be /change-password or the post-login redirect target and Flask must re-serve a
+// fresh SPA shell (fresh CSRF token, fresh org/role globals) for whichever page is next.
 async function post(path: string, json: unknown): Promise<{ redirect: string }> {
   const response = await fetch(path, {
     method: 'POST',
@@ -13,14 +14,23 @@ async function post(path: string, json: unknown): Promise<{ redirect: string }> 
     body: JSON.stringify(json),
   })
   if (!response.ok) {
-    const { message, code } = await parseErrorBody(response)
-    throw new ApiError(message, response.status, code)
+    const { message, code, field } = await parseErrorBody(response)
+    throw new ApiError(message, response.status, code, field)
   }
   return (await response.json()) as { redirect: string }
 }
 
-export function login(username: string, password: string) {
-  return post('/login', { username, password })
+export function signIn(username: string, password: string) {
+  return post('/sign-in', { username, password })
+}
+
+export function signUp(username: string, password: string, name: string, orgName: string, email: string) {
+  return post('/sign-up', { username, password, name, org_name: orgName, email })
+}
+
+export async function checkOrgNameAvailable(orgName: string): Promise<{ available: boolean; message: string | null }> {
+  const response = await fetch(`/check-org-name?name=${encodeURIComponent(orgName)}`, { credentials: 'include' })
+  return (await response.json()) as { available: boolean; message: string | null }
 }
 
 export function changePassword(newPassword: string, confirmPassword: string) {
@@ -29,8 +39,4 @@ export function changePassword(newPassword: string, confirmPassword: string) {
 
 export async function signOut(): Promise<void> {
   await fetch('/logout', { method: 'POST', credentials: 'include' })
-}
-
-export function submitOauthAuthorize(params: OAuthAuthorizeParams, action: 'approve' | 'deny') {
-  return post('/oauth/authorize', { ...params, action })
 }

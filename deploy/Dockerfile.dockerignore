@@ -1,0 +1,19 @@
+# Named `Dockerfile.dockerignore`, not `.dockerignore`, and lives here in deploy/ rather than the
+# repo root — Docker's own convention: for a build invoked with `-f deploy/Dockerfile` (see
+# deploy/docker-compose*.yml, context is the repo root), it looks for `<that same path>
+# .dockerignore` in the context root before falling back to a plain `.dockerignore` there. Since
+# `deploy/Dockerfile.dockerignore` is itself a valid path within the repo-root context, this
+# resolves to this exact file (verified empirically) — a Dockerfile-specific ignore file physically
+# alongside the Dockerfile it governs, instead of at the repo root.
+.git
+# Dockerignore matching is NOT gitignore-style — a bare pattern like `.venv` only matches at the
+# context root, not at any depth (unlike git's own .gitignore). `**/` is required to match these
+# wherever they actually occur (api/.venv, api/**/__pycache__, etc).
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+webui/node_modules
+api/static/workspace
+api/tests
+api/mcp_server/tests

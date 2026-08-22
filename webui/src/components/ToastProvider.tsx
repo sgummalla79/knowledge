@@ -1,41 +1,27 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
-import { ToastContext, type ToastVariant } from './toastContext'
-
-interface Toast {
-  id: number
-  message: string
-  variant: ToastVariant
-}
-
-const AUTO_DISMISS_MS = 6000
+import { useCallback, useState, type ReactNode } from 'react'
+import { ToastContext, type Toast } from './toastContext'
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
-  const nextId = useRef(0)
 
-  const dismiss = useCallback((id: number) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id))
+  const showToast = useCallback((message: string, variant: Toast['variant'] = 'success') => {
+    const id = crypto.randomUUID()
+    setToasts((current) => [...current, { id, message, variant }])
+    setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 4000)
   }, [])
-
-  const showToast = useCallback(
-    (message: string, variant: ToastVariant = 'error') => {
-      const id = nextId.current++
-      setToasts((current) => [...current, { id, message, variant }])
-      setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
-    },
-    [dismiss],
-  )
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      <div className="toast-viewport">
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast toast-${toast.variant}`} role="alert">
-            <span>{toast.message}</span>
-            <button type="button" className="toast-close" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
-              &times;
-            </button>
+          <div
+            key={toast.id}
+            className={`rounded-sm px-4 py-2.5 text-sm shadow-lg ${
+              toast.variant === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-primary text-primary-foreground'
+            }`}
+          >
+            {toast.message}
           </div>
         ))}
       </div>
