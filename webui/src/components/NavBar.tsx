@@ -6,8 +6,13 @@ import { currentTheme, setTheme } from '../theme'
 import { ChevronDownIcon, HomeIcon, MoonIcon, SunIcon } from './icons'
 import { Logo } from './Logo'
 
+// -mx-2.5 offsets the added px-2.5 so the hover pill has room to breathe without nudging the
+// rest of the nav row's spacing — same hover:bg-secondary treatment the avatar dropdown's own
+// links already use, just applied to the top-level nav for the first time.
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-  `text-sm ${isActive ? 'text-primary' : 'text-foreground/80 hover:text-primary'}`
+  `-mx-2.5 rounded-sm px-2.5 py-1.5 text-sm transition-colors ${
+    isActive ? 'text-primary' : 'text-foreground/80 hover:bg-secondary hover:text-primary'
+  }`
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/)
@@ -56,10 +61,7 @@ export function NavBar() {
           <NavLink to="/dashboard" className={navLinkClass}>
             Dashboard
           </NavLink>
-          <NavLink
-            to="/upload"
-            className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-          >
+          <NavLink to="/upload" className={navLinkClass}>
             Contribute
           </NavLink>
           <button

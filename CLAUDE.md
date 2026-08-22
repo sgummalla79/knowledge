@@ -760,6 +760,49 @@ stack as the rest of the API — see session history item 8.
     browser available in this environment) in both the inactive and active (`text-primary`) color
     states before landing it.
 
+30. **`NavBar.tsx`'s top-level nav links (Home/Browse/Search/Dashboard) gained a hover
+    background**, not just the text-color shift `navLinkClass` already had — asked for without a
+    specific color ("think smart"), so reused `hover:bg-secondary` (the same treatment the avatar
+    dropdown's own links, and the Settings sidebars, already use) rather than introducing a new
+    color choice. A `px-2.5`/`-mx-2.5` pair on each link gives the hover pill room to render
+    without nudging the row's existing `gap-7` spacing — the negative margin exactly cancels the
+    padding's effect on layout, only the hover background paints outside the text's own box.
+    Verified in both themes via a throwaway HTML render (`qlmanage -t`, no browser available in
+    this environment) using the real computed hex for `--secondary` in each palette.
+
+31. **Fixed the Contribute nav link (`NavBar.tsx`) always appearing "active."** It had a static
+    `className` string with no `isActive` check at all — solid `bg-primary` regardless of which
+    page was actually current, unlike every other nav link (`navLinkClass`, item 30), so it always
+    looked selected even on Browse/Search/Dashboard. First fix kept it visually distinct as a CTA
+    button (solid when inactive, outlined when active) — wrong per explicit correction: Contribute
+    isn't meant to be a special-cased button at all, it's meant to be a plain nav link like the
+    rest. Now it's just `<NavLink to="/upload" className={navLinkClass}>`, identical in every way
+    to Home/Browse/Search/Dashboard — same hover pill, same plain-text look, `text-primary` only
+    when `/upload` is actually the current route. All five top-level links now share one styling
+    function and behave identically; exactly one is ever highlighted at a time.
+
+32. **Fixed a real, app-wide CSS bug: no text-color utility class ever visually applied to any
+    `<a>`/`Link`/`NavLink` element, anywhere in the app** — items 30/31's active/hover nav-link
+    colors were the symptom that got noticed, but the root cause was in `webui/src/index.css`
+    from the start, affecting every styled link in the SPA (Settings sidebar active-item text,
+    `FilterSidebar`, sign-in/sign-up page links, `MCPSettingsPage`'s token link, content cards,
+    ...). Cause: `index.css`'s `a { color: inherit; }` reset was bare CSS, not inside a Tailwind
+    `@layer` — and CSS Cascade Layers give *any* layered declaration lower priority than *any*
+    unlayered one, regardless of specificity. Tailwind v4 emits every utility class (`.text-primary`,
+    `.text-accent-foreground`, `.hover:text-primary`, ...) inside its own `@layer utilities`, so
+    the bare `a { color: inherit }` always won the color property on every anchor, no matter how
+    specific the utility class trying to override it was. Diagnosed with Playwright (installed
+    system-wide, not a project dependency — confirmed via `python3 -c "import playwright"`):
+    signed into a real dev-preview session, clicked Browse, and inspected the live DOM — the
+    correct `text-primary` class *was* present on the active `NavLink`, but `getComputedStyle(...)
+    .color` still resolved to `--foreground`, proving a CSS cascade issue rather than a React
+    logic bug (the classNames/`isActive` wiring itself was already correct). Fixed by wrapping the
+    whole reset block (`*`, `html`/`body`/`#root`, `body`, `a`, `button`, `:focus-visible`) in
+    `@layer base` — Tailwind's own convention for exactly this kind of override-able default,
+    placing it below `utilities` in priority. Re-verified the same way post-fix: `text-primary`'s
+    `color` now resolves to the real `--primary` oklch value, confirmed via screenshot on Browse
+    (active, blue) and Dashboard (active, blue) and via hover-state computed color on Search.
+
 Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps

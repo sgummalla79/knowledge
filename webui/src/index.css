@@ -137,34 +137,43 @@
   --font-mono: var(--font-mono);
 }
 
-* {
-  box-sizing: border-box;
-}
+/* @layer base (not bare CSS) matters here, not just style: Tailwind v4 emits its own utility
+   classes inside `@layer utilities`, and CSS cascade layers give ANY layered rule priority over
+   ANY unlayered one regardless of specificity — so a bare `a { color: inherit }` below would
+   silently beat every text-color utility ever applied to a link (text-primary, text-foreground/80,
+   ...), no matter how specific. Confirmed exactly this bug: a NavLink correctly received its
+   `text-primary` class on isActive, but the rendered color stayed the inherited one until this
+   block moved into @layer base, which Tailwind places below `utilities` in its own priority order. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  line-height: 1.55;
-  background: var(--background);
-  color: var(--foreground);
-}
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    line-height: 1.55;
+    background: var(--background);
+    color: var(--foreground);
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
-button {
-  font-family: inherit;
-}
+  button {
+    font-family: inherit;
+  }
 
-:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
