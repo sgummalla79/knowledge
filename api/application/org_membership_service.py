@@ -2,10 +2,9 @@ import secrets
 from uuid import UUID
 
 from api.application.profile_service import ProfileService
-from api.application.slugify import slugify
-from api.domain import error_codes
+from api.application.username_validation import validate_username_format
 from api.domain.entities import Identity, OrgMember, Organization
-from api.domain.errors import ConflictError, NotFoundError
+from api.domain.errors import ForbiddenError
 from api.domain.ports import (
     IdentityRepositoryPort,
     OrgMemberRepositoryPort,
@@ -13,11 +12,6 @@ from api.domain.ports import (
     ProfileRepositoryPort,
 )
 from api.infrastructure.auth.passwords import hash_password
-
-# Retry budget for personal-org slug collisions (see create_org_with_owner) — collisions are rare
-# (same email local-part, different domain) and a handful of random suffixes is plenty; this isn't
-# a value that changes without a redeploy, so it stays a plain local constant, not api.constants.
-_SLUG_COLLISION_RETRIES = 5
 
 
 class OrgMembershipService:
@@ -33,30 +27,15 @@ class OrgMembershipService:
         self._identities = identities
         self._profiles = profiles
 
-    def create_org_with_owner(self, name: str, owner_identity_id: UUID, *, exact_slug: bool = False) -> Organization:
-        """Self-serve org creation — used both for "create another org" (free-text `name`, slug
-        auto-derived below with a random-suffix retry on collision, since the caller never sees or
-        chooses the slug) and for a new signup's own org (`exact_slug=True`: `name` is already a
-        user-chosen, slug-shaped identifier — see org_name_validation.validate_org_slug — so a
-        collision must surface as a clear "taken" error instead of being silently renamed out from
-        under the user)."""
-        if exact_slug:
-            organization = self._organizations.create(
-                name, name, created_by=owner_identity_id, last_modified_by=owner_identity_id
-            )
-        else:
-            base_slug = slugify(name)
-            for attempt in range(_SLUG_COLLISION_RETRIES):
-                slug = base_slug if attempt == 0 else f"{base_slug}-{secrets.token_hex(2)}"
-                try:
-                    organization = self._organizations.create(
-                        name, slug, created_by=owner_identity_id, last_modified_by=owner_identity_id
-                    )
-                    break
-                except ConflictError:
-                    continue
-            else:
-                raise ConflictError(error_codes.ORGANIZATION_SLUG_TAKEN, f"Could not allocate a slug for '{name}'.")
+    def create_org_with_owner(self, name: str, owner_identity_id: UUID) -> Organization:
+        """Self-serve org creation, used only at signup — an identity/username belongs to exactly
+        one org for its whole life (see domain/entities.py's Identity docstring), so this only ever
+        runs once per identity. `name` is already a user-chosen, slug-shaped identifier (see
+        org_name_validation.validate_org_slug) and is stored verbatim as both the org's name and
+        its slug; a collision surfaces as a plain ConflictError, not a silent rename."""
+        organization = self._organizations.create(
+            name, name, created_by=owner_identity_id, last_modified_by=owner_identity_id
+        )
         profile_service = ProfileService(self._profiles)
         admin_profile = profile_service.create_admin_profile(organization.id, owner_identity_id)
         # Contributor/Viewer are seeded alongside Admin for every org — see ProfileService's
@@ -67,30 +46,33 @@ class OrgMembershipService:
         return organization
 
     def invite_member(self, org_id: UUID, email: str, profile_id: UUID, invited_by: UUID) -> OrgMember:
-        """If no identity exists yet for this email, creates one with an unusable random password
-        (must_change_password=True) so the invitee sets their own on first login — same pattern
-        this app already uses for the bootstrap admin identity. profile_id must be one of this
-        org's existing profiles (Admin, or a custom one already created) — there's no guaranteed
+        """Creates a brand-new identity for the invitee, with an unusable random password
+        (must_change_password=True) so they set their own on first login — same pattern this app
+        already uses for the bootstrap admin identity. Always creates a new identity rather than
+        reusing an existing one at this email: since org_members.identity_id is unique, an existing
+        identity already belongs to a different org and can't be added to a second one, and since
+        email is no longer unique there may be zero, one, or several existing identities at this
+        address anyway. Stopgap: `username` defaults to `email` here, pending a proper invite-flow
+        redesign (letting the inviter choose a username directly) — a collision with an existing
+        username surfaces as a plain ConflictError for now. profile_id must be one of this org's
+        existing profiles (Admin, or a custom one already created) — there's no guaranteed
         non-admin default to fall back to since profiles are custom per org."""
-        identity = self._identities.get_by_email(email)
-        if identity is None:
-            identity = self._identities.create(email, hash_password(secrets.token_urlsafe(32)), name=email)
+        validate_username_format(email)
+        identity = self._identities.create(
+            email, hash_password(secrets.token_urlsafe(32)), name=email, email=email
+        )
         return self._org_members.create(org_id, identity.id, profile_id, invited_by=invited_by)
 
-    def update_organization(self, org_id: UUID, name: str, description: str | None) -> Organization:
-        if self._organizations.get(org_id) is None:
-            raise NotFoundError(error_codes.ORGANIZATION_NOT_FOUND, "Organization not found.")
-        return self._organizations.update(org_id, name=name, description=description)
-
-    def switch_active_org(self, identity_id: UUID, org_id: UUID) -> None:
-        """Validates membership only — the active org's permissions are resolved fresh on every
-        request (PermissionService), never cached in the session, so there's nothing to return
-        here anymore."""
-        member = self._org_members.get(org_id, identity_id)
-        if member is None:
-            raise NotFoundError(error_codes.NOT_AN_ORG_MEMBER, "You are not a member of this organization.")
-
-    def update_member_profile(self, org_id: UUID, identity_id: UUID, profile_id: UUID) -> OrgMember:
+    def update_member_profile(
+        self, org_id: UUID, identity_id: UUID, profile_id: UUID, *, acting_identity_id: UUID
+    ) -> OrgMember:
+        """An admin can change any *other* member's profile (promote/demote between admin and
+        standard profiles freely) but never their own — prevents both accidental self-lockout (the
+        last admin demoting themselves with no one left to undo it) and self-escalation by a
+        standard member who somehow reaches this endpoint. Enforced here, not just left to the
+        frontend disabling the control, since this is a real authorization rule, not a UX nicety."""
+        if identity_id == acting_identity_id:
+            raise ForbiddenError("You can't change your own profile — ask another admin to change it.")
         return self._org_members.update_profile(org_id, identity_id, profile_id)
 
     def remove_member(self, org_id: UUID, identity_id: UUID) -> None:

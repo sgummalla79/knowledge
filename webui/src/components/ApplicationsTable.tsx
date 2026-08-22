@@ -19,7 +19,7 @@ export function ApplicationsTable({ applications, members, canManage, onRotateKe
   function executeAsLabel(application: Application): string | null {
     if (!application.execute_as_identity_id) return null
     const member = members.find((entry) => entry.identity_id === application.execute_as_identity_id)
-    return member ? `${member.name} (${member.email})` : application.execute_as_identity_id
+    return member ? `${member.name} (${member.username})` : application.execute_as_identity_id
   }
 
   return (

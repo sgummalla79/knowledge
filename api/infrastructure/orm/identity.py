@@ -10,7 +10,8 @@ class Identity(Base):
     __tablename__ = "identities"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, nullable=False, unique=True)
+    username = Column(String, nullable=False, unique=True)
+    email = Column(String, nullable=True)
     name = Column(String, nullable=False)
     password_hash = Column(String, nullable=False)
     must_change_password = Column(Boolean, nullable=False, default=True)

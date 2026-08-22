@@ -51,7 +51,7 @@ export function ApplicationCreatePage() {
     navigate('/org/applications')
   }
 
-  const memberOptions = (members.data ?? []).map((member) => ({ value: member.identity_id, label: `${member.name} (${member.email})` }))
+  const memberOptions = (members.data ?? []).map((member) => ({ value: member.identity_id, label: `${member.name} (${member.username})` }))
   const redirectUris = redirectUrisText
     .split('\n')
     .map((line) => line.trim())

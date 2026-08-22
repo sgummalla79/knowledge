@@ -18,6 +18,7 @@ function normalizeOrgName(value: string): string {
 
 export function SignUpPage() {
   const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [orgName, setOrgName] = useState('')
@@ -46,7 +47,7 @@ export function SignUpPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const { redirect } = await signUp(email, password, name, orgName)
+      const { redirect } = await signUp(username, password, name, orgName, email)
       window.location.href = redirect
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
@@ -56,6 +57,7 @@ export function SignUpPage() {
 
   return (
     <AuthCard
+      wide
       eyebrow="Get started"
       title="Create your account"
       subtitle="You'll join an existing org, or create one right after."
@@ -74,67 +76,82 @@ export function SignUpPage() {
             {error}
           </div>
         )}
-        <div>
-          <label htmlFor="name" className="mb-1.5 block text-sm text-foreground">
-            Full name
-          </label>
-          <input
-            id="name"
-            autoFocus
-            placeholder="Ada Lovelace"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </div>
-        <div>
-          <label htmlFor="org-name" className="mb-1.5 block text-sm text-foreground">
-            Org name
-          </label>
-          <input
-            id="org-name"
-            placeholder="acme-labs"
-            value={orgName}
-            onChange={(event) => setOrgName(normalizeOrgName(event.target.value))}
-            className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <p className="mt-1.5 text-[13px] text-muted-foreground">
-            Lowercase letters, numbers, and hyphens only — this becomes your workspace's URL-safe
-            identifier. You can invite teammates or rename it later from org settings.
-          </p>
-          {orgName.length > 0 && orgName.length < 3 && (
-            <p className="mt-1 text-[13px] text-muted-foreground">At least 3 characters.</p>
-          )}
-          {checkingOrgName && <p className="mt-1 text-[13px] text-muted-foreground">Checking availability…</p>}
-          {!checkingOrgName && orgNameStatus && (
-            <p className={`mt-1 text-[13px] ${orgNameStatus.available ? 'text-green-600' : 'text-destructive'}`}>
-              {orgNameStatus.available ? 'Available' : orgNameStatus.message}
-            </p>
-          )}
-        </div>
-        <div>
-          <label htmlFor="email" className="mb-1.5 block text-sm text-foreground">
-            Work email
-          </label>
-          <input
-            id="email"
-            type="email"
-            placeholder="you@company.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-        </div>
-        <div>
-          <label htmlFor="password" className="mb-1.5 block text-sm text-foreground">
-            Password
-          </label>
-          <PasswordField
-            id="password"
-            placeholder="At least 8 characters"
-            value={password}
-            onChange={setPassword}
-          />
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+          <div className="flex flex-col gap-4">
+            <div>
+              <label htmlFor="name" className="mb-1.5 block text-sm text-foreground">
+                Full name
+              </label>
+              <input
+                id="name"
+                autoFocus
+                placeholder="Ada Lovelace"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div>
+              <label htmlFor="org-name" className="mb-1.5 block text-sm text-foreground">
+                Org name
+              </label>
+              <input
+                id="org-name"
+                placeholder="acme-labs"
+                value={orgName}
+                onChange={(event) => setOrgName(normalizeOrgName(event.target.value))}
+                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              {orgName.length > 0 && orgName.length < 3 && (
+                <p className="mt-1 text-[13px] text-muted-foreground">At least 3 characters.</p>
+              )}
+              {checkingOrgName && <p className="mt-1 text-[13px] text-muted-foreground">Checking availability…</p>}
+              {!checkingOrgName && orgNameStatus && (
+                <p className={`mt-1 text-[13px] ${orgNameStatus.available ? 'text-green-600' : 'text-destructive'}`}>
+                  {orgNameStatus.available ? 'Available' : orgNameStatus.message}
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor="email" className="mb-1.5 block text-sm text-foreground">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                placeholder="you@company.com"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label htmlFor="username" className="mb-1.5 block text-sm text-foreground">
+                Username
+              </label>
+              <input
+                id="username"
+                placeholder="ada@acme.com"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="mb-1.5 block text-sm text-foreground">
+                Password
+              </label>
+              <PasswordField
+                id="password"
+                placeholder="At least 8 characters"
+                value={password}
+                onChange={setPassword}
+              />
+            </div>
+          </div>
         </div>
         <button
           type="submit"

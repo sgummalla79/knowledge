@@ -8,12 +8,12 @@ interface Props {
   orgId: string
   members: OrgMember[]
   canManage: boolean
-  currentUserEmail: string
+  currentUsername: string
   onProfileChange: (identityId: string, profileId: string) => void
   onRemove: (identityId: string) => void
 }
 
-export function MembersTable({ orgId, members, canManage, currentUserEmail, onProfileChange, onRemove }: Props) {
+export function MembersTable({ orgId, members, canManage, currentUsername, onProfileChange, onRemove }: Props) {
   const profiles = useProfiles()
   const profileOptions = (profiles.data ?? []).map((profile) => ({ value: profile.id, label: profile.name }))
 
@@ -39,12 +39,12 @@ export function MembersTable({ orgId, members, canManage, currentUserEmail, onPr
         <tbody>
           {members.map((member, index) => {
             const shelves = shelfAccess[index]?.data ?? []
-            const isSelf = member.email === currentUserEmail
+            const isSelf = member.username === currentUsername
             return (
               <tr key={member.identity_id} className="border-t border-border">
                 <td className="py-3.5 pr-4">
                   <div className="font-semibold text-foreground">{member.name}</div>
-                  <div className="text-[12.5px] text-muted-foreground">{member.email}</div>
+                  <div className="text-[12.5px] text-muted-foreground">{member.username}</div>
                 </td>
                 <td className="py-3.5 pr-4">
                   <Select

@@ -20,12 +20,12 @@ async function post(path: string, json: unknown): Promise<{ redirect: string }> 
   return (await response.json()) as { redirect: string }
 }
 
-export function signIn(email: string, password: string) {
-  return post('/sign-in', { email, password })
+export function signIn(username: string, password: string) {
+  return post('/sign-in', { username, password })
 }
 
-export function signUp(email: string, password: string, name: string, orgName: string) {
-  return post('/sign-up', { email, password, name, org_name: orgName })
+export function signUp(username: string, password: string, name: string, orgName: string, email: string) {
+  return post('/sign-up', { username, password, name, org_name: orgName, email })
 }
 
 export async function checkOrgNameAvailable(orgName: string): Promise<{ available: boolean; message: string | null }> {

@@ -27,7 +27,7 @@ const TIERS: { key: keyof Pick<MCPSettings, 'rag_read_enabled' | 'object_read_en
 ]
 
 // Keyed by settings.org_id in the parent so a freshly loaded row seeds initial state directly, no
-// reset-effect or render-time setState needed (same pattern as GeneralSettingsPage's org form).
+// reset-effect or render-time setState needed (same pattern as EmbeddingModelsPage's form).
 function MCPSettingsForm({ settings, canWrite }: { settings: MCPSettings; canWrite: boolean }) {
   const queryClient = useQueryClient()
   const { showToast } = useToast()

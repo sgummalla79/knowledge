@@ -11,6 +11,7 @@ from api.infrastructure.orm import Identity as IdentityModel
 def _to_entity(model: IdentityModel) -> IdentityEntity:
     return IdentityEntity(
         id=model.id,
+        username=model.username,
         email=model.email,
         name=model.name,
         password_hash=model.password_hash,
@@ -36,12 +37,21 @@ class IdentityRepository:
         model = self._session.get(IdentityModel, identity_id)
         return _to_entity(model) if model is not None else None
 
-    def get_by_email(self, email: str) -> IdentityEntity | None:
-        model = self._session.query(IdentityModel).filter(IdentityModel.email == email).first()
+    def get_by_username(self, username: str) -> IdentityEntity | None:
+        model = self._session.query(IdentityModel).filter(IdentityModel.username == username).first()
         return _to_entity(model) if model is not None else None
 
-    def create(self, email: str, password_hash: str, *, name: str, must_change_password: bool = True) -> IdentityEntity:
+    def create(
+        self,
+        username: str,
+        password_hash: str,
+        *,
+        name: str,
+        email: str | None = None,
+        must_change_password: bool = True,
+    ) -> IdentityEntity:
         model = IdentityModel(
+            username=username,
             email=email,
             name=name,
             password_hash=password_hash,
@@ -53,9 +63,9 @@ class IdentityRepository:
         except IntegrityError:
             self._session.rollback()
             raise ConflictError(
-                error_codes.IDENTITY_EMAIL_TAKEN,
-                f"An account with email '{email}' already exists.",
-                field="email",
+                error_codes.IDENTITY_USERNAME_TAKEN,
+                f"An account with username '{username}' already exists.",
+                field="username",
             )
         return _to_entity(model)
 
@@ -64,3 +74,24 @@ class IdentityRepository:
         model.password_hash = password_hash
         model.must_change_password = False
         self._session.flush()
+
+    def update_profile(self, identity_id: UUID, *, name: str, email: str) -> IdentityEntity:
+        model = self._session.query(IdentityModel).filter(IdentityModel.id == identity_id).one()
+        model.name = name
+        model.email = email
+        self._session.flush()
+        return _to_entity(model)
+
+    def update_username(self, identity_id: UUID, username: str) -> IdentityEntity:
+        model = self._session.query(IdentityModel).filter(IdentityModel.id == identity_id).one()
+        model.username = username
+        try:
+            self._session.flush()
+        except IntegrityError:
+            self._session.rollback()
+            raise ConflictError(
+                error_codes.IDENTITY_USERNAME_TAKEN,
+                f"An account with username '{username}' already exists.",
+                field="username",
+            )
+        return _to_entity(model)

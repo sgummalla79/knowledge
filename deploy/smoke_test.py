@@ -20,7 +20,7 @@ import sys
 import requests
 
 BASE_URL = "http://localhost:13199"
-_ADMIN_USERNAME = "admin"
+_ADMIN_USERNAME = "admin@local"
 _ADMIN_PASSWORD = "admin"
 _NEW_ADMIN_PASSWORD = "smoke-test-password-1"
 # /sign-in and /change-password both serve the React SPA shell (api/presentation/web/spa.py), which
@@ -45,7 +45,7 @@ def main() -> None:
 
     login_response = session.post(
         f"{BASE_URL}/sign-in",
-        json={"email": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
+        json={"username": _ADMIN_USERNAME, "password": _ADMIN_PASSWORD},
         headers={"X-CSRF-Token": csrf},
     )
     login_response.raise_for_status()

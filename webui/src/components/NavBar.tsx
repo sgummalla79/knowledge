@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { signOut } from '../api/auth'
-import { currentOrgName, currentUsername } from '../api/shell'
+import { currentUsername } from '../api/shell'
 import { currentTheme, setTheme } from '../theme'
 import { ChevronDownIcon, MoonIcon, SunIcon } from './icons'
 import { Logo } from './Logo'
@@ -35,7 +35,6 @@ export function NavBar() {
   }
 
   const username = currentUsername()
-  const orgName = currentOrgName()
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -84,12 +83,6 @@ export function NavBar() {
               <div className="absolute right-0 top-[calc(100%+8px)] z-10 min-w-[190px] rounded-sm border border-border bg-popover p-1.5 shadow-lg">
                 <div className="mb-1 border-b border-border px-2.5 py-2 text-xs text-muted-foreground">
                   {username}
-                  {orgName ? (
-                    <>
-                      <br />
-                      {orgName}
-                    </>
-                  ) : null}
                 </div>
                 <NavLink
                   to="/account/api-keys"
@@ -103,7 +96,7 @@ export function NavBar() {
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
                 >
-                  Org settings
+                  User settings
                 </NavLink>
                 <button
                   type="button"

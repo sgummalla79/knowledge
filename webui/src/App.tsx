@@ -13,7 +13,6 @@ import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ConnectedApplicationsPage } from './pages/ConnectedApplicationsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EmbeddingModelsPage } from './pages/EmbeddingModelsPage'
-import { GeneralSettingsPage } from './pages/GeneralSettingsPage'
 import { HomePage } from './pages/HomePage'
 import { ItemPage } from './pages/ItemPage'
 import { MCPSettingsPage } from './pages/MCPSettingsPage'
@@ -25,6 +24,7 @@ import { ShelvesSettingsPage } from './pages/ShelvesSettingsPage'
 import { SignInPage } from './pages/SignInPage'
 import { SignUpPage } from './pages/SignUpPage'
 import { UploadPage } from './pages/UploadPage'
+import { UserSettingsPage } from './pages/UserSettingsPage'
 
 const queryClient = new QueryClient()
 
@@ -50,7 +50,7 @@ export default function App() {
               <Route path="account/api-keys" element={<ApiKeysPage />} />
 
               <Route element={<SettingsLayout />}>
-                <Route path="org/settings" element={<GeneralSettingsPage />} />
+                <Route path="org/settings" element={<UserSettingsPage />} />
                 <Route path="org/members" element={<OrgSettingsPage />} />
                 <Route path="org/profiles" element={<ProfilesSettingsPage />} />
                 <Route path="org/profiles/new" element={<ProfileFormPage />} />

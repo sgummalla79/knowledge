@@ -48,13 +48,6 @@ class OrganizationRepository:
         model = self._session.query(OrganizationModel).filter(OrganizationModel.slug == slug).first()
         return _to_entity(model) if model is not None else None
 
-    def update(self, org_id, name: str, description: str | None) -> OrganizationEntity:
-        model = self._session.get(OrganizationModel, org_id)
-        model.name = name
-        model.description = description
-        self._session.flush()
-        return _to_entity(model)
-
     def list(self) -> list[OrganizationEntity]:
         models = self._session.query(OrganizationModel).all()
         return [_to_entity(model) for model in models]

@@ -144,7 +144,8 @@ export interface Org {
 
 export interface OrgMember {
   identity_id: string
-  email: string
+  username: string
+  email: string | null
   name: string
   profile_id: string
   profile_name: string

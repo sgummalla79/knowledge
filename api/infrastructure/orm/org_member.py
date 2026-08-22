@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, func
+from sqlalchemy import Column, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 
 from api.infrastructure.orm.base import Base
@@ -8,6 +8,10 @@ from api.infrastructure.orm.base import Base
 
 class OrgMember(Base):
     __tablename__ = "org_members"
+    # identity_id is unique, not just (org_id, identity_id) — an identity belongs to exactly one
+    # org for its whole life (see domain/entities.py's Identity docstring), so there's no longer a
+    # many-to-many to guard against, only ever-adding-a-second-org for the same identity.
+    __table_args__ = (UniqueConstraint("identity_id", name="uq_org_members_identity_id"),)
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)

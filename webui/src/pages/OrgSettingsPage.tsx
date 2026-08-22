@@ -78,7 +78,7 @@ export function OrgSettingsPage() {
           orgId={orgId}
           members={members.data}
           canManage={canManage}
-          currentUserEmail={currentUsername()}
+          currentUsername={currentUsername()}
           onProfileChange={(identityId, profileId) => void handleProfileChange(identityId, profileId)}
           onRemove={(identityId) => void handleRemove(identityId)}
         />

@@ -5,7 +5,7 @@ import pytest
 
 from api import create_app
 
-# HTTP-layer only — IdentityRepository/OrganizationRepository are mocked, no real DB involved.
+# HTTP-layer only — IdentityRepository is mocked, no real DB involved.
 
 
 @pytest.fixture()
@@ -37,8 +37,7 @@ def test_root_requires_login(client):
 
 
 @patch("api.presentation.routes.app_shell.IdentityRepository.get_by_id", return_value=None)
-@patch("api.presentation.routes.app_shell.OrganizationRepository.get", return_value=None)
-def test_root_serves_built_shell_with_injected_globals(_get_org, _get_user, client, tmp_path):
+def test_root_serves_built_shell_with_injected_globals(_get_user, client, tmp_path):
     _built_shell(client, tmp_path)
     _logged_in(client)
 
@@ -49,8 +48,7 @@ def test_root_serves_built_shell_with_injected_globals(_get_org, _get_user, clie
 
 
 @patch("api.presentation.routes.app_shell.IdentityRepository.get_by_id", return_value=None)
-@patch("api.presentation.routes.app_shell.OrganizationRepository.get", return_value=None)
-def test_arbitrary_subpath_serves_the_same_shell(_get_org, _get_user, client, tmp_path):
+def test_arbitrary_subpath_serves_the_same_shell(_get_user, client, tmp_path):
     _built_shell(client, tmp_path)
     _logged_in(client)
 
@@ -60,8 +58,7 @@ def test_arbitrary_subpath_serves_the_same_shell(_get_org, _get_user, client, tm
 
 
 @patch("api.presentation.routes.app_shell.IdentityRepository.get_by_id", return_value=None)
-@patch("api.presentation.routes.app_shell.OrganizationRepository.get", return_value=None)
-def test_missing_build_output_returns_503(_get_org, _get_user, client, tmp_path):
+def test_missing_build_output_returns_503(_get_user, client, tmp_path):
     with client.application.app_context():
         client.application.static_folder = str(tmp_path)
     _logged_in(client)

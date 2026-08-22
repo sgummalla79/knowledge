@@ -63,8 +63,8 @@ def login_required(view):
             # just re-GET that URL after login, not resubmit the form.
             next_url = request.full_path if request.method == "GET" else None
             return redirect(url_for("auth_ui.sign_in", next=next_url))
-        # identity_id/active_org_id/active_role are cached in the session at login/switch time
-        # (see login_submit/switch_org) rather than re-fetched from the DB on every gated request —
+        # identity_id/active_org_id/active_role are cached in the session at login time (see
+        # _establish_session) rather than re-fetched from the DB on every gated request —
         # keeps this decorator a pure session-dict read so route tests can fake a session without
         # seeding a real identity row (see tests/unit/test_workspace_routes.py). A view that needs
         # the freshest possible state (e.g. must_change_password right after it's cleared) fetches
@@ -113,9 +113,10 @@ def _consume_post_login_redirect() -> str:
 
 
 def _establish_session(identity_id: UUID) -> None:
-    """Picks an active org for a freshly authenticated identity — deterministically the first
-    membership for now (an org switcher UI, backed by POST /orgs/<id>/switch, picks a different
-    one later without needing to touch this)."""
+    """Sets the session's active org for a freshly authenticated identity — always its one and
+    only org membership (an identity belongs to exactly one org for its whole life; see
+    domain/entities.py's Identity docstring), or none yet for the rare case a membership hasn't
+    been created (mid-signup failure)."""
     memberships = _auth_service().list_orgs_for_identity(identity_id)
     session["identity_id"] = str(identity_id)
     if memberships:
@@ -139,7 +140,7 @@ def sign_in_submit():
     if not validate_csrf(request.headers.get("X-CSRF-Token")):
         raise AuthenticationError("Session expired — please reload the page.")
     body = request.get_json(silent=True) or {}
-    identity = _auth_service().login(body.get("email", ""), body.get("password", ""))
+    identity = _auth_service().login(body.get("username", ""), body.get("password", ""))
     _establish_session(identity.id)
     redirect_url = (
         url_for("auth_ui.change_password") if identity.must_change_password else _consume_post_login_redirect()
@@ -163,7 +164,7 @@ def sign_up_submit():
     if len(password) < 8:
         raise ValidationError(error_codes.VALIDATION_ERROR, "Password must be at least 8 characters.", field="password")
     identity, _organization = _signup_service().signup(
-        body.get("email", ""), password, body.get("name", ""), body.get("org_name", "")
+        body.get("username", ""), password, body.get("name", ""), body.get("org_name", ""), body.get("email", "")
     )
     _establish_session(identity.id)
     return jsonify({"redirect": _consume_post_login_redirect()})

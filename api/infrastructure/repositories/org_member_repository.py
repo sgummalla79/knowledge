@@ -36,7 +36,11 @@ class OrgMemberRepository:
             self._session.rollback()
             raise ConflictError(
                 error_codes.ORG_MEMBERSHIP_EXISTS,
-                "This identity is already a member of this organization.",
+                # identity_id is now unique on its own (an identity belongs to exactly one org for
+                # its whole life — see domain/entities.py's Identity docstring), so this fires both
+                # for a literal duplicate row and for an identity that already belongs to a
+                # *different* org; the message stays deliberately org-agnostic to cover both.
+                "This identity already belongs to an organization.",
             )
         return _to_entity(model)
 

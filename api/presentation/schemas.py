@@ -38,19 +38,6 @@ DocumentType = Literal["article", "document"]
 ApplicationAuthMethod = Literal["oauth_client_credentials", "oauth_authorization_code"]
 
 
-class OrgCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1)
-
-
-class OrgUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1)
-    description: str | None = None
-
-
 class OrgResponse(BaseModel):
     id: UUID
     name: str
@@ -88,9 +75,24 @@ class OrgMemberProfileUpdateRequest(BaseModel):
     profile_id: UUID
 
 
+class MeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    email: str = Field(min_length=1)
+
+
+class MeUsernameUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1)
+    current_password: str = Field(min_length=1)
+
+
 class OrgMemberResponse(BaseModel):
     identity_id: UUID
-    email: str
+    username: str
+    email: str | None
     name: str
     profile_id: UUID
     profile_name: str

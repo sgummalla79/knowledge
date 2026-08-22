@@ -31,12 +31,18 @@ export function useOrgMembers(orgId: string | undefined) {
   })
 }
 
+// The caller's own account/profile in the active org — unlike useOrgMembers, needs no
+// org_members:read permission, so it works for every member, not just admins (see GET /orgs/me).
+export function useMe() {
+  return useQuery({ queryKey: ['orgs', 'me'], queryFn: () => api.get<OrgMember>('/orgs/me') })
+}
+
 export function useApplications() {
   return useQuery({ queryKey: ['applications'], queryFn: () => api.get<Application[]>('/applications') })
 }
 
-export function useProfiles() {
-  return useQuery({ queryKey: ['profiles'], queryFn: () => api.get<Profile[]>('/profiles') })
+export function useProfiles(enabled = true) {
+  return useQuery({ queryKey: ['profiles'], queryFn: () => api.get<Profile[]>('/profiles'), enabled })
 }
 
 export function usePersonalAccessTokens() {

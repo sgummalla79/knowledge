@@ -3,7 +3,6 @@ from uuid import uuid4
 import pytest
 
 from api.application.app_auth_service import AppAuthService
-from api.application.org_membership_service import OrgMembershipService
 from api.application.permission_service import PermissionService
 from api.application.personal_access_token_service import PersonalAccessTokenService
 from api.application.profile_service import ProfileService
@@ -35,13 +34,15 @@ def _auth_service(db_session) -> AppAuthService:
 
 
 def _member_with_profile(db_session, org_id, permissions, email):
+    # Attaches org membership directly rather than via OrgMembershipService.invite_member, which
+    # always creates a brand-new identity now (an identity belongs to exactly one org for its whole
+    # life — org_members.identity_id is unique) — this helper needs to add *this* already-created
+    # identity to *this* org, not mint a second one at the same email.
     identity = IdentityRepository(db_session).create(email, "hashed", name=email)
     db_session.commit()
     profile, _ = ProfileService(ProfileRepository(db_session)).create(org_id, f"profile-{email}", None, permissions, None)
     db_session.commit()
-    OrgMembershipService(
-        OrganizationRepository(db_session), OrgMemberRepository(db_session), IdentityRepository(db_session), ProfileRepository(db_session)
-    ).invite_member(org_id, email, profile.id, None)
+    OrgMemberRepository(db_session).create(org_id, identity.id, profile.id)
     db_session.commit()
     return identity
 

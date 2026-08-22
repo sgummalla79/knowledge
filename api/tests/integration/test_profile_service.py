@@ -82,7 +82,7 @@ def test_custom_profile_actually_restricts_a_member(db_session):
     )
     db_session.commit()
 
-    org_service.invite_member(organization.id, invitee.email, read_only_profile.id, owner.id)
+    OrgMemberRepository(db_session).create(organization.id, invitee.id, read_only_profile.id, invited_by=owner.id)
     db_session.commit()
 
     permission_service = PermissionService(OrgMemberRepository(db_session), ProfileRepository(db_session))
@@ -133,7 +133,7 @@ def test_profile_in_use_cannot_be_deleted(db_session):
     custom_profile, _ = profile_service.create(organization.id, "Read-only Analyst 2", None, ["documents:read"], owner.id)
     db_session.commit()
 
-    org_service.invite_member(organization.id, invitee.email, custom_profile.id, owner.id)
+    OrgMemberRepository(db_session).create(organization.id, invitee.id, custom_profile.id, invited_by=owner.id)
     db_session.commit()
 
     with pytest.raises(ConflictError):

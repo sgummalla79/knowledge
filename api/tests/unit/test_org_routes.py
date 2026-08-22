@@ -6,7 +6,7 @@ import pytest
 
 from api import create_app
 from api.domain.entities import Identity, OrgMember, Organization, Profile, Shelf
-from api.domain.errors import ConflictError, NotFoundError
+from api.domain.errors import AuthenticationError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — services are mocked. The global
 # _grant_every_permission fixture (unit/conftest.py) means every request here already has every
@@ -60,7 +60,8 @@ def _identity(**overrides):
     now = datetime.now(timezone.utc)
     fields = dict(
         id=uuid4(),
-        email="ada@acme.com",
+        username="ada@acme.com",
+        email=None,
         name="Ada Lovelace",
         password_hash="hashed",
         must_change_password=False,
@@ -106,86 +107,69 @@ def test_list_orgs_returns_memberships(client):
     assert "applications:write" in body[0]["permissions"]
 
 
-def test_create_org_returns_201(client):
-    org = _org()
-    with patch("api.presentation.routes.orgs.OrgMembershipService.create_org_with_owner", return_value=org):
-        response = client.post("/orgs", json={"name": "Acme Corp"})
-
-    assert response.status_code == 201
-    body = response.get_json()
-    assert body["name"] == "Acme Corp"
-
-
-def test_create_org_missing_name_returns_structured_400(client):
-    response = client.post("/orgs", json={})
-
-    assert response.status_code == 400
-    assert response.get_json()["error"]["field"] == "name"
-
-
-def test_create_org_duplicate_slug_returns_409(client):
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.create_org_with_owner",
-        side_effect=ConflictError("organization_slug_taken", "already exists", field="slug"),
+def test_get_me_returns_own_account_and_profile(client):
+    identity = _identity(username="me@acme.com", email="me@acme.com")
+    profile = _profile(name="Contributor", is_admin=False)
+    member = _member(identity_id=identity.id, profile_id=profile.id)
+    with (
+        patch("api.presentation.routes.orgs.OrgMemberRepository.get", return_value=member),
+        patch("api.presentation.routes.orgs.IdentityRepository.get_by_id", return_value=identity),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
-        response = client.post("/orgs", json={"name": "dup"})
-
-    assert response.status_code == 409
-    assert response.get_json()["error"]["code"] == "organization_slug_taken"
-
-
-def test_update_org_returns_updated_org(client):
-    org = _org(name="renamed", description="new description")
-    with patch("api.presentation.routes.orgs.OrgMembershipService.update_organization", return_value=org):
-        response = client.patch(f"/orgs/{org.id}", json={"name": "renamed", "description": "new description"})
+        response = client.get("/orgs/me")
 
     assert response.status_code == 200
     body = response.get_json()
-    assert body["name"] == "renamed"
-    assert body["description"] == "new description"
+    assert body["username"] == "me@acme.com"
+    assert body["profile_name"] == "Contributor"
+    assert body["profile_is_admin"] is False
 
 
-def test_update_org_requires_permission(client):
-    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
-        response = client.patch(f"/orgs/{uuid4()}", json={"name": "renamed"})
-
-    assert response.status_code == 403
-
-
-def test_update_org_missing_name_returns_structured_400(client):
-    response = client.patch(f"/orgs/{uuid4()}", json={"description": "no name"})
-
-    assert response.status_code == 400
-    assert response.get_json()["error"]["field"] == "name"
-
-
-def test_update_missing_org_returns_structured_404(client):
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.update_organization",
-        side_effect=NotFoundError("organization_not_found", "Organization not found."),
+def test_update_me_returns_updated_account(client):
+    identity = _identity(username="me@acme.com", email="new-email@acme.com", name="New Name")
+    profile = _profile(name="Contributor", is_admin=False)
+    member = _member(identity_id=identity.id, profile_id=profile.id)
+    with (
+        patch("api.presentation.routes.orgs.AuthService.update_profile", return_value=identity),
+        patch("api.presentation.routes.orgs.OrgMemberRepository.get", return_value=member),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
-        response = client.patch(f"/orgs/{uuid4()}", json={"name": "renamed"})
-
-    assert response.status_code == 404
-    assert response.get_json()["error"]["code"] == "organization_not_found"
-
-
-def test_switch_org_updates_session(client):
-    with patch("api.presentation.routes.orgs.OrgMembershipService.switch_active_org", return_value=None):
-        response = client.post(f"/orgs/{uuid4()}/switch")
+        response = client.patch("/orgs/me", json={"name": "New Name", "email": "new-email@acme.com"})
 
     assert response.status_code == 200
+    body = response.get_json()
+    assert body["name"] == "New Name"
+    assert body["email"] == "new-email@acme.com"
 
 
-def test_switch_org_not_a_member_returns_structured_404(client):
-    with patch(
-        "api.presentation.routes.orgs.OrgMembershipService.switch_active_org",
-        side_effect=NotFoundError("not_an_org_member", "You are not a member of this organization."),
+def test_update_me_username_returns_updated_account(client):
+    identity = _identity(username="new-username@acme.com")
+    profile = _profile()
+    member = _member(identity_id=identity.id, profile_id=profile.id)
+    with (
+        patch("api.presentation.routes.orgs.AuthService.change_username", return_value=identity),
+        patch("api.presentation.routes.orgs.OrgMemberRepository.get", return_value=member),
+        patch("api.presentation.routes.orgs.ProfileRepository.get", return_value=profile),
     ):
-        response = client.post(f"/orgs/{uuid4()}/switch")
+        response = client.patch(
+            "/orgs/me/username",
+            json={"username": "new-username@acme.com", "current_password": "correct-password"},
+        )
 
-    assert response.status_code == 404
-    assert response.get_json()["error"]["code"] == "not_an_org_member"
+    assert response.status_code == 200
+    assert response.get_json()["username"] == "new-username@acme.com"
+
+
+def test_update_me_username_wrong_password_returns_401(client):
+    with patch(
+        "api.presentation.routes.orgs.AuthService.change_username",
+        side_effect=AuthenticationError("Incorrect password."),
+    ):
+        response = client.patch(
+            "/orgs/me/username", json={"username": "new-username@acme.com", "current_password": "wrong"}
+        )
+
+    assert response.status_code == 401
 
 
 def test_list_members_returns_all(client):
@@ -201,7 +185,7 @@ def test_list_members_returns_all(client):
     assert response.status_code == 200
     body = response.get_json()
     assert len(body) == 1
-    assert body[0]["email"] == "ada@acme.com"
+    assert body[0]["username"] == "ada@acme.com"
     assert body[0]["profile_name"] == "Admin"
     assert body[0]["profile_is_admin"] is True
 
@@ -221,7 +205,7 @@ def test_invite_member_requires_permission(client):
 
 
 def test_invite_member_returns_201(client):
-    identity = _identity(email="new@acme.com")
+    identity = _identity(username="new@acme.com", email="new@acme.com")
     profile = _profile(name="Viewer", is_admin=False)
     member = _member(identity_id=identity.id, profile_id=profile.id)
     with (
@@ -232,7 +216,7 @@ def test_invite_member_returns_201(client):
         response = client.post(f"/orgs/{uuid4()}/invites", json={"email": "new@acme.com", "profile_id": str(profile.id)})
 
     assert response.status_code == 201
-    assert response.get_json()["email"] == "new@acme.com"
+    assert response.get_json()["username"] == "new@acme.com"
     assert response.get_json()["profile_name"] == "Viewer"
 
 

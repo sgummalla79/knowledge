@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const LINKS = [
-  { to: '/org/settings', label: 'General' },
+  { to: '/org/settings', label: 'User settings' },
   { to: '/org/members', label: 'Members & access' },
   { to: '/org/profiles', label: 'Profiles' },
   { to: '/org/shelves', label: 'Shelves' },

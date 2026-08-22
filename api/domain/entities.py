@@ -210,11 +210,16 @@ class IngestionJob:
 
 @dataclass(frozen=True)
 class Identity:
-    """A person, wholly org-independent — see migration 0001's module docstring for why this is
-    split from OrgMember below. `email` is globally unique across the whole app, not per-org."""
+    """A person — see migration 0001's module docstring for the original identities/org_members
+    split (that rationale, "one identity can belong to many orgs and switch between them," no
+    longer holds: migration 0013 made org_members.identity_id unique, so an identity now belongs to
+    exactly one org for its whole life). `username` is globally unique across the whole app and
+    must be email-shaped (see api/application/username_validation.py) but isn't necessarily a real,
+    deliverable address — that's `email`, which is optional and, unlike username, not unique."""
 
     id: UUID
-    email: str
+    username: str
+    email: str | None
     name: str
     password_hash: str
     must_change_password: bool

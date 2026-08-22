@@ -23,7 +23,8 @@ def client():
 def _identity(**overrides):
     fields = dict(
         id=uuid4(),
-        email="admin",
+        username="admin@local",
+        email=None,
         name="Admin",
         password_hash="hashed",
         must_change_password=True,
@@ -75,7 +76,7 @@ def test_sign_in_success_redirects_to_change_password_when_required(client):
         patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[(uuid4(), "admin")]),
     ):
         response = client.post(
-            "/sign-in", json={"email": "admin", "password": "admin"}, headers={"X-CSRF-Token": csrf}
+            "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": csrf}
         )
     assert response.status_code == 200
     assert response.get_json()["redirect"].endswith("/change-password")
@@ -87,7 +88,7 @@ def test_sign_in_success_redirects_home_when_password_already_changed(client):
         patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity(must_change_password=False)),
         patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[(uuid4(), "admin")]),
     ):
-        response = client.post("/sign-in", json={"email": "admin", "password": "x"}, headers={"X-CSRF-Token": csrf})
+        response = client.post("/sign-in", json={"username": "admin@local", "password": "x"}, headers={"X-CSRF-Token": csrf})
     assert response.status_code == 200
     assert response.get_json()["redirect"] == "/"
 
@@ -96,20 +97,20 @@ def test_sign_in_wrong_credentials_shows_error(client):
     csrf = _with_csrf(client)
     with patch(
         "api.presentation.routes.auth_ui.AuthService.login",
-        side_effect=AuthenticationError("Invalid email or password."),
+        side_effect=AuthenticationError("Invalid username or password."),
     ):
         response = client.post(
-            "/sign-in", json={"email": "admin", "password": "wrong"}, headers={"X-CSRF-Token": csrf}
+            "/sign-in", json={"username": "admin@local", "password": "wrong"}, headers={"X-CSRF-Token": csrf}
         )
     assert response.status_code == 401
-    assert b"Invalid email or password" in response.data
+    assert b"Invalid username or password" in response.data
 
 
 def test_sign_in_missing_csrf_rejected(client):
     _with_csrf(client)
     with patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity()):
         response = client.post(
-            "/sign-in", json={"email": "admin", "password": "admin"}, headers={"X-CSRF-Token": "wrong-token"}
+            "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": "wrong-token"}
         )
     assert response.status_code == 401
 
@@ -118,7 +119,7 @@ def test_sign_up_missing_csrf_rejected(client):
     _with_csrf(client)
     response = client.post(
         "/sign-up",
-        json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada"},
+        json={"username": "new@acme.com", "password": "a-strong-password", "name": "Ada"},
         headers={"X-CSRF-Token": "wrong-token"},
     )
     assert response.status_code == 401
@@ -128,7 +129,7 @@ def test_sign_up_short_password_shows_error(client):
     csrf = _with_csrf(client)
     response = client.post(
         "/sign-up",
-        json={"email": "new@acme.com", "password": "short", "name": "Ada"},
+        json={"username": "new@acme.com", "password": "short", "name": "Ada"},
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 400
@@ -144,7 +145,12 @@ def test_sign_up_success_redirects_home(client):
     ):
         response = client.post(
             "/sign-up",
-            json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada", "org_name": "ada-labs"},
+            json={
+                "username": "new@acme.com",
+                "password": "a-strong-password",
+                "name": "Ada",
+                "org_name": "ada-labs",
+            },
             headers={"X-CSRF-Token": csrf},
         )
     assert response.status_code == 200
@@ -155,13 +161,45 @@ def test_sign_up_invalid_org_name_shows_error(client):
     csrf = _with_csrf(client)
     response = client.post(
         "/sign-up",
-        json={"email": "new@acme.com", "password": "a-strong-password", "name": "Ada", "org_name": "Not Slug!"},
+        json={
+            "username": "new@acme.com",
+            "password": "a-strong-password",
+            "name": "Ada",
+            "org_name": "Not Slug!",
+            "email": "new-contact@acme.com",
+        },
         headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 400
     body = response.get_json()
     assert body["error"]["code"] == "organization_name_invalid"
     assert body["error"]["field"] == "org_name"
+
+
+def test_sign_up_invalid_username_shows_error(client):
+    csrf = _with_csrf(client)
+    response = client.post(
+        "/sign-up",
+        json={"username": "not-an-email", "password": "a-strong-password", "name": "Ada", "org_name": "ada-labs"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"]["code"] == "username_invalid_format"
+    assert body["error"]["field"] == "username"
+
+
+def test_sign_up_missing_email_shows_error(client):
+    csrf = _with_csrf(client)
+    response = client.post(
+        "/sign-up",
+        json={"username": "new@acme.com", "password": "a-strong-password", "name": "Ada", "org_name": "ada-labs"},
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["error"]["code"] == "email_invalid_format"
+    assert body["error"]["field"] == "email"
 
 
 def test_check_org_name_available(client):

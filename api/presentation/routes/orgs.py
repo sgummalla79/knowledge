@@ -1,11 +1,13 @@
 from uuid import UUID
 
-from flask import Blueprint, g, jsonify, request, session
+from flask import Blueprint, g, jsonify, request
 
+from api.application.auth_service import AuthService
 from api.application.org_membership_service import OrgMembershipService
 from api.application.permission_service import PermissionService
 from api.application.shelf_service import ShelfService
 from api.container import get_session
+from api.infrastructure.auth.password_identity_verifier import PasswordIdentityVerifier
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
@@ -14,12 +16,12 @@ from api.infrastructure.repositories.shelf_repository import ShelfRepository
 from api.presentation.routes.app_auth import require_permission
 from api.presentation.routes.auth_ui import require_org_session
 from api.presentation.schemas import (
-    OrgCreateRequest,
+    MeUpdateRequest,
+    MeUsernameUpdateRequest,
     OrgInviteRequest,
     OrgMemberProfileUpdateRequest,
     OrgMemberResponse,
     OrgResponse,
-    OrgUpdateRequest,
     ShelfSummaryResponse,
 )
 
@@ -33,6 +35,12 @@ def _service() -> OrgMembershipService:
     )
 
 
+def _auth_service() -> AuthService:
+    session_ = get_session()
+    identities = IdentityRepository(session_)
+    return AuthService(identities, PasswordIdentityVerifier(identities), OrgMemberRepository(session_))
+
+
 def _permissions_for(identity_id: UUID, org_id: UUID) -> list[str]:
     session_ = get_session()
     return sorted(PermissionService(OrgMemberRepository(session_), ProfileRepository(session_)).resolve_permissions(identity_id, org_id))
@@ -41,6 +49,7 @@ def _permissions_for(identity_id: UUID, org_id: UUID) -> list[str]:
 def _member_response(member, identity, profile) -> dict:
     return OrgMemberResponse(
         identity_id=identity.id,
+        username=identity.username,
         email=identity.email,
         name=identity.name,
         profile_id=profile.id,
@@ -49,9 +58,19 @@ def _member_response(member, identity, profile) -> dict:
     ).model_dump(mode="json")
 
 
+def _me_response(identity) -> dict:
+    session_ = get_session()
+    member = OrgMemberRepository(session_).get(g.org_id, identity.id)
+    profile = ProfileRepository(session_).get(member.profile_id)
+    return _member_response(member, identity, profile)
+
+
 @orgs_bp.get("")
 @require_org_session
 def list_orgs():
+    # Always 0 or 1 entries — an identity belongs to exactly one org for its whole life (see
+    # domain/entities.py's Identity docstring) — kept list-shaped since several webui pages already
+    # do `orgs.data?.find(...)` against this response rather than expecting a single object.
     organizations = OrganizationRepository(get_session())
     memberships = OrgMemberRepository(get_session()).list_for_identity(g.user_id)
     return jsonify(
@@ -64,32 +83,35 @@ def list_orgs():
     )
 
 
-@orgs_bp.post("")
+@orgs_bp.get("/me")
 @require_org_session
-def create_org():
-    dto = OrgCreateRequest.model_validate(request.get_json(silent=True) or {})
-    organization = _service().create_org_with_owner(dto.name, g.user_id)
-    response = jsonify(
-        OrgResponse.from_entity(organization, _permissions_for(g.user_id, organization.id)).model_dump(mode="json")
-    )
-    response.status_code = 201
-    return response
+def get_me():
+    """The caller's own account/profile info in the active org — unlike list_members
+    (org_members:read), this needs no specific permission, since it only ever returns the caller's
+    own data and every member is always allowed to see that."""
+    identity = IdentityRepository(get_session()).get_by_id(g.user_id)
+    return jsonify(_me_response(identity))
 
 
-@orgs_bp.patch("/<uuid:org_id>")
-@require_permission("org:write")
-def update_org(org_id: UUID):
-    dto = OrgUpdateRequest.model_validate(request.get_json(silent=True) or {})
-    organization = _service().update_organization(org_id, dto.name, dto.description)
-    return jsonify(OrgResponse.from_entity(organization, _permissions_for(g.user_id, org_id)).model_dump(mode="json"))
-
-
-@orgs_bp.post("/<uuid:org_id>/switch")
+@orgs_bp.patch("/me")
 @require_org_session
-def switch_org(org_id: UUID):
-    _service().switch_active_org(g.user_id, org_id)
-    session["active_org_id"] = str(org_id)
-    return jsonify({"org_id": str(org_id)})
+def update_me():
+    """Full name and email — no current-password confirmation, unlike update_me_username below:
+    neither is a login credential, so there's nothing for a hijacked session to escalate into."""
+    dto = MeUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    identity = _auth_service().update_profile(g.user_id, dto.name, dto.email)
+    return jsonify(_me_response(identity))
+
+
+@orgs_bp.patch("/me/username")
+@require_org_session
+def update_me_username():
+    """Username is the login credential, so this requires the caller's current password —
+    unlike update_me above — to confirm it's really them and not just whoever holds the session
+    cookie right now (see AuthService.change_username)."""
+    dto = MeUsernameUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    identity = _auth_service().change_username(g.user_id, dto.current_password, dto.username)
+    return jsonify(_me_response(identity))
 
 
 @orgs_bp.get("/<uuid:org_id>/members")
@@ -123,7 +145,7 @@ def invite_member(org_id: UUID):
 @require_permission("org_members:write")
 def update_member_profile(org_id: UUID, identity_id: UUID):
     dto = OrgMemberProfileUpdateRequest.model_validate(request.get_json(silent=True) or {})
-    member = _service().update_member_profile(org_id, identity_id, dto.profile_id)
+    member = _service().update_member_profile(org_id, identity_id, dto.profile_id, acting_identity_id=g.user_id)
     session_ = get_session()
     identity = IdentityRepository(session_).get_by_id(identity_id)
     profile = ProfileRepository(session_).get(member.profile_id)

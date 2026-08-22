@@ -4,7 +4,6 @@ from api.constants import (
     DEFAULT_ADMIN_NAME,
     DEFAULT_ADMIN_PASSWORD,
     DEFAULT_ADMIN_USERNAME,
-    DEFAULT_ORGANIZATION_NAME,
     DEFAULT_ORGANIZATION_SLUG,
 )
 from api.infrastructure.auth.passwords import hash_password
@@ -25,7 +24,7 @@ def bootstrap_default_organization(session):
     if organization is not None:
         return organization
     try:
-        organization = repository.create(DEFAULT_ORGANIZATION_NAME, DEFAULT_ORGANIZATION_SLUG)
+        organization = repository.create(DEFAULT_ORGANIZATION_SLUG, DEFAULT_ORGANIZATION_SLUG)
         session.commit()
         return organization
     except ConflictError:

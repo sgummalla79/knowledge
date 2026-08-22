@@ -143,14 +143,13 @@ WEB_CRAWL_PAGE_DELAY_SECONDS = 0.5
 # per-deployment-overridable rather than baked in as the only option.
 DEFAULT_WEB_CRAWL_USER_AGENT = "python-requests/2.32.3"
 
-DEFAULT_ADMIN_USERNAME = "admin"
+DEFAULT_ADMIN_USERNAME = "admin@local"
 DEFAULT_ADMIN_PASSWORD = "admin"
 DEFAULT_ADMIN_NAME = "Admin"
 
-# Bootstrapped alongside the default admin on a fresh database — this app has never had multiple
-# organizations, so there is exactly one sane org for the first admin to land in until real org
-# creation/invites exist behind a real auth layer (see docs/DATA_MODEL.md).
-DEFAULT_ORGANIZATION_NAME = "Default Organization"
+# Bootstrapped alongside the default admin on a fresh database, as both the org's name and its
+# slug (see org_name_validation.py — an org's name is always identical to its slug, so there's no
+# separate free-text DEFAULT_ORGANIZATION_NAME to keep in sync with this).
 DEFAULT_ORGANIZATION_SLUG = "default"
 
 # Bounds on a self-serve signup's org name/slug (see org_name_validation.py) — the same string is
@@ -159,6 +158,11 @@ DEFAULT_ORGANIZATION_SLUG = "default"
 # not just a path segment.
 ORG_SLUG_MIN_LENGTH = 3
 ORG_SLUG_MAX_LENGTH = 63
+
+# Upper bound on identities.username (see username_validation.py) — matches RFC 5321's 254-char
+# limit on a full email address, since username must be email-shaped even though it isn't
+# necessarily a real, deliverable address.
+USERNAME_MAX_LENGTH = 254
 
 # Reserved so a user-chosen org slug can never collide with a real top-level route, present or
 # future — sourced from this app's actual Flask blueprint url_prefixes and the SPA's top-level

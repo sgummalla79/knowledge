@@ -6,7 +6,7 @@ import { AuthCard } from '../components/AuthCard'
 import { PasswordField } from '../components/PasswordField'
 
 export function SignInPage() {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -16,7 +16,7 @@ export function SignInPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const { redirect } = await signIn(email, password)
+      const { redirect } = await signIn(username, password)
       window.location.href = redirect
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
@@ -45,16 +45,15 @@ export function SignInPage() {
           </div>
         )}
         <div>
-          <label htmlFor="email" className="mb-1.5 block text-sm text-foreground">
-            Email
+          <label htmlFor="username" className="mb-1.5 block text-sm text-foreground">
+            Username
           </label>
           <input
-            id="email"
-            type="email"
+            id="username"
             autoFocus
             placeholder="you@company.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
             className="w-full rounded-sm border border-border bg-secondary px-4 py-2.5 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>

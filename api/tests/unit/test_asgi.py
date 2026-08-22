@@ -22,7 +22,8 @@ from api.presentation.web.asgi_bridge import build_asgi_app
 def _identity(**overrides):
     fields = dict(
         id=uuid4(),
-        email="admin",
+        username="admin@local",
+        email=None,
         name="Admin",
         password_hash="hashed",
         must_change_password=False,
@@ -59,7 +60,7 @@ def test_session_cookie_and_csrf_survive_the_bridge(client):
         patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[uuid4()]),
     ):
         login_response = client.post(
-            "/sign-in", json={"email": "admin", "password": "admin"}, headers={"X-CSRF-Token": csrf}
+            "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": csrf}
         )
     assert login_response.status_code == 200
     assert login_response.json()["redirect"] == "/"
@@ -78,6 +79,6 @@ def test_wrong_csrf_still_rejected_through_bridge(client):
 
     with patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity()):
         response = client.post(
-            "/sign-in", json={"email": "admin", "password": "admin"}, headers={"X-CSRF-Token": "wrong-token"}
+            "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": "wrong-token"}
         )
     assert response.status_code == 401

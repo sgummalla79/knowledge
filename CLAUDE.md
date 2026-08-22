@@ -316,12 +316,142 @@ stack as the rest of the API — see session history item 8.
     entirely") — that predates this whole item and items 8/9 too; **stale, not yet reconciled with
     any of the OAuth2/profiles/applications/MCP work in this file.**
 
-Current test suite: **505 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+17. **Self-serve signup collects and validates a chosen org name**, which doubles as the org's
+    URL-safe slug — replacing the old auto-generated `"{name}'s org"`. Validated (lowercase/
+    digits/hyphens, 3–63 chars, reserved-word blocklist in `api/constants.py`) via
+    `api/application/org_name_validation.py`, checked for live availability via
+    `GET /check-org-name` as the user types. A collision on submit raises `409
+    organization_slug_taken` instead of silently appending a random suffix — that retry-with-
+    suffix behavior only ever made sense for an auto-generated name, not one the user
+    deliberately typed.
+
+18. **Identity model reworked: `username` replaces `email` as the unique login credential, and an
+    identity is now capped to exactly one org for its whole life.** Two previously-conflated
+    concepts split apart on `identities`: `username` (new, required, globally unique, must be
+    email-*shaped* — validated in `api/application/username_validation.py` — but not verified as
+    deliverable) is what `PasswordIdentityVerifier`/`AuthService.login` authenticate against now;
+    `email` (kept) is real contact info only, required at signup (validated as email-shaped too,
+    via the new `validate_email_format`) but never unique — the `identities.email` column itself
+    stays nullable at the schema level since it's still optional for identities created outside
+    the validated signup path (invite_member always sets it; the seeded bootstrap admin does not).
+    Migration `0013`
+    backfills `username = email` for existing rows and drops `email`'s unique constraint — the
+    seeded bootstrap admin's `DEFAULT_ADMIN_USERNAME` (`api/constants.py`) changes from `"admin"`
+    to `"admin@local"` so new bootstraps satisfy the same format rule (an already-bootstrapped
+    admin keeps whatever its backfilled value was — this migration doesn't rewrite existing data
+    to the new default).
+
+    Same migration makes `org_members.identity_id` unique — reversing a decision migration 0001's
+    module docstring made explicit ("one identity can belong to many orgs and switch between
+    them"). That capability was never actually reachable from the UI (no switcher was ever built,
+    no "create another org" button existed), and the product direction settled on something
+    simpler: which org a username belongs to is decided once, at creation, and never changes.
+    Removed as dead weight once the constraint made them structurally impossible to use correctly:
+    `POST /orgs/<id>/switch` (`OrgMembershipService.switch_active_org`), `POST /orgs` ("create
+    another org" while logged in — `OrgCreateRequest` schema too), and the auto-slug-with-retry
+    branch of `create_org_with_owner` (its only caller now is signup, which always supplies an
+    exact, pre-validated slug — see item 17). `GET /orgs` itself is unchanged and kept list-shaped
+    (now always 0-or-1 entries) since several webui Settings pages already do
+    `orgs.data?.find(...)` against it rather than expecting a single object.
+
+    `OrgMembershipService.invite_member` needed one necessary adaptation, not a full redesign
+    (that's still open — see "Not yet done" below): it can no longer look up an existing identity
+    by email and reuse it, since (a) email isn't unique anymore, so a lookup can match zero, one,
+    or several identities, and (b) even a single match is unusable — that identity already belongs
+    to a different org and the new constraint forbids adding a second membership. It now always
+    creates a brand-new identity per invite, with `username` defaulting to the invited `email` as a
+    stopgap.
+
+    Frontend: sign-in relabeled "Email" → "Username"; sign-up's `AuthCard` gained an opt-in `wide`
+    prop (every other auth page stays narrow) so it can lay out two columns — Full Name/Org
+    Name/Email on the left, Username/Password on the right, submit button spanning both underneath.
+    Email is a required field (validated client-side same as everywhere else, server-side via the
+    new `validate_email_format`). The `window.__USERNAME__` SPA global
+    (`api/presentation/routes/app_shell.py`, consumed by `webui/src/api/shell.ts`'s
+    `currentUsername()`) was already named for this — it previously just happened to be backed by
+    `identity.email`; only its source changed. Org member listings (`OrgMemberResponse`,
+    `webui/src/api/types.ts`'s `OrgMember`) gained `username` and
+    made `email` nullable; anywhere a member was previously identified/displayed by email
+    (`MembersTable`'s self-detection, `ApplicationsTable`/`ApplicationCreatePage`'s execute-as
+    picker) now uses `username` instead, since `email` can no longer be trusted as unique.
+
+19. **`/org/settings` (`webui/src/pages/GeneralSettingsPage.tsx` → `UserSettingsPage.tsx`) turned
+    from an org-editing page into a personal account page** — org name/description editing is
+    removed entirely, not just hidden: `PATCH /orgs/<org_id>` (`update_org`),
+    `OrgMembershipService.update_organization`, `OrganizationRepository.update`, and the
+    `OrgUpdateRequest` schema are all gone, since nothing else called them and this app's org name
+    is meant to be immutable after signup (see item 17). The page shows the caller's own Full
+    Name/Email/Username/Profile — Profile is editable only for an admin (`profile_is_admin`),
+    disabled otherwise, via the existing `PATCH /orgs/<org_id>/members/<identity_id>` (same
+    endpoint `MembersTable` already used to change *other* members' profiles). Backed by a new
+    `GET /orgs/me` (`orgs.py`) — deliberately gated by `require_org_session` only, no specific
+    permission, since `list_members`'s `org_members:read` (needed for the *members list*) isn't
+    actually granted to the default Contributor/Viewer profiles, so a non-admin viewing their own
+    settings page can't go through `list_members` to find themselves. `useProfiles()`
+    (`webui/src/api/queries.ts`) gained an `enabled` param so the page only fetches the org's
+    profile list (`profiles:read`, also admin-only) when the viewer is actually an admin —
+    otherwise it just displays their current profile name as plain text.
+
+    Full Name, Email, and Username are all editable — but not the same way. Name/email have no
+    real security weight, so `PATCH /orgs/me` (→ `AuthService.update_profile`, new
+    `IdentityRepository.update_profile`) changes them with no extra confirmation, same as any other
+    settings form in this app. Username is different: it's the login credential, so
+    `PATCH /orgs/me/username` (→ `AuthService.change_username`, new
+    `IdentityRepository.update_username`) requires the caller's *current password* in the request
+    body and re-verifies it (`verify_password`) before the change is allowed — deliberately
+    inconsistent with `/change-password` (which asks for no current password, since that flow
+    exists for a forced first-login change where the caller may not know one yet); a deliberate,
+    already-logged-in credential change is a different threat model, closer to "prove it's still
+    you" than "you're already past the door." A wrong password returns a plain 401
+    (`AuthenticationError`), a taken username the same `409 identity_username_taken` signup already
+    uses.
+
+    Also removed the org name from the NavBar account-menu dropdown (previously shown under the
+    username) — `currentOrgName()`/`window.__ORG_NAME__` and the `"ORG_NAME"` SPA global
+    (`app_shell.py`) are gone too, now genuinely unused rather than just unrendered. Renamed
+    throughout the nav ("Org settings" → "User settings" in `NavBar.tsx`'s account menu, "General"
+    → "User settings" in `SettingsLayout.tsx`'s sidebar) — the route itself stays `/org/settings`.
+    Laid out as two columns (Full Name/Email/Profile on the left, the Username change section on
+    the right) with the primary Save button moved into the page header — same
+    `form="account-form"` attribute-association trick the old `OrgGeneralForm` used to put a submit
+    button outside its `<form>` element. The username section keeps its own separate "Update
+    username" button in place rather than moving under the header Save, since it's a distinct
+    action with its own password-confirmation requirement, not a field saved alongside name/email.
+
+    Profile is **never** self-editable, including for an admin editing their own row — an admin can
+    freely change any *other* member's profile between admin/standard, just never their own.
+    Enforced in `OrgMembershipService.update_member_profile` (new `acting_identity_id` param,
+    compared against the target `identity_id`, raises `ForbiddenError`), not just left as a
+    frontend affordance — this is a real authorization rule (prevents both accidental last-admin
+    self-lockout and self-escalation), and it closes the same door on both call sites that reach
+    this method: `PATCH /orgs/<org_id>/members/<identity_id>` (`MembersTable`'s per-row Select,
+    which already disabled the self-row for this reason — now backed by a real check, not just a
+    disabled control) and the user-settings page's own Profile field, which now always renders
+    read-only.
+
+20. **Confirmed and fixed a real data-integrity gap: pre-existing orgs' `name` didn't match their
+    `slug` (and wasn't even slug-shaped) despite item 17/18 making "name is always identical to
+    slug" a hard invariant for every *new* org.** The bootstrap default org was the clearest
+    offender — its name came from a `DEFAULT_ORGANIZATION_NAME = "Default Organization"` constant
+    (spaces, capital letters) paired with `DEFAULT_ORGANIZATION_SLUG = "default"` — but any org
+    from the old, now-removed "create another org" flow (free-text name, auto-derived slug) had
+    the same mismatch, just less visibly malformed. `DEFAULT_ORGANIZATION_NAME` is deleted;
+    `bootstrap_default_organization` now creates the org with `DEFAULT_ORGANIZATION_SLUG` for both
+    fields, matching every other org-creation path. Migration `0014` backfills every existing
+    mismatched row to `name = slug` (safe and blanket, since slug is always already valid-shaped).
+    User settings (item 19) now also shows Org Name (read-only, first field in the left column) —
+    surfacing this exact field is what exposed the bug in the first place.
+
+Current test suite: **576 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
 - knowledge-store (the desktop app) needs its own separate registered Application (broader scope
   — see that repo's CLAUDE.md) to connect; there's no shared/default credential between clients.
+- Invite-flow redesign (planned next, after item 18): `OrgMembershipService.invite_member` always
+  creates a new identity per invite today, with `username` defaulting to the invited email as a
+  stopgap — a real design still needs to let the inviter choose the invitee's username directly,
+  rather than assuming an email-shaped string is also a good username.
 
 ## Docker testing workflow — never test against the prod container
 
@@ -422,7 +552,7 @@ DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-sec
 disown
 echo $! > /tmp/workspace-preview.pid
 ```
-Then open `http://127.0.0.1:15100/login` — `admin`/`admin`, forced password change on first login
+Then open `http://127.0.0.1:15100/login` — `admin@local`/`admin`, forced password change on first login
 — and configure the embedding provider once at `http://127.0.0.1:15100/settings` (Providers tab,
 the default landing page): model `nomic-embed-text`, base URL `http://127.0.0.1:11500`,
 dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
