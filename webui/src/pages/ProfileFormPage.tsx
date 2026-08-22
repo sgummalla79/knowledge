@@ -76,7 +76,7 @@ const PERMISSION_GROUPS: { label: string; permissions: { value: string; label: s
   { label: 'Search', permissions: [{ value: 'queries:execute', label: 'Execute queries' }] },
 ]
 
-// Routed at org/profiles/new and org/profiles/:id/edit (see App.tsx) — a full page rather than a
+// Routed at setup/profiles/new and setup/profiles/:id/edit (see App.tsx) — a full page rather than a
 // modal so a permission list this long has room to breathe. The back link (not a browser-history
 // back, an explicit link to the list) doubles as the page's "cancel" action; it warns before
 // discarding unsaved changes rather than needing a separate Cancel button.
@@ -136,7 +136,7 @@ export function ProfileFormPage() {
 
   function goBack() {
     if (isDirty() && !window.confirm('You have unsaved changes. Leave this page and lose them?')) return
-    navigate('/profiles')
+    navigate('/setup/profiles')
   }
 
   async function handleSubmit(event: React.FormEvent) {

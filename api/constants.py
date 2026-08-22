@@ -186,6 +186,8 @@ RESERVED_ORG_SLUGS = frozenset(
         "settings",
         "workspace",
         "account",
+        "user",
+        "setup",
         "well-known",
         "help",
         "support",

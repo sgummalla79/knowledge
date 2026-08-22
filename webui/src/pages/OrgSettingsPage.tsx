@@ -51,7 +51,7 @@ export function OrgSettingsPage() {
   return (
     <div>
       <div className="mb-1.5 flex items-baseline justify-between">
-        <h2 className="text-[22px] font-semibold text-foreground">Members</h2>
+        <h2 className="text-[22px] font-semibold text-foreground">Users</h2>
         {canManage && (
           <button
             type="button"
@@ -66,7 +66,7 @@ export function OrgSettingsPage() {
         A member's profile sets what they can do; shelf access sets which shelves of documents
         they can see and search. A member with no shelves assigned sees none.{' '}
         {canManage && (
-          <Link to="/profiles" className="text-foreground underline">
+          <Link to="/setup/profiles" className="text-foreground underline">
             Manage profiles
           </Link>
         )}

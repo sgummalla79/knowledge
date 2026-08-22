@@ -31,7 +31,7 @@ export function ConnectedApplicationsPage() {
   const { showToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
-  // ApplicationCreatePage (org/applications/new) hands the freshly created application back via
+  // ApplicationCreatePage (setup/applications/new) hands the freshly created application back via
   // router state rather than a callback prop, since it's a separate routed page now, not a modal
   // rendered inline here. oauth_authorization_code has nothing secret to show (a public,
   // PKCE-only client), so only open the reveal step when there's actually a secret to reveal.
@@ -94,7 +94,7 @@ export function ConnectedApplicationsPage() {
         {canManage && (
           <button
             type="button"
-            onClick={() => navigate('/applications/new')}
+            onClick={() => navigate('/setup/applications/new')}
             className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             New application

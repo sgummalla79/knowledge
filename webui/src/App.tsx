@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { currentOrgSlug } from './api/shell'
 import { NavBar } from './components/NavBar'
-import { SettingsLayout } from './components/SettingsLayout'
+import { SetupLayout } from './components/SetupLayout'
+import { UserSettingsLayout } from './components/UserSettingsLayout'
 import { ToastProvider } from './components/ToastProvider'
 import { BrowsePage } from './pages/BrowsePage'
 import { CategoriesSettingsPage } from './pages/CategoriesSettingsPage'
@@ -74,19 +75,22 @@ export default function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="upload" element={<UploadPage />} />
 
-              <Route element={<SettingsLayout />}>
-                <Route path="user/settings" element={<UserSettingsPage />} />
+              <Route element={<UserSettingsLayout />}>
+                <Route path="user/profile" element={<UserSettingsPage />} />
                 <Route path="user/api-keys" element={<ApiKeysPage />} />
-                <Route path="members" element={<OrgSettingsPage />} />
-                <Route path="profiles" element={<ProfilesSettingsPage />} />
-                <Route path="profiles/new" element={<ProfileFormPage />} />
-                <Route path="profiles/:id/edit" element={<ProfileFormPage />} />
-                <Route path="shelves" element={<ShelvesSettingsPage />} />
-                <Route path="categories" element={<CategoriesSettingsPage />} />
-                <Route path="embedding-models" element={<EmbeddingModelsPage />} />
-                <Route path="applications" element={<ConnectedApplicationsPage />} />
-                <Route path="applications/new" element={<ApplicationCreatePage />} />
-                <Route path="mcp" element={<MCPSettingsPage />} />
+              </Route>
+
+              <Route element={<SetupLayout />}>
+                <Route path="setup/users" element={<OrgSettingsPage />} />
+                <Route path="setup/profiles" element={<ProfilesSettingsPage />} />
+                <Route path="setup/profiles/new" element={<ProfileFormPage />} />
+                <Route path="setup/profiles/:id/edit" element={<ProfileFormPage />} />
+                <Route path="setup/shelves" element={<ShelvesSettingsPage />} />
+                <Route path="setup/categories" element={<CategoriesSettingsPage />} />
+                <Route path="setup/embedding-models" element={<EmbeddingModelsPage />} />
+                <Route path="setup/applications" element={<ConnectedApplicationsPage />} />
+                <Route path="setup/applications/new" element={<ApplicationCreatePage />} />
+                <Route path="setup/mcp" element={<MCPSettingsPage />} />
               </Route>
             </Route>
           </Routes>

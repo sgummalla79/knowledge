@@ -36,6 +36,12 @@
   --accent-foreground: oklch(0.6723 0.1606 244.9955);
   --destructive: oklch(0.6188 0.2376 25.7658);
   --destructive-foreground: oklch(1.0000 0 0);
+  /* Not part of the tweakcn export — added for the one amber warning-banner use case (see
+     UserSettingsPage.tsx). Same value in every block below (light, explicit dark, and the
+     system-preference dark fallback), same pattern --destructive already uses: one oklch value
+     with roughly-balanced contrast against both a near-white and a near-black background, rather
+     than a separate tuned value per theme. */
+  --warning: oklch(0.55 0.15 70);
   --border: oklch(0.9317 0.0118 231.6594);
   --input: oklch(0.9809 0.0025 228.7836);
   --ring: oklch(0.6818 0.1584 243.3540);
@@ -65,6 +71,7 @@
   --accent-foreground: oklch(0.6692 0.1607 245.0110);
   --destructive: oklch(0.6188 0.2376 25.7658);
   --destructive-foreground: oklch(1.0000 0 0);
+  --warning: oklch(0.55 0.15 70);
   --border: oklch(0.2674 0.0047 248.0045);
   --input: oklch(0.3020 0.0288 244.8244);
   --ring: oklch(0.6818 0.1584 243.3540);
@@ -91,6 +98,7 @@
     --accent-foreground: oklch(0.6692 0.1607 245.0110);
     --destructive: oklch(0.6188 0.2376 25.7658);
     --destructive-foreground: oklch(1.0000 0 0);
+    --warning: oklch(0.55 0.15 70);
     --border: oklch(0.2674 0.0047 248.0045);
     --input: oklch(0.3020 0.0288 244.8244);
     --ring: oklch(0.6818 0.1584 243.3540);
@@ -117,6 +125,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

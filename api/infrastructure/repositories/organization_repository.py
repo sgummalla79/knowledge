@@ -51,3 +51,21 @@ class OrganizationRepository:
     def list(self) -> list[OrganizationEntity]:
         models = self._session.query(OrganizationModel).all()
         return [_to_entity(model) for model in models]
+
+    def update_name(self, org_id, name: str) -> OrganizationEntity:
+        # name doubles as slug (see org_name_validation.validate_org_slug / migration 0014's
+        # name==slug backfill) — every member's URL is namespaced under it (App.tsx's
+        # BrowserRouter basename), so renaming rewrites both columns together, never just one.
+        model = self._session.query(OrganizationModel).filter(OrganizationModel.id == org_id).one()
+        model.name = name
+        model.slug = name
+        try:
+            self._session.flush()
+        except IntegrityError:
+            self._session.rollback()
+            raise ConflictError(
+                error_codes.ORGANIZATION_SLUG_TAKEN,
+                f"An organization with slug '{name}' already exists.",
+                field="name",
+            )
+        return _to_entity(model)

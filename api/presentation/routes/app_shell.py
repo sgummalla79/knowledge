@@ -22,6 +22,15 @@ def favicon():
     return send_from_directory(current_app.static_folder, "brand-icon.png")
 
 
+@app_shell_bp.get("/favicon.svg")
+def favicon_svg():
+    # Same carve-out as favicon() above, for index.html's <link rel="icon" type="image/svg+xml">
+    # — brand-icon.svg is theme-adaptive (embedded prefers-color-scheme CSS, black glyph on a
+    # light tab bar / white on a dark one), which brand-icon.png (a fixed color, still linked as
+    # the fallback favicon for browsers that don't support SVG favicons) can't be.
+    return send_from_directory(current_app.static_folder, "brand-icon.svg")
+
+
 @app_shell_bp.get("/")
 @app_shell_bp.get("/<path:subpath>")
 @login_required

@@ -3,7 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { signOut } from '../api/auth'
 import { currentUsername } from '../api/shell'
 import { currentTheme, setTheme } from '../theme'
-import { ChevronDownIcon, MoonIcon, SunIcon } from './icons'
+import { ChevronDownIcon, HomeIcon, MoonIcon, SunIcon } from './icons'
 import { Logo } from './Logo'
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -43,6 +43,9 @@ export function NavBar() {
           <NavLink to="/" className="mr-auto flex items-center gap-2 text-foreground">
             <Logo className="text-primary" />
             <span className="text-lg font-semibold">Knowledge</span>
+          </NavLink>
+          <NavLink to="/" end aria-label="Home" className={navLinkClass}>
+            <HomeIcon />
           </NavLink>
           <NavLink to="/browse" className={navLinkClass}>
             Browse
@@ -85,11 +88,18 @@ export function NavBar() {
                   {username}
                 </div>
                 <NavLink
-                  to="/user/settings"
+                  to="/user/profile"
                   onClick={() => setMenuOpen(false)}
                   className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
                 >
                   User settings
+                </NavLink>
+                <NavLink
+                  to="/setup/users"
+                  onClick={() => setMenuOpen(false)}
+                  className="block rounded-sm px-2.5 py-2 text-sm text-foreground hover:bg-secondary"
+                >
+                  Setup
                 </NavLink>
                 <button
                   type="button"

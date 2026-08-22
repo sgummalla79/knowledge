@@ -172,6 +172,34 @@ def test_update_me_username_wrong_password_returns_401(client):
     assert response.status_code == 401
 
 
+def test_update_organization_returns_updated_org(client):
+    org = _org(name="acme-renamed", slug="acme-renamed")
+    with patch("api.presentation.routes.orgs.OrgMembershipService.change_organization_name", return_value=org):
+        response = client.patch(f"/orgs/{org.id}", json={"name": "acme-renamed", "current_password": "correct-password"})
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["name"] == "acme-renamed"
+    assert body["slug"] == "acme-renamed"
+
+
+def test_update_organization_requires_permission(client):
+    with patch("api.presentation.routes.app_auth.PermissionService.resolve_permissions", return_value=frozenset()):
+        response = client.patch(f"/orgs/{uuid4()}", json={"name": "acme-renamed", "current_password": "pw"})
+
+    assert response.status_code == 403
+
+
+def test_update_organization_wrong_password_returns_401(client):
+    with patch(
+        "api.presentation.routes.orgs.OrgMembershipService.change_organization_name",
+        side_effect=AuthenticationError("Incorrect password."),
+    ):
+        response = client.patch(f"/orgs/{uuid4()}", json={"name": "acme-renamed", "current_password": "wrong"})
+
+    assert response.status_code == 401
+
+
 def test_list_members_returns_all(client):
     identity = _identity()
     profile = _profile()

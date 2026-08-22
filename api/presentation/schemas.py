@@ -89,6 +89,13 @@ class MeUsernameUpdateRequest(BaseModel):
     current_password: str = Field(min_length=1)
 
 
+class OrgNameUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    current_password: str = Field(min_length=1)
+
+
 class OrgMemberResponse(BaseModel):
     identity_id: UUID
     username: str

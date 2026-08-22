@@ -15,7 +15,7 @@ const AUTH_METHOD_OPTIONS: { value: ApplicationAuthMethod; label: string }[] = [
 
 type CreatedApplication = ApplicationWithClientSecret | Application
 
-// Routed at org/applications/new (see App.tsx) — a full page rather than a modal, same rationale
+// Routed at setup/applications/new (see App.tsx) — a full page rather than a modal, same rationale
 // ProfileFormPage already documents. On success, navigates back to the list with the created
 // application in router state so it can open the one-time secret-reveal modal — that step stays a
 // modal, since it's a single acknowledgement, not a form.
@@ -48,7 +48,7 @@ export function ApplicationCreatePage() {
 
   function goBack() {
     if (isDirty() && !window.confirm('You have unsaved changes. Leave this page and lose them?')) return
-    navigate('/applications')
+    navigate('/setup/applications')
   }
 
   const memberOptions = (members.data ?? []).map((member) => ({ value: member.identity_id, label: `${member.name} (${member.username})` }))
@@ -75,7 +75,7 @@ export function ApplicationCreatePage() {
           : { ...base, redirect_uris: redirectUris }
       const application = await api.post<CreatedApplication>('/applications', body)
       void queryClient.invalidateQueries({ queryKey: ['applications'] })
-      navigate('/applications', { state: { justCreated: application } })
+      navigate('/setup/applications', { state: { justCreated: application } })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
       setSaving(false)
@@ -230,7 +230,7 @@ export function ApplicationCreatePage() {
             <p className="mt-2 text-xs text-muted-foreground">
               API access gates the plain REST API — without it, this application can't call any REST endpoint
               regardless of what its profile would otherwise grant. MCP access lets it reach this org's MCP tool
-              tiers instead, if any are enabled under Settings &gt; MCP. Both are available for either
+              tiers instead, if any are enabled under Setup &gt; MCP. Both are available for either
               authentication method, and the connecting identity's profile still gates each individual call
               either way.
             </p>

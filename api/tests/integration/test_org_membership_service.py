@@ -1,7 +1,8 @@
 import pytest
 
 from api.application.org_membership_service import OrgMembershipService
-from api.domain.errors import ConflictError, ForbiddenError, ValidationError
+from api.domain.errors import AuthenticationError, ConflictError, ForbiddenError, ValidationError
+from api.infrastructure.auth.passwords import hash_password
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
@@ -17,8 +18,8 @@ def _service(db_session) -> OrgMembershipService:
     )
 
 
-def _identity(db_session, username="owner@acme.com"):
-    return IdentityRepository(db_session).create(username, "hashed", name=username)
+def _identity(db_session, username="owner@acme.com", password_hash="hashed"):
+    return IdentityRepository(db_session).create(username, password_hash, name=username)
 
 
 def _org(db_session, service, slug="acme-labs"):
@@ -27,6 +28,17 @@ def _org(db_session, service, slug="acme-labs"):
     organization = service.create_org_with_owner(slug, owner.id)
     db_session.commit()
     return organization
+
+
+def _org_with_admin_password(db_session, service, slug, password):
+    """Like _org, but the owner identity gets a real, verifiable password hash — needed for
+    change_organization_name's current_password check, which _org's plain "hashed" placeholder
+    can't satisfy."""
+    owner = _identity(db_session, username=f"owner-{slug}@acme.com", password_hash=hash_password(password))
+    db_session.commit()
+    organization = service.create_org_with_owner(slug, owner.id)
+    db_session.commit()
+    return organization, owner
 
 
 def test_invite_member_creates_a_new_identity_for_the_email(db_session):
@@ -104,3 +116,43 @@ def test_admin_can_change_another_members_profile(db_session):
     db_session.commit()
 
     assert updated.profile_id == admin_profile.id
+
+
+def test_change_organization_name_succeeds_with_correct_password(db_session):
+    service = _service(db_session)
+    organization, owner = _org_with_admin_password(db_session, service, "acme-rename-ok", "correct-password")
+
+    updated = service.change_organization_name(organization.id, owner.id, "correct-password", "acme-renamed")
+    db_session.commit()
+
+    assert updated.name == "acme-renamed"
+    assert updated.slug == "acme-renamed"
+    assert OrganizationRepository(db_session).get_by_slug("acme-renamed") is not None
+
+
+def test_change_organization_name_rejects_wrong_password(db_session):
+    service = _service(db_session)
+    organization, owner = _org_with_admin_password(db_session, service, "acme-rename-wrongpw", "correct-password")
+
+    with pytest.raises(AuthenticationError):
+        service.change_organization_name(organization.id, owner.id, "wrong-password", "acme-renamed-wrongpw")
+    db_session.commit()
+
+    assert OrganizationRepository(db_session).get(organization.id).slug == "acme-rename-wrongpw"
+
+
+def test_change_organization_name_rejects_invalid_slug(db_session):
+    service = _service(db_session)
+    organization, owner = _org_with_admin_password(db_session, service, "acme-rename-invalid", "correct-password")
+
+    with pytest.raises(ValidationError):
+        service.change_organization_name(organization.id, owner.id, "correct-password", "Not A Slug")
+
+
+def test_change_organization_name_rejects_taken_slug(db_session):
+    service = _service(db_session)
+    _org(db_session, service, slug="acme-taken")
+    organization, owner = _org_with_admin_password(db_session, service, "acme-rename-taken", "correct-password")
+
+    with pytest.raises(ConflictError):
+        service.change_organization_name(organization.id, owner.id, "correct-password", "acme-taken")

@@ -75,7 +75,7 @@ function CreateApiKeyModal({ onClose, onCreated }: CreateModalProps) {
             <span>
               <span className="block text-[15px] text-foreground">MCP access</span>
               <span className="block text-[13px] text-muted-foreground">
-                Lets this key reach this org's MCP tool tiers, if any are enabled under Settings &gt; MCP.
+                Lets this key reach this org's MCP tool tiers, if any are enabled under Setup &gt; MCP.
               </span>
             </span>
           </label>
@@ -97,8 +97,8 @@ function CreateApiKeyModal({ onClose, onCreated }: CreateModalProps) {
   )
 }
 
-// Routed at /user/api-keys (see App.tsx), inside the Settings sidebar (SettingsLayout) even
-// though this is personal, not org-admin, data — self-service: any org member manages their own
+// Routed at /user/api-keys (see App.tsx), inside the User settings sidebar (UserSettingsLayout)
+// even though this is personal, not org-admin, data — self-service: any org member manages their own
 // keys here, no applications:write-style permission required (see
 // api/presentation/routes/personal_access_tokens.py's require_org_session gate). Scoped to
 // whichever org is currently active, same as everything else in this app.

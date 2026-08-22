@@ -1,15 +1,8 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const LINKS = [
-  { to: '/user/settings', label: 'User settings' },
+  { to: '/user/profile', label: 'Profile' },
   { to: '/user/api-keys', label: 'API keys' },
-  { to: '/members', label: 'Members & access' },
-  { to: '/profiles', label: 'Profiles' },
-  { to: '/shelves', label: 'Shelves' },
-  { to: '/categories', label: 'Data categories' },
-  { to: '/embedding-models', label: 'Embedding model' },
-  { to: '/applications', label: 'Connected applications' },
-  { to: '/mcp', label: 'MCP' },
 ]
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -17,9 +10,10 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-secondary'
   }`
 
-// Same sidebar + content layout as BrowsePage's FilterSidebar (w-56 shrink-0 aside, flex-1
-// content) — settings has enough sections now that a horizontal tab row wrapped awkwardly.
-export function SettingsLayout() {
+// Personal settings (/user/...), split out from org-admin settings (SetupLayout, /setup/...) —
+// same sidebar + content layout as BrowsePage's FilterSidebar (w-56 shrink-0 aside, flex-1
+// content).
+export function UserSettingsLayout() {
   return (
     <div className="py-12">
       <div className="flex gap-10">

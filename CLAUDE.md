@@ -380,7 +380,9 @@ stack as the rest of the API — see session history item 8.
     removed entirely, not just hidden: `PATCH /orgs/<org_id>` (`update_org`),
     `OrgMembershipService.update_organization`, `OrganizationRepository.update`, and the
     `OrgUpdateRequest` schema are all gone, since nothing else called them and this app's org name
-    is meant to be immutable after signup (see item 17). The page shows the caller's own Full
+    is meant to be immutable after signup (see item 17) — **superseded by item 28: org name
+    editing was reintroduced, admin-only and password-gated, once description-editing stayed
+    removed but the immutability decision itself didn't hold.** The page shows the caller's own Full
     Name/Email/Username/Profile — Profile is editable only for an admin (`profile_is_admin`),
     disabled otherwise, via the existing `PATCH /orgs/<org_id>/members/<identity_id>` (same
     endpoint `MembersTable` already used to change *other* members' profiles). Backed by a new
@@ -563,7 +565,202 @@ stack as the rest of the API — see session history item 8.
     since it's the other personal/self-service page in that list — every other entry there is
     org-admin). The avatar dropdown now only has User settings and Sign out.
 
-Current test suite: **584 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+25. **Settings split into two separate sections — "User settings" (personal) and "Setup"
+    (org-admin) — each with its own sidebar and URL prefix, replacing the single combined
+    Settings sidebar item 24 described.** `webui/src/components/SettingsLayout.tsx` is deleted;
+    `UserSettingsLayout.tsx` (`/user/profile`, `/user/api-keys`) and `SetupLayout.tsx`
+    (`/setup/users`, `/setup/profiles(/...)`, `/setup/shelves`, `/setup/categories`,
+    `/setup/embedding-models`, `/setup/applications(/...)`, `/setup/mcp`) replace it as two
+    parallel nav components in `App.tsx`, each its own `<Route element={...}>` wrapper — same
+    mechanical route-rename pattern items 21/24 already used (only route paths + the two new
+    layout files changed; no page component's own logic changed). `UserSettingsPage.tsx`'s route
+    moves `/user/settings` → `/user/profile` and its heading changes "User settings" → "Profile"
+    to match its new sidebar label; `OrgSettingsPage.tsx`'s route moves `/members` → `/setup/users`
+    and its heading "Members" → "Users" for the same reason. Every internal `Link`/`navigate()`
+    call that pointed at an old bare path (`/profiles(/...)`, `/applications(/...)`) now points at
+    the `/setup/`-prefixed one — `OrgSettingsPage.tsx`, `ProfileFormPage.tsx`,
+    `ProfilesSettingsPage.tsx`, `ConnectedApplicationsPage.tsx`, `ApplicationCreatePage.tsx`. The
+    avatar dropdown (`NavBar.tsx`) now has three items — User settings (→ `/user/profile`), Setup
+    (→ `/setup/users`), Sign out — instead of item 24's two. `api/constants.py`'s
+    `RESERVED_ORG_SLUGS` gained `"user"` and `"setup"` (the latter newly load-bearing now that
+    `/setup/...` is a real top-level segment; `"user"` closes a pre-existing gap — `/user/...` was
+    already live since item 21 but had never actually been reserved). No backend routing changes
+    beyond that one constants addition: `app_shell.py`'s catch-all already ignores `subpath`
+    entirely (see item 21), so it serves any `/<org-slug>/setup/...` or `/<org-slug>/user/...` path
+    without needing to know the new segment exists — verified via curl against a fresh dev-preview
+    org (`GET` on every new path returns `200`, `check-org-name` correctly rejects `setup`/`user`).
+    **If this file, comments, or memory ever mention a single combined `SettingsLayout` component,
+    `/user/settings`, `/members`, or a bare (non-`/setup/`-prefixed) `/profiles`, `/shelves`,
+    `/categories`, `/embedding-models`, `/applications`, or `/mcp` route, that reference predates
+    this item and is stale.**
+
+26. **Browser tab favicon set to the brand icon.** The real serving path, missed on the first
+    attempt: `api/presentation/routes/app_shell.py` already registers a dedicated
+    `GET /favicon.ico` route serving `api/static/brand-icon.png` — deliberately carved out ahead
+    of the `/<path:subpath>` catch-all specifically so a browser's automatic favicon request never
+    falls through to that `@login_required` route (which would 302 to `/sign-in?next=/favicon.ico`
+    and *stash that as the real post-login redirect target*, hijacking sign-in/sign-up). A first
+    attempt added `webui/public/favicon.svg` and pointed `index.html`'s `<link rel="icon">` at
+    `/favicon.svg` instead — wrong, because `/favicon.svg` isn't a registered Flask route at all,
+    so it falls straight into that same catch-all: unauthenticated, a redirect to sign-in (and the
+    exact hijack risk the `/favicon.ico` route exists to avoid); authenticated, the SPA's HTML
+    shell, never real SVG bytes. Browsers silently fall back to their automatic `/favicon.ico`
+    request when the linked icon fails to load, which is why the tab kept showing the old
+    stacked-books `brand-icon.png` no matter how thoroughly the cache was cleared — the new icon
+    was simply never reachable, not a caching problem. **Corrected fix:** replaced
+    `api/static/brand-icon.png` itself (same 128×128 RGBA PNG format, same file the existing route
+    already serves) with the new design — the same book-glyph `<path>` `Logo.tsx` uses for the
+    NavBar/AuthCard wordmark, filled `#1e9df1` (the computed sRGB hex of the `--primary` OKLCH
+    token in `webui/src/index.css`, identical in both palettes) on a transparent background, no
+    background shape — rasterized from a throwaway SVG via macOS `qlmanage -t` (no SVG rasterizer
+    installed: checked `rsvg-convert`/`imagemagick`/`inkscape`, none present). A first version
+    used a filled rounded-square background behind a white glyph; reverted after feedback that a
+    solid-color box read as a background swatch rather than a transparent tab icon, in favor of
+    matching the existing `brand-icon.png`'s own transparent-canvas convention, then enlarged to
+    fill the canvas edge-to-edge (a hairline 1-unit margin on the 32-unit viewBox, up from the
+    initial version's 3-unit margin) after feedback that it read too small. `qlmanage` itself
+    doesn't preserve SVG transparency — it flattens to a white-composited PNG — so real alpha was
+    recovered afterward in Python by inverting the known compositing math (`out = fg·a +
+    white·(1-a)`, solved for `a` per pixel; valid here since the glyph is a single flat fill color,
+    no gradients) rather than by chroma-keying, which would fringe the anti-aliased edges.
+    `index.html`'s `<link rel="icon">` reverted back to plain `/favicon.ico`; `webui/public/`
+    (including the unreachable `favicon.svg`) deleted entirely. Verified end-to-end against the
+    dev-preview Flask process (no restart needed — a static file swap, not a code change):
+    `GET /favicon.ico` returns `200`, `image/png`, and the new icon.
+
+    **Later made theme-adaptive.** Asked to change the glyph to white, then flagged that a
+    white-on-transparent PNG is invisible on a light tab bar (the default in most browsers) — a
+    single raster image can't know the tab's background color at all, so no fixed color is
+    correct in both cases. Resolved properly this time: `api/static/brand-icon.svg` (new) is the
+    same glyph with an embedded `<style>`/`@media (prefers-color-scheme: dark)` block — black fill
+    by default, white under a dark preference. This is the *correct* signal to key off for a
+    favicon specifically (unlike the `dark:` Tailwind-variant mistake earlier in this same item's
+    history): a favicon renders in browser chrome, outside the page's DOM entirely, so it only
+    ever has access to the OS/browser-level color scheme, never this app's own `data-theme`
+    toggle — there's no disconnect this time because that's genuinely the only signal available at
+    that layer. A second Flask route, `GET /favicon.svg` (`app_shell.py`, right below the existing
+    `/favicon.ico` one, same login-gated-catch-all carve-out and same reasoning), serves it;
+    `index.html` gained `<link rel="icon" type="image/svg+xml" href="/favicon.svg">` ahead of the
+    existing `.ico` link, which now carries `sizes="any"` to mark it as the fixed-color fallback
+    for browsers without SVG-favicon support — left as the existing blue `brand-icon.png`,
+    unchanged, since a fallback that can't adapt is safer picking a color legible in both themes
+    than picking either black or white outright. Verified the media query itself (not just
+    trusting the CSS) by rendering forced light-only and dark-only variants through macOS
+    `qlmanage` — confirmed clean black-on-transparent and white-on-transparent respectively — and
+    verified `GET /favicon.svg` serves `200`/`image/svg+xml; charset=utf-8` and never reaches the
+    login-gated catch-all. Also caught and fixed a real staleness bug this surfaced:
+    `api/presentation/web/spa.py`'s `_DEV_SHELL_TEMPLATE` (a hand-maintained duplicate of
+    `webui/index.html`'s `<head>`, used only when `WEBUI_DEV_SERVER` is set — see its own docstring
+    on why dev mode can't just read the real file) still had the old single `.ico`-only link, so
+    the local dev-preview server never actually reflected any `webui/index.html` favicon change
+    made earlier in this same item, even though a real build (`npm run build`) always would have —
+    updated to match.
+
+27. **`UserSettingsPage.tsx`'s Username section collapsed into the main Profile form and its own
+    Save button removed — one Save, gated by a password-confirmation modal when username is
+    actually the field that changed.** Supersedes the two-form/two-button layout item 19
+    described: `username` is now just another field in `account-form` (seeded from `me.username`,
+    same as `name`/`email`), and the separate "Update username" button/form and its always-visible
+    "Current password" field are gone. Clicking the single header Save button
+    (`form="account-form"`) checks whether `username` specifically is dirty
+    (`username !== me.username`): if not, it submits directly via the existing password-free
+    `PATCH /orgs/me`, unchanged from before; if it is, nothing is submitted yet — a new
+    `ConfirmUsernameModal` (built on the existing `Modal` + `PasswordField` components, the same
+    pattern `InviteMemberModal`/`ShelfFormModal` already use elsewhere in this app) opens instead,
+    asking for the current password before anything is written. Confirming the modal calls `PATCH
+    /orgs/me` first if name/email were *also* dirty, then `PATCH /orgs/me/username` with the
+    password — both endpoints, requirements, and error codes are unchanged, only the frontend
+    orchestration is new. Deliberately atomic: cancelling the modal saves nothing at all (not even
+    the name/email part), so a changed-username Save is all-or-nothing, and a wrong password just
+    re-shows the error inside the modal without losing any typed field. Verified the two API
+    contracts this depends on directly via curl against the dev-preview: `PATCH /orgs/me` with no
+    `current_password` succeeds; `PATCH /orgs/me/username` succeeds with the right password and
+    returns `401 unauthorized`/`"Incorrect password."` with a wrong one.
+
+28. **Org name editing reintroduced on `UserSettingsPage.tsx`** — admin-only, password-gated, and
+    forces a full sign-out on success, unlike the plain profile fields. Org name doubles as every
+    member's URL slug (item 20's `name == slug` invariant, enforced end-to-end since org creation
+    stores `name` and `slug` as the same value — see item 17), so this isn't a display-label edit:
+    the input takes the same slug-shaped value (`validate_org_slug` — lowercase/digits/hyphens,
+    reserved-word check) signup already validates, not free text. New `PATCH /orgs/<org_id>` route
+    (`orgs.py`), gated by `@require_permission("org:write")` — reusing a permission scope that
+    already existed in `OBJECT_PERMISSIONS` and was already seeded onto every org's Admin profile
+    and labeled "Rename / describe org" in `ProfileFormPage.tsx`'s permission editor, left over
+    from before item 19 removed the feature it was written for; no new scope was needed. New
+    `OrgMembershipService.change_organization_name(org_id, acting_identity_id, current_password,
+    new_name)` re-verifies the acting admin's own password (`verify_password` against their
+    `Identity.password_hash`, same primitive `AuthService.change_username` already uses) before
+    calling new `OrganizationRepository.update_name` (writes `name` and `slug` together, always;
+    `IntegrityError` on a slug collision → `ConflictError`, mirroring `create`'s existing handling
+    — port method added to `OrganizationRepositoryPort`).
+
+    Frontend: `UserSettingsPage.tsx`'s "Org name" field goes from always-disabled to
+    conditionally-editable (`org.permissions.includes('org:write')`) — disabled with a "Only an
+    admin can change the organization name" hint otherwise. A warning banner (new `WarningIcon` in
+    `icons.tsx`) sits above the form, unconditionally, stating that changing username (and, for an
+    admin, org name) requires the current password and signs the browser out immediately. First
+    version used raw Tailwind `yellow-500`/`yellow-700 dark:text-yellow-400` classes instead of a
+    design token — wrong, and reported as unreadable in light mode: this app's dark mode is an
+    explicit `data-theme="dark"` attribute toggle (`theme.ts`), not
+    `prefers-color-scheme`-driven, and `index.css` has no `@custom-variant dark` remapping
+    Tailwind's `dark:` prefix to match it (confirmed `dark:` wasn't used anywhere else in this
+    codebase before this page) — so `dark:text-yellow-400` only ever tracked the OS-level color
+    scheme, completely independent of the app's own toggle, producing the reported light-on-light
+    text whenever the two disagreed. Fixed by adding a real `--warning` token to `index.css` (same
+    single-oklch-value-in-every-theme-block pattern `--destructive` already uses, plus the
+    `@theme inline` mapping so `text-warning`/`border-warning`/`bg-warning` exist as real Tailwind
+    utilities) rather than reaching for another one-off raw color — confirmed via a throwaway HTML
+    render (`qlmanage -t`, no browser available in this environment) that the resulting amber text
+    is legible against both a white and a solid-black background, matching this app's real
+    `--background` values in each theme. The username field's own inline hint ("Changing user
+    name requires your current password") was also removed as redundant now that the same
+    information is already stated once, up front, in the banner. The username and org-name
+    confirmation flows were unified into
+    one `ConfirmSensitiveChangeModal` (renamed from item 27's `ConfirmUsernameModal`) rather than
+    two separate modals, since Save can trigger both at once if an admin edits both fields in the
+    same pass — its body text lists whichever of the two actually changed. `handleConfirm`
+    deliberately orders its calls **password-gated first, password-free profile patch last**: if
+    the password is wrong, the org-name/username call throws immediately and `saveProfile()` (no
+    password check at all) never runs, so a rejected confirm leaves *everything* uncommitted,
+    including any name/email edit made in the same Save — verified directly via curl against the
+    dev-preview (wrong password → org slug, profile name, and session all unchanged; correct
+    password → org rename + username change + profile update all land, then `POST /logout`
+    confirmed by a subsequent `401`). Every other org member self-corrects to the renamed URL on
+    their next request via the existing mechanism (item 21's `ORG_SLUG` self-correction) — only
+    the acting admin's own session needs the forced sign-out, since only their browser has the old
+    slug baked into `BrowserRouter`'s already-mounted `basename`.
+
+    Test coverage added alongside (591 total now): `api/tests/integration/
+    test_org_membership_service.py` gained `_org_with_admin_password` (a variant of the existing
+    `_org` helper with a real `hash_password`-backed owner, since `_org`'s plain `"hashed"`
+    placeholder can't satisfy a real password check) plus 4 tests (success, wrong password,
+    invalid slug, taken slug); `api/tests/unit/test_org_routes.py` gained 3 route-layer tests
+    (success, permission-denied, wrong-password-401) following that file's existing
+    mock-the-service pattern.
+
+    `account-form` laid out as two columns (`grid grid-cols-1 md:grid-cols-2`, same responsive
+    pattern this page used before item 27 collapsed it to one column): left is the two safe,
+    unconfirmed fields plus the read-only Profile row (Full name, Email, Profile); right is the
+    two password-gated, sign-you-out-on-save fields (Org name, Username) — grouping mirrors the
+    safe-vs-sensitive distinction the warning banner above the form already states, not just a
+    visual rebalance.
+
+29. **Added an icon-only Home link to `NavBar.tsx`**, right before Browse — new `HomeIcon` in
+    `icons.tsx` (same stroke-based style as the other nav icons), `<NavLink to="/" end
+    aria-label="Home">` reusing the existing `navLinkClass` active-state styling Browse/Search/
+    Dashboard already use. `end` matters here specifically — without it, `to="/"` would match (and
+    stay visually "active") on every route, since every path starts with `/`; the brand
+    logo/wordmark `NavLink` earlier in this file also points at `/` but never needed `end` since
+    its `className` is a static string that ignores `isActive` altogether. Functionally identical
+    to clicking the brand logo (same `to="/"` target) — just a second, icon-only way to reach it
+    from within the nav row itself, not a new route or behavior. `HomeIcon`'s glyph was redrawn
+    once, after feedback that the first pass (two plain strokes for a roofline over a box) read as
+    too generic — replaced with a proper house silhouette plus a distinct door cutout (closer to
+    Lucide/Feather's stock "home" icon), verified via a throwaway HTML render (`qlmanage -t`, no
+    browser available in this environment) in both the inactive and active (`text-primary`) color
+    states before landing it.
+
+Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 

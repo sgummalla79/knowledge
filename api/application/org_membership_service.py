@@ -1,17 +1,18 @@
 import secrets
 from uuid import UUID
 
+from api.application.org_name_validation import validate_org_slug
 from api.application.profile_service import ProfileService
 from api.application.username_validation import validate_username_format
 from api.domain.entities import Identity, OrgMember, Organization
-from api.domain.errors import ForbiddenError
+from api.domain.errors import AuthenticationError, ForbiddenError
 from api.domain.ports import (
     IdentityRepositoryPort,
     OrgMemberRepositoryPort,
     OrganizationRepositoryPort,
     ProfileRepositoryPort,
 )
-from api.infrastructure.auth.passwords import hash_password
+from api.infrastructure.auth.passwords import hash_password, verify_password
 
 
 class OrgMembershipService:
@@ -74,6 +75,21 @@ class OrgMembershipService:
         if identity_id == acting_identity_id:
             raise ForbiddenError("You can't change your own profile — ask another admin to change it.")
         return self._org_members.update_profile(org_id, identity_id, profile_id)
+
+    def change_organization_name(
+        self, org_id: UUID, acting_identity_id: UUID, current_password: str, new_name: str
+    ) -> Organization:
+        """Gated at the route by org:write (only the Admin profile has it by default — see
+        OBJECT_PERMISSIONS/ProfileService.create_admin_profile). Re-verifies the acting admin's
+        own current password first, same rationale as AuthService.change_username: the org name
+        doubles as every member's URL slug (validate_org_slug / migration 0014's name==slug
+        invariant), so a hijacked session shouldn't be able to silently rewrite the whole org's
+        address just by holding the cookie."""
+        identity = self._identities.get_by_id(acting_identity_id)
+        if identity is None or not verify_password(current_password, identity.password_hash):
+            raise AuthenticationError("Incorrect password.")
+        validate_org_slug(new_name)
+        return self._organizations.update_name(org_id, new_name)
 
     def remove_member(self, org_id: UUID, identity_id: UUID) -> None:
         self._org_members.delete(org_id, identity_id)

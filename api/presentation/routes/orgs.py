@@ -21,6 +21,7 @@ from api.presentation.schemas import (
     OrgInviteRequest,
     OrgMemberProfileUpdateRequest,
     OrgMemberResponse,
+    OrgNameUpdateRequest,
     OrgResponse,
     ShelfSummaryResponse,
 )
@@ -112,6 +113,18 @@ def update_me_username():
     dto = MeUsernameUpdateRequest.model_validate(request.get_json(silent=True) or {})
     identity = _auth_service().change_username(g.user_id, dto.current_password, dto.username)
     return jsonify(_me_response(identity))
+
+
+@orgs_bp.patch("/<uuid:org_id>")
+@require_permission("org:write")
+def update_organization(org_id: UUID):
+    """Admin-only (org:write is only on the Admin profile by default) and re-verifies the acting
+    admin's own current password — the org name doubles as every member's URL slug, so this is a
+    credential-weight change, not a plain profile edit (see OrgMembershipService.
+    change_organization_name)."""
+    dto = OrgNameUpdateRequest.model_validate(request.get_json(silent=True) or {})
+    organization = _service().change_organization_name(org_id, g.user_id, dto.current_password, dto.name)
+    return jsonify(OrgResponse.from_entity(organization, _permissions_for(g.user_id, org_id)).model_dump(mode="json"))
 
 
 @orgs_bp.get("/<uuid:org_id>/members")
