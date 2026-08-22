@@ -1,8 +1,9 @@
 # Publishes the knowledge image to Docker Hub.
 #
-# VERSION-BASED, not branch-based: a push to releases/v3 publishes ONLY when the repo-root
+# VERSION-BASED, not branch-based: a push to releases/v4 publishes ONLY when the repo-root
 # VERSION file changed in that push. The branch is the carrier; the version is the trigger.
-# releases/v1 and releases/v2 are closed (see CLAUDE.md) and no longer trigger this workflow. A
+# releases/v1, releases/v2, and releases/v3 are closed (see CLAUDE.md) and no longer trigger this
+# workflow. A
 # manual run (Actions -> this workflow -> Run workflow, or `gh workflow run`) ALWAYS republishes
 # the current VERSION -- the override for when a multi-merge push left the VERSION bump in a
 # non-tip commit. This mirrors nexus-kit-api's .github/workflows/build-image.yml.
@@ -25,7 +26,7 @@ name: Publish Image
 
 on:
   push:
-    branches: ["releases/v3"]
+    branches: ["releases/v4"]
   workflow_dispatch:
 
 env:

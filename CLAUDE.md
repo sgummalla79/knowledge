@@ -958,26 +958,39 @@ for the app's release version, following semver (`MAJOR.MINOR.PATCH`).
   of the `releases/v3` cutover: permanently locked, no further changes of any kind.** Kept only for
   historical reference — do not branch off it, commit to it, or cherry-pick from it, same as
   `releases/v1`.
-- `releases/v3` — the active release line, cut from `master` at `3.0.0`. This is the current base
+- `releases/v3` — the third release line, cut from `master` at `3.0.0`. Diverged early into
+  `releases/v3-multi-tenant-data-model`, a long-running rework of the entire data model
+  (organizations/identities/org_members, OAuth2, profiles, MCP merged into the api process,
+  org-slug routing, and a full `webui/` rebuild on top of it all) that eventually became the whole
+  of `releases/v3`'s own content — merged into `releases/v3` at `4.0.0`, tagged `v4.0.0`. **Closed
+  as of the `releases/v4` cutover: permanently locked, no further changes of any kind.** Kept only
+  for historical reference — do not branch off it, commit to it, or cherry-pick from it, same as
+  `releases/v1`/`releases/v2`.
+- `releases/v4` — the active release line, cut from `master` at `4.0.0`. This is the current base
   for all work.
 
-**`master` and `releases/v3` are protected — never commit directly to either, from any machine.**
-All work (bug fixes and features) happens on a short-lived branch cut from `releases/v3`, then
+**`master` and `releases/v4` are protected — never commit directly to either, from any machine.**
+All work (bug fixes and features) happens on a short-lived branch cut from `releases/v4`, then
 merged back via the workflow below. `master` only ever receives commits via cherry-pick from
-`releases/v3`, never direct commits. If a task would require committing straight to `master` or
-`releases/v3`, stop and cut a branch first instead.
+`releases/v4`, never direct commits. If a task would require committing straight to `master` or
+`releases/v4`, stop and cut a branch first instead.
 
 **Fix/feature workflow — follow exactly, from any machine:**
 
-1. Branch off `releases/v3` for the work (e.g. `releases/v3-fix-<short-description>`).
+1. Branch off `releases/v4` for the work (e.g. `releases/v4-fix-<short-description>`).
 2. Make and test the change.
 3. Before committing, bump the appropriate number in `VERSION` (`PATCH` for bug fixes, `MINOR` for
-   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `3.0.0` → `3.0.1`)
+   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `4.0.0` → `4.0.1`)
    and include that bump in the same commit as the change.
 4. Push the branch, verify it (see the Docker testing workflow above — never test against the
-   prod container), then merge into `releases/v3`.
-5. Tag the merge commit on `releases/v3` with `v<version>` (e.g. `v3.0.1`) and push the tag.
-6. Cherry-pick the fix/feature commit only (not the `VERSION` bump) onto `master`. `master`'s
-   `VERSION` file is independent of `releases/v3`'s and is not kept in sync — `master` is expected
-   to be ahead in features, so its own version number is tracked separately whenever it next cuts
-   its own release branch (`releases/v4`, and so on).
+   prod container), then merge into `releases/v4`.
+5. Tag the merge commit on `releases/v4` with `v<version>` (e.g. `v4.0.1`) and push the tag.
+6. Cherry-pick the fix/feature commit onto `master` — squashed into one commit if the branch
+   accumulated more than one (as `releases/v3-multi-tenant-data-model` did: 22 commits, squashed
+   to a single commit on `master` while keeping full history on `releases/v3`/the feature branch
+   itself), otherwise cherry-picked as-is. Exclude the branch's own `VERSION` bump if it was a
+   separate commit. `master`'s `VERSION` file is independent of `releases/v4`'s and is not kept in
+   sync day-to-day — `master` is expected to be ahead in features, so its own version number is
+   tracked separately — except at a release-line cutover itself, where the two are deliberately
+   realigned (as they were for the `3.0.0` and now `4.0.0` cutovers) so the next release line
+   starts from a clean, matching base.
