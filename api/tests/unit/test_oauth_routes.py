@@ -11,7 +11,8 @@ from api.domain.errors import AuthenticationError, ValidationError
 # HTTP-layer wiring only — OAuthAuthorizationService is mocked. POST /oauth/token speaks standard
 # OAuth 2.0 (form-encoded request, JSON {access_token,...}/{error,...} response), not this app's
 # usual {"error": {"code","message","field"}} envelope — see the route module's docstring.
-# GET/POST /oauth/authorize is browser/session-facing and is tested separately below.
+# GET /oauth/authorize-context + POST /oauth/authorize is browser/session-facing and is tested
+# separately below.
 
 
 @pytest.fixture()
@@ -184,7 +185,7 @@ def test_refresh_token_grant_invalid_returns_oauth_error(client):
     assert response.get_json()["error"] == "invalid_grant"
 
 
-# ── GET/POST /oauth/authorize ────────────────────────────────────────────────────────────────
+# ── GET /oauth/authorize-context + POST /oauth/authorize ────────────────────────────────────
 
 
 def _application(**overrides):
@@ -229,32 +230,33 @@ def _oauth_client(application_id, **overrides):
 _VALID_QS = "response_type=code&code_challenge=abc123&code_challenge_method=S256&redirect_uri=http://127.0.0.1:9999/callback"
 
 
-def test_authorize_get_invalid_client_renders_error_page_not_redirect(client):
+def test_authorize_context_invalid_client_returns_error_not_redirect(client):
     with patch(
         "api.presentation.routes.oauth.OAuthAuthorizationService.get_authorization_code_client",
         side_effect=AuthenticationError("no such client"),
     ):
-        response = client.get(f"/oauth/authorize?client_id={uuid4()}&{_VALID_QS}")
+        response = client.get(f"/oauth/authorize-context?client_id={uuid4()}&{_VALID_QS}")
 
     assert response.status_code == 200
-    assert b"__OAUTH_ERROR__" in response.data
-    assert b"__OAUTH_AUTHORIZE__" not in response.data
+    body = response.get_json()
+    assert "error" in body
+    assert "authorize" not in body
 
 
-def test_authorize_get_unregistered_redirect_uri_renders_error_page(client):
+def test_authorize_context_unregistered_redirect_uri_returns_error(client):
     application = _application()
     oauth_client = _oauth_client(application.id, redirect_uris=["http://127.0.0.1:1111/other"])
     with patch(
         "api.presentation.routes.oauth.OAuthAuthorizationService.get_authorization_code_client",
         return_value=(application, oauth_client),
     ):
-        response = client.get(f"/oauth/authorize?client_id={application.id}&{_VALID_QS}")
+        response = client.get(f"/oauth/authorize-context?client_id={application.id}&{_VALID_QS}")
 
     assert response.status_code == 200
-    assert b"__OAUTH_ERROR__" in response.data
+    assert "error" in response.get_json()
 
 
-def test_authorize_get_bad_response_type_redirects_with_error_to_trusted_redirect_uri(client):
+def test_authorize_context_bad_response_type_returns_redirect_to_trusted_redirect_uri(client):
     application = _application()
     oauth_client = _oauth_client(application.id)
     with patch(
@@ -262,29 +264,29 @@ def test_authorize_get_bad_response_type_redirects_with_error_to_trusted_redirec
         return_value=(application, oauth_client),
     ):
         response = client.get(
-            f"/oauth/authorize?client_id={application.id}&response_type=token&code_challenge=abc&code_challenge_method=S256&redirect_uri=http://127.0.0.1:9999/callback",
-            follow_redirects=False,
+            f"/oauth/authorize-context?client_id={application.id}&response_type=token&code_challenge=abc&code_challenge_method=S256&redirect_uri=http://127.0.0.1:9999/callback"
         )
 
-    assert response.status_code == 302
-    assert response.location.startswith("http://127.0.0.1:9999/callback?")
-    assert "error=invalid_request" in response.location
+    assert response.status_code == 200
+    redirect = response.get_json()["redirect"]
+    assert redirect.startswith("http://127.0.0.1:9999/callback?")
+    assert "error=invalid_request" in redirect
 
 
-def test_authorize_get_not_logged_in_redirects_to_sign_in(client):
+def test_authorize_context_not_logged_in_returns_sign_in_redirect(client):
     application = _application()
     oauth_client = _oauth_client(application.id)
     with patch(
         "api.presentation.routes.oauth.OAuthAuthorizationService.get_authorization_code_client",
         return_value=(application, oauth_client),
     ):
-        response = client.get(f"/oauth/authorize?client_id={application.id}&{_VALID_QS}", follow_redirects=False)
+        response = client.get(f"/oauth/authorize-context?client_id={application.id}&{_VALID_QS}")
 
-    assert response.status_code == 302
-    assert "/sign-in" in response.location
+    assert response.status_code == 200
+    assert "/sign-in" in response.get_json()["redirect"]
 
 
-def test_authorize_get_not_an_org_member_renders_error_page(client):
+def test_authorize_context_not_an_org_member_returns_error(client):
     application = _application()
     oauth_client = _oauth_client(application.id)
     with client.session_transaction() as sess:
@@ -296,13 +298,13 @@ def test_authorize_get_not_an_org_member_renders_error_page(client):
         ),
         patch("api.presentation.routes.oauth.OrgMemberRepository.get", return_value=None),
     ):
-        response = client.get(f"/oauth/authorize?client_id={application.id}&{_VALID_QS}")
+        response = client.get(f"/oauth/authorize-context?client_id={application.id}&{_VALID_QS}")
 
     assert response.status_code == 200
-    assert b"__OAUTH_ERROR__" in response.data
+    assert "error" in response.get_json()
 
 
-def test_authorize_get_logged_in_member_renders_consent_page(client):
+def test_authorize_context_logged_in_member_returns_authorize_data(client):
     application = _application()
     oauth_client = _oauth_client(application.id)
     with client.session_transaction() as sess:
@@ -315,10 +317,12 @@ def test_authorize_get_logged_in_member_renders_consent_page(client):
         patch("api.presentation.routes.oauth.OrgMemberRepository.get", return_value="a-membership"),
         patch("api.presentation.routes.oauth.OrganizationRepository.get", return_value=None),
     ):
-        response = client.get(f"/oauth/authorize?client_id={application.id}&{_VALID_QS}")
+        response = client.get(f"/oauth/authorize-context?client_id={application.id}&{_VALID_QS}")
 
     assert response.status_code == 200
-    assert b"__OAUTH_AUTHORIZE__" in response.data
+    body = response.get_json()
+    assert "authorize" in body
+    assert body["authorize"]["application_name"] == application.name
 
 
 def test_authorize_post_requires_login(client):

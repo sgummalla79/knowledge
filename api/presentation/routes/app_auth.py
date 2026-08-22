@@ -11,6 +11,13 @@ from api.infrastructure.repositories.application_repository import ApplicationRe
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.personal_access_token_repository import PersonalAccessTokenRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
+from api.presentation.web.csrf import validate_csrf
+
+# CSRF only matters for the session-cookie branch below — a cookie rides along automatically with
+# any cross-site request a browser makes, which is exactly what CSRF protects against; a bearer
+# token never does (nothing attaches it to a request automatically), so it needs no CSRF check.
+# Read-only (GET/HEAD/OPTIONS) requests are exempt by convention (idempotent, no state change).
+_CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 def _permission_service() -> PermissionService:
@@ -50,7 +57,12 @@ def require_permission(permission: str):
     True for a personal access token, which has no such toggle (its whole purpose is REST access).
     Checked before the scope/permission check so a caller without it is rejected regardless of what
     its scopes/profile would otherwise allow. Not applicable to session (human) callers, which have
-    no `api_access` concept."""
+    no `api_access` concept.
+
+    Session-cookie callers additionally need a valid `X-CSRF-Token` header on any mutating method
+    (see `_CSRF_PROTECTED_METHODS` above) — a cookie is sent automatically by the browser on any
+    cross-site request, which is exactly the attack CSRF protection defends against; a bearer
+    token is never attached automatically, so token-authenticated callers are exempt."""
 
     def decorator(view):
         @wraps(view)
@@ -58,6 +70,8 @@ def require_permission(permission: str):
             target_org_id: UUID | None = kwargs.get("org_id")
 
             if session.get("identity_id") and session.get("active_org_id"):
+                if request.method in _CSRF_PROTECTED_METHODS and not validate_csrf(request.headers.get("X-CSRF-Token")):
+                    raise AuthenticationError("Session expired — please reload the page.")
                 user_id = UUID(session["identity_id"])
                 org_id = target_org_id or UUID(session["active_org_id"])
                 g.user_id = user_id

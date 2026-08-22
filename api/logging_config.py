@@ -33,6 +33,10 @@ _EXTRA_ALLOWLIST = (
     "dense_count",
     "sparse_count",
     "document_count",
+    "method",
+    "path",
+    "status_code",
+    "duration_ms",
 )
 
 _HANDLER_MARKER = "_knowledge_json_handler"

@@ -16,10 +16,19 @@ class CrawlJobStore:
     without polling once per page."""
 
     @staticmethod
-    def create(seed_url: str) -> str:
+    def create(org_id, seed_url: str) -> str:
         job_id = str(uuid.uuid4())
         with _lock:
-            _jobs[job_id] = {"status": "pending", "seed_url": seed_url, "error": None, "pages": {}}
+            _jobs[job_id] = {
+                "status": "pending",
+                # Not part of CrawlJobStatusResponse — checked by document_service's
+                # get_crawl_job_status before a caller ever sees this job, same isolation pattern
+                # DocumentRepository.get()'s callers already use.
+                "org_id": str(org_id),
+                "seed_url": seed_url,
+                "error": None,
+                "pages": {},
+            }
         return job_id
 
     @staticmethod

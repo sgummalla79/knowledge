@@ -66,11 +66,10 @@ def test_health_route_reachable_through_bridge(client):
 
 
 def test_session_cookie_and_csrf_survive_the_bridge(client):
-    login_page = client.get("/sign-in")
-    assert login_page.status_code == 200
-    assert "__CSRF_TOKEN__" in login_page.text
-
-    csrf = login_page.text.split('window.__CSRF_TOKEN__="')[1].split('"')[0]
+    csrf_response = client.get("/csrf-token")
+    assert csrf_response.status_code == 200
+    csrf = csrf_response.json()["csrf_token"]
+    assert csrf
 
     org = _org()
     with (
@@ -87,14 +86,18 @@ def test_session_cookie_and_csrf_survive_the_bridge(client):
     # No cookies passed explicitly — TestClient persists them across requests the same way a real
     # browser or gunicorn-served session would, proving the session Flask set on the login response
     # above survived being routed back out through the ASGI/WSGI bridge and back in on this request.
-    change_password_page = client.get("/change-password")
-    assert change_password_page.status_code == 200
+    with (
+        patch("api.presentation.routes.auth_ui.IdentityRepository.get_by_id", return_value=_identity()),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
+    ):
+        session_response = client.get("/session")
+    assert session_response.status_code == 200
+    assert session_response.json()["org_slug"] == org.slug
 
 
 def test_wrong_csrf_still_rejected_through_bridge(client):
-    login_page = client.get("/sign-in")
-    csrf = login_page.text.split('window.__CSRF_TOKEN__="')[1].split('"')[0]
-    assert csrf
+    csrf_response = client.get("/csrf-token")
+    assert csrf_response.json()["csrf_token"]
 
     with patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity()):
         response = client.post(

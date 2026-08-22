@@ -7,8 +7,8 @@ _SESSION_KEY = "csrf_token"
 
 
 def csrf_token() -> str:
-    """Called directly by api/presentation/web/spa.py to embed a fresh token into every served SPA
-    shell (as window.__CSRF_TOKEN__), and by validate_csrf() below to check one back."""
+    """Called by GET /csrf-token (api/presentation/routes/auth_ui.py) so a browser frontend can
+    fetch a token once at load, and by validate_csrf() below to check one back."""
     if _SESSION_KEY not in session:
         session[_SESSION_KEY] = secrets.token_urlsafe(32)
     return session[_SESSION_KEY]

@@ -1,15 +1,17 @@
+from uuid import uuid4
+
 import pytest
 
 from api.application.job_store import JobNotFoundError, JobStore
 
 
 def test_new_job_has_cancel_not_requested():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     assert JobStore.is_cancellation_requested(job_id) is False
 
 
 def test_request_cancellation_sets_flag():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     JobStore.request_cancellation(job_id)
     assert JobStore.is_cancellation_requested(job_id) is True
 
@@ -26,7 +28,7 @@ def test_is_cancellation_requested_missing_job_returns_false():
 
 
 def test_mark_cancelled_sets_status():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     JobStore.mark_cancelled(job_id)
     assert JobStore.get(job_id)["status"] == "cancelled"
 
@@ -37,7 +39,7 @@ def test_get_missing_job_raises():
 
 
 def test_new_job_has_no_parts_tracked_yet():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     job = JobStore.get(job_id)
     assert job["document_ids"] == []
     assert job["parts_total"] is None
@@ -46,7 +48,7 @@ def test_new_job_has_no_parts_tracked_yet():
 
 
 def test_mark_part_completed_appends_document_id_and_increments_count():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     doc_id = "11111111-1111-1111-1111-111111111111"
     JobStore.mark_part_completed(job_id, doc_id)
     job = JobStore.get(job_id)
@@ -55,7 +57,7 @@ def test_mark_part_completed_appends_document_id_and_increments_count():
 
 
 def test_mark_part_failed_increments_count_and_sets_error():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     JobStore.mark_part_failed(job_id, RuntimeError("boom"))
     job = JobStore.get(job_id)
     assert job["parts_failed"] == 1
@@ -63,7 +65,7 @@ def test_mark_part_failed_increments_count_and_sets_error():
 
 
 def test_mark_completed_with_parts_sets_status():
-    job_id = JobStore.create()
+    job_id = JobStore.create(uuid4())
     JobStore.set_parts_total(job_id, 3)
     JobStore.mark_part_completed(job_id, "doc-1")
     JobStore.mark_completed_with_parts(job_id)

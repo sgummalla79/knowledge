@@ -111,3 +111,28 @@ def test_configure_logging_updates_level_on_repeat_calls():
     assert logging.getLogger().getEffectiveLevel() == logging.WARNING
     configure_logging("INFO")
     assert logging.getLogger().getEffectiveLevel() == logging.INFO
+
+
+# ── correlated request/response logging (api/__init__.py's _log_request_completed) ──────────────
+#
+# Unlike the formatter/filter tests above, this exercises a real request through create_app() —
+# the thing under test here is the before/after hook pair itself (does it fire, with the right
+# fields), not the JSON encoding, so a real request is the more direct way to prove it.
+
+
+def test_request_completed_log_line_carries_method_path_status_and_request_id(caplog):
+    from api import create_app
+
+    app = create_app(testing=True)
+    client = app.test_client()
+
+    with caplog.at_level(logging.INFO, logger="api"):
+        client.get("/health")
+
+    records = [r for r in caplog.records if r.name == "api" and getattr(r, "path", None) == "/health"]
+    assert len(records) == 1
+    record = records[0]
+    assert record.method == "GET"
+    assert record.status_code == 200
+    assert isinstance(record.duration_ms, float)
+    assert record.request_id  # attached by ContextFilter for the duration of the request

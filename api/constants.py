@@ -117,6 +117,12 @@ WEB_CRAWL_RATE_LIMIT = "5 per minute"
 # validated against this).
 WEB_CRAWL_MAX_PAGES_LIMIT = 100
 
+# POST /sign-in only inheriting RATE_LIMIT_DEFAULT (200/min) is far too permissive for a login
+# endpoint (~12,000 guesses/hour per IP) — a dedicated, much tighter limit, same rationale as
+# WEB_CRAWL_RATE_LIMIT. Keyed by IP+username (api/rate_limit.py's _login_rate_limit_key), not just
+# IP, so this bounds both a single attacker hammering one account and one hammering many accounts.
+LOGIN_RATE_LIMIT = "5 per minute"
+
 # Per-page static HTTP fetch timeout (api/infrastructure/web/fetcher.py).
 WEB_CRAWL_REQUEST_TIMEOUT_SECONDS = 30
 

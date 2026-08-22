@@ -1,4 +1,3 @@
-from api.presentation.routes.app_shell import app_shell_bp
 from api.presentation.routes.applications import applications_bp
 from api.presentation.routes.auth_ui import auth_ui_bp
 from api.presentation.routes.categories import categories_bp
@@ -38,5 +37,4 @@ ALL_BLUEPRINTS = [
     queries_bp,
     stats_bp,
     auth_ui_bp,
-    app_shell_bp,
 ]

@@ -77,7 +77,7 @@ def crawl_documents():
 @documents_bp.get("/crawl-jobs/<job_id>")
 @require_org_session
 def get_crawl_job(job_id: str):
-    status = _service().get_crawl_job_status(job_id)
+    status = _service().get_crawl_job_status(g.org_id, job_id)
     return jsonify(CrawlJobStatusResponse(**status).model_dump())
 
 
@@ -119,7 +119,7 @@ def list_document_chunks(document_id: UUID):
 @documents_bp.get("/jobs/<job_id>")
 @require_org_session
 def get_job(job_id: str):
-    status = _service().get_job_status(job_id)
+    status = _service().get_job_status(g.org_id, job_id)
     return jsonify(JobStatusResponse(**status).model_dump())
 
 
@@ -129,7 +129,7 @@ def cancel_job(job_id: str):
     """Best-effort: cancellation is checked between embedding-provider batches, not instant — the
     job's status stays "running" (with cancel_requested now true, see JobStatusResponse) until it
     actually settles on "cancelled"."""
-    _service().cancel_job(job_id)
+    _service().cancel_job(g.org_id, job_id)
     return "", 202
 
 
