@@ -5,9 +5,12 @@ from flask import Flask
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.routing import Mount
+from starlette.types import ASGIApp
+
+from api.presentation.web.mcp_org_scoping import MCPOrgScopingMiddleware
 
 
-def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -> Starlette:
+def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -> ASGIApp:
     """Wraps a Flask (WSGI) app for ASGI serving, optionally alongside one or more FastMCP
     instances, via a2wsgi.WSGIMiddleware (Starlette's own WSGIMiddleware is deprecated in favor of
     this). Kept import-side-effect-free (unlike api/asgi.py, which also imports the real
@@ -31,6 +34,14 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
     originated from another app, so a merged-in MCP server would silently never start its session
     manager without this. The combined app's own lifespan enters every server's
     session_manager.run() itself instead.
+
+    When any MCP servers are mounted, the whole app is wrapped in MCPOrgScopingMiddleware — every
+    org's tools live at /<org-slug>/mcp/<tier>, not the bare /mcp/<tier> path FastMCP itself still
+    literally serves (see that module's docstring for why the org-slug awareness lives in front of
+    FastMCP rather than inside its own mounting). "Wrapped" here means the middleware instance
+    becomes the actual ASGI app returned — not a Starlette middleware= entry — since it's a pure
+    ASGI passthrough that only inspects/rewrites scope before delegating, not a Starlette-specific
+    construct, and it must sit in front of route matching, not be one of the matched routes.
     """
     mcp_servers = mcp_servers or []
 
@@ -49,4 +60,5 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
                     await stack.enter_async_context(mcp.session_manager.run())
                 yield
 
-    return Starlette(routes=routes, lifespan=lifespan)
+    app = Starlette(routes=routes, lifespan=lifespan)
+    return MCPOrgScopingMiddleware(app) if mcp_servers else app

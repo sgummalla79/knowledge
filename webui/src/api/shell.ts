@@ -19,6 +19,9 @@ declare global {
     __CSRF_TOKEN__?: string
     __USERNAME__?: string
     __ORG_ID__?: string | null
+    // The session's real org slug — drives the app's URL prefix (see App.tsx). Never injected on
+    // the pre-login pages (sign-in/sign-up/change-password/oauth-authorize), only by app_shell.py.
+    __ORG_SLUG__?: string | null
     // Injected only on GET /oauth/authorize — see api/presentation/routes/oauth.py.
     __OAUTH_AUTHORIZE__?: OAuthAuthorizeRequest
     __OAUTH_ERROR__?: OAuthErrorInfo
@@ -41,4 +44,8 @@ export function currentUsername(): string {
 
 export function currentOrgId(): string | null {
   return window.__ORG_ID__ ?? null
+}
+
+export function currentOrgSlug(): string | null {
+  return window.__ORG_SLUG__ ?? null
 }

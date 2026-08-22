@@ -97,10 +97,11 @@ function CreateApiKeyModal({ onClose, onCreated }: CreateModalProps) {
   )
 }
 
-// Routed at /account/api-keys (see App.tsx), outside SettingsLayout — this is personal, not
-// org-admin. Self-service: any org member manages their own keys here, no applications:write-style
-// permission required (see api/presentation/routes/personal_access_tokens.py's require_org_session
-// gate). Scoped to whichever org is currently active, same as everything else in this app.
+// Routed at /user/api-keys (see App.tsx), inside the Settings sidebar (SettingsLayout) even
+// though this is personal, not org-admin, data — self-service: any org member manages their own
+// keys here, no applications:write-style permission required (see
+// api/presentation/routes/personal_access_tokens.py's require_org_session gate). Scoped to
+// whichever org is currently active, same as everything else in this app.
 export function ApiKeysPage() {
   const tokens = usePersonalAccessTokens()
   const queryClient = useQueryClient()

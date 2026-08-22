@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from api import create_app
-from api.domain.entities import Identity
+from api.domain.entities import Identity, Organization
 from api.domain.errors import AuthenticationError
 
 # HTTP-layer only — AuthService is mocked. Real password-hash/DB behavior is covered by
@@ -34,6 +34,23 @@ def _identity(**overrides):
     )
     fields.update(overrides)
     return Identity(**fields)
+
+
+def _org(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(),
+        name="acme-labs",
+        slug="acme-labs",
+        description=None,
+        plan="free",
+        created_by=None,
+        last_modified_by=None,
+        created_at=now,
+        last_modified_at=now,
+    )
+    fields.update(overrides)
+    return Organization(**fields)
 
 
 def _with_csrf(client):
@@ -73,7 +90,7 @@ def test_sign_in_success_redirects_to_change_password_when_required(client):
     csrf = _with_csrf(client)
     with (
         patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity(must_change_password=True)),
-        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[(uuid4(), "admin")]),
+        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[uuid4()]),
     ):
         response = client.post(
             "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": csrf}
@@ -84,13 +101,15 @@ def test_sign_in_success_redirects_to_change_password_when_required(client):
 
 def test_sign_in_success_redirects_home_when_password_already_changed(client):
     csrf = _with_csrf(client)
+    org = _org()
     with (
         patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity(must_change_password=False)),
-        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[(uuid4(), "admin")]),
+        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[org.id]),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
     ):
         response = client.post("/sign-in", json={"username": "admin@local", "password": "x"}, headers={"X-CSRF-Token": csrf})
     assert response.status_code == 200
-    assert response.get_json()["redirect"] == "/"
+    assert response.get_json()["redirect"] == f"/{org.slug}"
 
 
 def test_sign_in_wrong_credentials_shows_error(client):
@@ -139,9 +158,11 @@ def test_sign_up_short_password_shows_error(client):
 def test_sign_up_success_redirects_home(client):
     csrf = _with_csrf(client)
     identity = _identity(must_change_password=False)
+    org = _org(slug="ada-labs", name="ada-labs")
     with (
         patch("api.presentation.routes.auth_ui.SignupService.signup", return_value=(identity, None)),
-        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[(uuid4(), "admin")]),
+        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[org.id]),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
     ):
         response = client.post(
             "/sign-up",
@@ -154,7 +175,7 @@ def test_sign_up_success_redirects_home(client):
             headers={"X-CSRF-Token": csrf},
         )
     assert response.status_code == 200
-    assert response.get_json()["redirect"] == "/"
+    assert response.get_json()["redirect"] == "/ada-labs"
 
 
 def test_sign_up_invalid_org_name_shows_error(client):

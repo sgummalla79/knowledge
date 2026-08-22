@@ -6,7 +6,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from api import create_app
-from api.domain.entities import Identity
+from api.domain.entities import Identity, Organization
 from api.presentation.web.asgi_bridge import build_asgi_app
 
 # The one empirically-unverified assumption the MCP-merge redesign rests on: that wrapping Flask
@@ -35,6 +35,23 @@ def _identity(**overrides):
     return Identity(**fields)
 
 
+def _org(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(),
+        name="acme-labs",
+        slug="acme-labs",
+        description=None,
+        plan="free",
+        created_by=None,
+        last_modified_by=None,
+        created_at=now,
+        last_modified_at=now,
+    )
+    fields.update(overrides)
+    return Organization(**fields)
+
+
 @pytest.fixture()
 def client():
     flask_app = create_app(testing=True)
@@ -55,15 +72,17 @@ def test_session_cookie_and_csrf_survive_the_bridge(client):
 
     csrf = login_page.text.split('window.__CSRF_TOKEN__="')[1].split('"')[0]
 
+    org = _org()
     with (
         patch("api.presentation.routes.auth_ui.AuthService.login", return_value=_identity()),
-        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[uuid4()]),
+        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[org.id]),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
     ):
         login_response = client.post(
             "/sign-in", json={"username": "admin@local", "password": "admin"}, headers={"X-CSRF-Token": csrf}
         )
     assert login_response.status_code == 200
-    assert login_response.json()["redirect"] == "/"
+    assert login_response.json()["redirect"] == f"/{org.slug}"
 
     # No cookies passed explicitly — TestClient persists them across requests the same way a real
     # browser or gunicorn-served session would, proving the session Flask set on the login response

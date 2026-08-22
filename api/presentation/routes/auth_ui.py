@@ -106,10 +106,19 @@ def _is_safe_redirect(url: str) -> bool:
 
 
 def _consume_post_login_redirect() -> str:
-    # Home ("/") is the default landing page for a plain login (no explicit `next`) — the rest of
-    # the app is still fully reachable via the nav bar.
+    # The org's own home ("/<org-slug>") is the default landing page for a plain login (no
+    # explicit `next`) — the rest of the app is still fully reachable via the nav bar. Falls back
+    # to bare "/" only for the sliver of a window where a membership doesn't exist yet (mid-signup
+    # failure — see _establish_session) and there's no org to land on at all.
     next_url = session.pop("post_login_redirect", None)
-    return next_url if next_url and _is_safe_redirect(next_url) else url_for("app_shell.app_shell")
+    if next_url and _is_safe_redirect(next_url):
+        return next_url
+    org_id = session.get("active_org_id")
+    if org_id:
+        organization = OrganizationRepository(get_session()).get(UUID(org_id))
+        if organization is not None:
+            return url_for("app_shell.app_shell", subpath=organization.slug)
+    return url_for("app_shell.app_shell")
 
 
 def _establish_session(identity_id: UUID) -> None:

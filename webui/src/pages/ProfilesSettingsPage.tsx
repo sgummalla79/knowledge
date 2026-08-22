@@ -36,7 +36,7 @@ export function ProfilesSettingsPage() {
         {canManage && (
           <button
             type="button"
-            onClick={() => navigate('/org/profiles/new')}
+            onClick={() => navigate('/profiles/new')}
             className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             New profile
@@ -89,7 +89,7 @@ export function ProfilesSettingsPage() {
                       <div className="flex justify-end gap-3">
                         <button
                           type="button"
-                          onClick={() => navigate(`/org/profiles/${profile.id}/edit`)}
+                          onClick={() => navigate(`/profiles/${profile.id}/edit`)}
                           className="text-[13px] text-primary hover:underline"
                         >
                           Edit
@@ -106,7 +106,7 @@ export function ProfilesSettingsPage() {
                     {profile.is_system && (
                       <button
                         type="button"
-                        onClick={() => navigate(`/org/profiles/${profile.id}/edit`)}
+                        onClick={() => navigate(`/profiles/${profile.id}/edit`)}
                         className="text-[13px] text-primary hover:underline"
                       >
                         View

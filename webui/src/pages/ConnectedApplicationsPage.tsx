@@ -94,7 +94,7 @@ export function ConnectedApplicationsPage() {
         {canManage && (
           <button
             type="button"
-            onClick={() => navigate('/org/applications/new')}
+            onClick={() => navigate('/applications/new')}
             className="rounded-sm bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
           >
             New application

@@ -1,14 +1,15 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 const LINKS = [
-  { to: '/org/settings', label: 'User settings' },
-  { to: '/org/members', label: 'Members & access' },
-  { to: '/org/profiles', label: 'Profiles' },
-  { to: '/org/shelves', label: 'Shelves' },
-  { to: '/org/categories', label: 'Data categories' },
-  { to: '/org/embedding-models', label: 'Embedding model' },
-  { to: '/org/applications', label: 'Connected applications' },
-  { to: '/org/mcp', label: 'MCP' },
+  { to: '/user/settings', label: 'User settings' },
+  { to: '/user/api-keys', label: 'API keys' },
+  { to: '/members', label: 'Members & access' },
+  { to: '/profiles', label: 'Profiles' },
+  { to: '/shelves', label: 'Shelves' },
+  { to: '/categories', label: 'Data categories' },
+  { to: '/embedding-models', label: 'Embedding model' },
+  { to: '/applications', label: 'Connected applications' },
+  { to: '/mcp', label: 'MCP' },
 ]
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>

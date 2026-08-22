@@ -66,7 +66,7 @@ export function OrgSettingsPage() {
         A member's profile sets what they can do; shelf access sets which shelves of documents
         they can see and search. A member with no shelves assigned sees none.{' '}
         {canManage && (
-          <Link to="/org/profiles" className="text-foreground underline">
+          <Link to="/profiles" className="text-foreground underline">
             Manage profiles
           </Link>
         )}

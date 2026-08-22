@@ -136,7 +136,7 @@ export function ProfileFormPage() {
 
   function goBack() {
     if (isDirty() && !window.confirm('You have unsaved changes. Leave this page and lose them?')) return
-    navigate('/org/profiles')
+    navigate('/profiles')
   }
 
   async function handleSubmit(event: React.FormEvent) {

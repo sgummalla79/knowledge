@@ -30,7 +30,7 @@ export function HomePage() {
   return (
     <div className="py-16">
       <div className="mb-3 text-[11px] font-medium uppercase tracking-widest text-primary">Knowledge library</div>
-      <h1 className="mb-5 max-w-xl text-[44px] font-semibold leading-tight text-foreground">
+      <h1 className="mb-5 whitespace-nowrap text-[44px] font-semibold leading-tight text-foreground">
         Every source your assistant can cite.
       </h1>
       <p className="mb-8 max-w-lg text-base text-muted-foreground">

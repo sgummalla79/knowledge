@@ -375,7 +375,7 @@ stack as the rest of the API — see session history item 8.
     (`MembersTable`'s self-detection, `ApplicationsTable`/`ApplicationCreatePage`'s execute-as
     picker) now uses `username` instead, since `email` can no longer be trusted as unique.
 
-19. **`/org/settings` (`webui/src/pages/GeneralSettingsPage.tsx` → `UserSettingsPage.tsx`) turned
+19. **`/user/settings` (`webui/src/pages/GeneralSettingsPage.tsx` → `UserSettingsPage.tsx`) turned
     from an org-editing page into a personal account page** — org name/description editing is
     removed entirely, not just hidden: `PATCH /orgs/<org_id>` (`update_org`),
     `OrgMembershipService.update_organization`, `OrganizationRepository.update`, and the
@@ -410,7 +410,10 @@ stack as the rest of the API — see session history item 8.
     username) — `currentOrgName()`/`window.__ORG_NAME__` and the `"ORG_NAME"` SPA global
     (`app_shell.py`) are gone too, now genuinely unused rather than just unrendered. Renamed
     throughout the nav ("Org settings" → "User settings" in `NavBar.tsx`'s account menu, "General"
-    → "User settings" in `SettingsLayout.tsx`'s sidebar) — the route itself stays `/org/settings`.
+    → "User settings" in `SettingsLayout.tsx`'s sidebar). The route itself was originally left at
+    `/org/settings` (a leftover from before this page's purpose changed) and later renamed to
+    `/user/settings` to match, once the org-slug-prefixed URL scheme (item 21) made the stale
+    naming obvious (`/<org-slug>/org/settings` read as "org" twice).
     Laid out as two columns (Full Name/Email/Profile on the left, the Username change section on
     the right) with the primary Save button moved into the page header — same
     `form="account-form"` attribute-association trick the old `OrgGeneralForm` used to put a submit
@@ -442,7 +445,125 @@ stack as the rest of the API — see session history item 8.
     User settings (item 19) now also shows Org Name (read-only, first field in the left column) —
     surfacing this exact field is what exposed the bug in the first place.
 
-Current test suite: **576 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+21. **Every post-login route now lives under `/<org-slug>/...`** (e.g. `/acme-corp/browse`,
+    `/acme-corp/user/settings`), not the old flat `/browse`. This is purely a URL/routing concern,
+    not a new access-control layer — data access was and still is fully enforced by the session +
+    Postgres RLS regardless of what's in the URL bar.
+
+    Backend: `app_shell.py` injects a new `ORG_SLUG` global (looked up from `g.org_id`, same as
+    `ORG_ID` already was) — always the session's *real* org, never derived from the requested URL
+    (`app_shell()` still ignores `subpath` entirely, so `/acme-corp/anything` already matched the
+    existing catch-all with zero backend routing changes). `auth_ui.py`'s
+    `_consume_post_login_redirect()` — the single choke point sign-in, sign-up, and forced
+    change-password all funnel through — now defaults to `/<org-slug>` instead of bare `/` when
+    there's no `next=` to honor; the `next=` round-trip itself needed no change, since it already
+    just echoes back whatever path was originally requested.
+
+    Frontend: **zero of the ~30 existing `Link`/`navigate` call sites changed.** `App.tsx` reads
+    the new `currentOrgSlug()` (`webui/src/api/shell.ts`, mirrors `currentOrgId()`) once and passes
+    it as `<BrowserRouter basename={...}>` — React Router prepends the org slug to every absolute
+    `to=`/`navigate()` call and strips it before matching routes automatically, so every existing
+    route declaration and every existing literal path (`NavBar.tsx`'s `to="/browse"`,
+    `SettingsLayout.tsx`'s `LINKS` array, `ItemPage.tsx`'s `` `/item/${id}` ``, ...) kept working
+    unchanged. Pre-login pages (sign-in/sign-up/change-password/oauth-authorize) never get an
+    `ORG_SLUG` global and render under a `basename`-less mount instead — safe because every
+    login/logout boundary is already a full page reload (`window.location.href`, not a client-side
+    transition), so both modes never need to coexist in one router instance. `/oauth/authorize`
+    specifically stays reachable either way without special-casing, since `oauth.py` never injects
+    `ORG_ID`/`ORG_SLUG` regardless of whether the visiting identity happens to be logged in.
+
+    A stale/wrong org slug already in the address bar (old bookmark, manually edited URL, a
+    pre-login `next=` built before the identity resolved) self-corrects: `App.tsx` compares the
+    URL's first path segment against the authoritative `ORG_SLUG` global before the router even
+    mounts, and `window.location.replace()`s to the org's own home (not attempting to preserve
+    whatever sub-path was requested — a wrong org's deep link, e.g. an item id, wouldn't resolve to
+    anything meaningful in the real org anyway).
+
+    `RESERVED_ORG_SLUGS` needed no changes — it already covers every segment that's still top-level
+    under this scheme (`sign-in`, `sign-up`, `change-password`, `oauth`, `static`, `well-known`,
+    `health`, ...); app-internal segments like `browse`/`item`/`search` never need reserving since
+    they're no longer top-level URL segments at all once nested under `/:orgSlug`. The REST API
+    (`/orgs`, `/categories`, `/documents`, ...) is untouched — fetched via JS, never typed into an
+    address bar, so it has no reason to carry the org slug too.
+
+    Once the org slug was already establishing org context as the URL's first segment, the
+    Settings sidebar's own `org/` prefix on every sub-route became redundant (`/acme-corp/org/shelves`
+    read as "org" twice) — dropped from all of them: `org/members` → `members`, `org/profiles(/...)`
+    → `profiles(/...)`, `org/shelves` → `shelves`, `org/categories` → `categories`,
+    `org/embedding-models` → `embedding-models`, `org/applications(/...)` → `applications(/...)`,
+    `org/mcp` → `mcp` (`org/settings` had already become `user/settings` earlier in this same item).
+    Same mechanical fix as the `user/settings` rename: route declarations in `App.tsx`,
+    `SettingsLayout.tsx`'s `LINKS` array, and every `navigate()`/`Link` call site that referenced
+    the old path (`OrgSettingsPage.tsx`, `ProfileFormPage.tsx`, `ProfilesSettingsPage.tsx`,
+    `ConnectedApplicationsPage.tsx`, `ApplicationCreatePage.tsx`) — ~30 unrelated `Link`/`navigate`
+    calls elsewhere in the app needed no change, same `basename`-does-the-prefixing reasoning as
+    above.
+
+22. **Settings > MCP (`webui/src/pages/MCPSettingsPage.tsx`) gained a second column: connection
+    instructions for wiring an AI agent up to this org's MCP server**, next to the existing tier
+    toggles. Lists all three server URLs (`/mcp/rag`, `/mcp/read`, `/mcp/write` off
+    `window.location.origin`, no org-slug prefix needed — MCP resolves the org from the bearer
+    token's claims, not the URL) unconditionally, each copyable and tagged Enabled/Not enabled
+    against the *saved* tier settings (not unsaved checkbox edits) — the URLs are a fixed part of
+    this app's MCP surface, shown regardless of whether a tier happens to be toggled on right now.
+    Below the list, a shared note covers both the generic connection shape (Streamable HTTP
+    transport, `Authorization: Bearer <token>` header) and the Claude-Code-specific `claude mcp add
+    --transport http ... --header "Authorization: Bearer <token>"` form. Links to
+    `/user/api-keys` for the personal access token itself (MCP tool calls authenticate
+    identically whether the caller is a Connected Application or a personal access token — both
+    carry their own `mcp_access` flag, checked in `api/mcp_server/permissions.py`'s
+    `require_tier_permission`).
+
+    `docs/DOCKER_HUB.md`'s own "Connecting Claude Code (MCP)" section is a leftover from the
+    pre-item-16 standalone MCP server (loopback-only port 13103, browser-consent OAuth flow, no
+    token to paste) — **stale**, not reconciled with this page or the current bearer-token design;
+    not touched as part of this item.
+
+23. **Every org now has its own real MCP server URL — `/<org-slug>/mcp/<tier>`, not the shared
+    bare `/mcp/<tier>`** (item 22's UI initially showed the bare URLs; this makes them real).
+    Deliberately did **not** make FastMCP itself org-slug-aware — `mcp_server/server.py`'s
+    `streamable_http_path` is fixed and doubles as the RFC 9728 well-known discovery route's own
+    base path, and templating or nesting it risks the exact bug class `asgi_bridge.py`'s
+    `build_asgi_app` docstring already documents one hard-won fix for (well-known discovery
+    computed relative to a sub-app's own root, breaking under an extra layer of nesting).
+
+    Instead, new `api/presentation/web/mcp_org_scoping.py`'s `MCPOrgScopingMiddleware` is a thin,
+    pure-ASGI layer (not Starlette's `BaseHTTPMiddleware`, which would buffer/interfere with
+    streamable-http's long-lived streaming connections) wrapping the whole combined app whenever
+    any MCP servers are mounted (`build_asgi_app` now returns `ASGIApp`, not always literally
+    `Starlette`). For a request path shaped like `/<org-slug>/mcp/<tier>`: look up the org by slug
+    (404 if none), resolve the bearer token via the same `AppAuthService.authenticate_bearer_token`
+    `KnowledgeTokenVerifier` already uses (401 if missing, 403 if it resolves to a *different*
+    org), then — only once both checks pass — rewrite the path down to the bare `/mcp/<tier>`
+    FastMCP actually serves and forward. The bare path is rejected outright (404) when hit
+    directly, so there's exactly one valid URL per tier per org now, not a second one that skips
+    the org check. One real DB round trip per MCP request beyond what FastMCP's own verifier
+    already does (redundant with it, deliberately — simpler and safer than trying to thread a
+    pre-resolved caller through the SDK's fixed `TokenVerifier.verify_token(token: str)` interface,
+    which has no hook for passing extra context in).
+
+    `webui/src/pages/MCPSettingsPage.tsx`'s connection instructions now build each tier's URL from
+    the *current org's* slug (`useOrgs()`'s `Org.slug`, not derived from the browser's current URL
+    — the two happen to agree today since `App.tsx` self-corrects a mismatched URL slug, item 21,
+    but this page shouldn't depend on that coincidence holding). Later moved again: each tier's URL
+    now sits directly under that tier's own checkbox (not in a separate "Connect an AI agent"
+    panel) — the checkbox itself already conveys enabled/disabled, so the per-tier "Enabled/Not
+    enabled" badge that panel had was dropped as redundant. "Connect an AI agent" is now just the
+    how-to-copy-paste instructions (create a token, transport note, Claude Code CLI example) in a
+    plain section below the form, with no URLs of its own. Laid out again once more: "Connect an
+    AI agent" moved above the tier-toggle form (read the instructions before the checkboxes/URLs
+    they refer to), and Save moved into the page header next to the "MCP" title — same
+    `form="mcp-settings-form"` attribute-association trick `UserSettingsPage`'s header Save button
+    already uses to sit outside its own `<form>` element.
+
+24. **"API keys" moved from the NavBar avatar dropdown into the Settings sidebar**, and its route
+    renamed `/account/api-keys` → `/user/api-keys` (`ApiKeysPage.tsx` itself unchanged) — nested
+    under `<Route element={<SettingsLayout />}>` in `App.tsx` now instead of being a sibling route
+    outside it, and added to `SettingsLayout.tsx`'s `LINKS` array (right under "User settings",
+    since it's the other personal/self-service page in that list — every other entry there is
+    org-admin). The avatar dropdown now only has User settings and Sign out.
+
+Current test suite: **584 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 

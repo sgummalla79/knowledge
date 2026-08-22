@@ -48,7 +48,7 @@ export function ApplicationCreatePage() {
 
   function goBack() {
     if (isDirty() && !window.confirm('You have unsaved changes. Leave this page and lose them?')) return
-    navigate('/org/applications')
+    navigate('/applications')
   }
 
   const memberOptions = (members.data ?? []).map((member) => ({ value: member.identity_id, label: `${member.name} (${member.username})` }))
@@ -75,7 +75,7 @@ export function ApplicationCreatePage() {
           : { ...base, redirect_uris: redirectUris }
       const application = await api.post<CreatedApplication>('/applications', body)
       void queryClient.invalidateQueries({ queryKey: ['applications'] })
-      navigate('/org/applications', { state: { justCreated: application } })
+      navigate('/applications', { state: { justCreated: application } })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
       setSaving(false)

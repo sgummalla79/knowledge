@@ -2,10 +2,11 @@ from flask import Blueprint, current_app, g, redirect, send_from_directory, url_
 
 from api.container import get_session
 from api.infrastructure.repositories.identity_repository import IdentityRepository
+from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.presentation.routes.auth_ui import login_required
 from api.presentation.web.spa import serve_spa_shell
 
-# Serves the SPA shell for every logged-in page (/, /browse, /item/<id>, /org/settings, ...) — the
+# Serves the SPA shell for every logged-in page (/, /browse, /item/<id>, /user/settings, ...) — the
 # new nav is a single top bar, not the old two-sidebar /workspace + /settings split, so one
 # catch-all replaces those two narrower mounts (see the old workspace.py, now removed).
 app_shell_bp = Blueprint("app_shell", __name__)
@@ -28,9 +29,15 @@ def app_shell(subpath: str | None = None):
     identity = IdentityRepository(get_session()).get_by_id(g.user_id)
     if identity is not None and identity.must_change_password:
         return redirect(url_for("auth_ui.change_password"))
+    organization = OrganizationRepository(get_session()).get(g.org_id) if g.org_id is not None else None
     return serve_spa_shell(
         extra_globals={
             "USERNAME": identity.username if identity is not None else "",
             "ORG_ID": str(g.org_id) if g.org_id is not None else None,
+            # Drives the SPA's org-slug URL prefix (see App.tsx) — always the session's *real* org,
+            # never anything derived from the requested URL itself (app_shell() ignores `subpath`
+            # entirely), so the frontend can treat this as authoritative when it self-corrects a
+            # stale/wrong org slug already in the browser's address bar.
+            "ORG_SLUG": organization.slug if organization is not None else None,
         }
     )
