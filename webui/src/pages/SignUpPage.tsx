@@ -10,10 +10,12 @@ import { PasswordField } from '../components/PasswordField'
 const ORG_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
 function normalizeOrgName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  // Deliberately doesn't strip a leading/trailing hyphen here — this runs on every keystroke, and
+  // a trailing hyphen is a normal mid-typing state (the next character hasn't been typed yet); an
+  // eager strip removed it before the user could ever type past it, making "-" impossible to type
+  // at all. ORG_NAME_PATTERN below already treats a leading/trailing hyphen as invalid meanwhile
+  // (same as the length < 3 case), and handleSubmit trims before submitting.
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
 export function SignUpPage() {
@@ -47,7 +49,7 @@ export function SignUpPage() {
     setError(null)
     setSubmitting(true)
     try {
-      const { redirect } = await signUp(username, password, name, orgName, email)
+      const { redirect } = await signUp(username, password, name, orgName.replace(/^-+|-+$/g, ''), email)
       window.location.href = redirect
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
