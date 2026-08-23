@@ -1047,57 +1047,91 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     regressing item 35's work, so only this one isolated, self-contained backend fix was
     cherry-picked out of it — the rest of that branch is superseded, not merged.
 
-40. **Built the real Hostinger deployment infrastructure** — `docs/HOSTINGER_DEPLOY.md` (the full
-    walkthrough), `deploy/docker-compose.prod.yml`, `deploy/Caddyfile`, `deploy/Dockerfile.caddy`
-    (+ its own `Dockerfile.caddy.dockerignore` — Docker's per-Dockerfile-path dockerignore lookup,
-    same convention `Dockerfile.dockerignore` already established), `deploy/.env.prod.example`.
-    Real domains: `api.sgummallaworks.com/knowledge` (path-prefixed — that domain is shared across
-    multiple APIs) and `knowledge.sgummallaworks.com` (webui, its own subdomain, no prefix).
+40. **Built the real Hostinger deployment infrastructure — Kubernetes manifests for the k3s
+    cluster already running on that box**, not a Docker Compose stack. `docs/HOSTINGER_DEPLOY.md`
+    (the full walkthrough), `deploy/k3s/*.yaml` (namespace, Postgres, API, webui, Traefik
+    `Middleware`, `Ingress` × 2, cert-manager `ClusterIssuer`), `deploy/Dockerfile.webui` (+ its own
+    `Dockerfile.webui.dockerignore` — Docker's per-Dockerfile-path dockerignore lookup, same
+    convention `Dockerfile.dockerignore` already established) and `deploy/nginx.conf`. Real domains:
+    `api.sgummallaworks.com/knowledge` (path-prefixed — that domain hosts multiple APIs) and
+    `knowledge.sgummallaworks.com` (webui, its own subdomain, no prefix).
 
-    **Caddy, not Traefik**, as the single reverse proxy for everything (path-prefix stripping for
-    the shared API domain, automatic HTTPS via Let's Encrypt, and serving webui's built static
-    files directly — no separate static-file container) — a deliberate choice against
-    `api/config.py`'s older comment assuming Traefik, made once it was clear nothing was actually
-    deployed yet (see the Hostinger box's own diagnostic: fresh Ubuntu 24.04, no Docker, nothing on
-    80/443, despite `api.sgummallaworks.com` already resolving there). Reasoning: for a
-    solo operator, a single human-readable `Caddyfile` beats debugging Traefik's label-based
-    routing spread across services, and Caddy's automatic HTTPS needs zero extra config — the one
-    real cost is Traefik's Docker-native auto-discovery (a new API added later needs a manual
-    `Caddyfile` edit + reload, not a fully hands-off addition), judged not worth the added
-    config-complexity risk for something that happens rarely.
+    **A Docker Compose + Caddy version of this was built first and fully discarded within the same
+    session** before anything was ever applied to a real box — the initial access-model question
+    ("SSH access" vs. "prepare files") never surfaced that the actual target was k3s, and by the
+    time a diagnostic pass of the box ran (fresh Ubuntu, no Docker, nothing on 80/443), it looked
+    like a genuinely empty box rather than a cluster node — the diagnostic script itself never
+    checked for `k3s`/`kubectl`. Corrected once the user said outright "my plan is to deploy with
+    k3s." A second diagnostic pass then found: k3s already running (fresh install, ~40h uptime),
+    Traefik already serving as the built-in Ingress controller (its `LoadBalancer` Service already
+    bound to the box's own public IP — explaining why `api.sgummallaworks.com` resolved there with
+    nothing answering on 80/443 the first time around), cert-manager installed but with no
+    `ClusterIssuer` configured yet, and zero `Ingress` resources — a real blank slate, just one
+    layer higher up the stack than the first pass assumed. This also retroactively explained
+    `api/config.py`'s older comment about "the Hostinger deployment's Traefik/cert-manager
+    termination" — cert-manager is Kubernetes-native tooling; that comment had been describing k3s
+    the whole time, a signal worth having caught before building the Compose version at all.
 
-    `deploy/Dockerfile.caddy` is a two-stage build: `node:22-slim` runs `npm run build` with
-    `VITE_API_BASE_URL` passed as a Docker build arg (baked into the bundle at build time, per item
-    35's design — Vite env vars aren't runtime-configurable), then `caddy:2-alpine` copies both the
-    built `webui/dist/` and `deploy/Caddyfile` in. One image per API-origin build; rebuilding with a
-    different `VITE_API_BASE_URL` targets a different backend.
+    **Traefik (k3s's bundled Ingress controller), not Caddy**, ended up being the right call after
+    all — the earlier "Caddy over Traefik" reasoning (session-internal, from the discarded Compose
+    attempt) was specifically about *standing up and hand-configuring* Traefik from scratch for a
+    solo operator; under k3s, Traefik is already running, and — the actual deciding factor — each
+    future API gets its **own independent** `Middleware`/`Ingress` pair with zero edits to any
+    existing resource, which is strictly better than the Compose-era plan's "edit one shared
+    `Caddyfile`" story. `04-middleware.yaml`'s `stripPrefix` (namespaced, not derived from any
+    single-source-of-truth constant the way item 34's `MCP_TIERS` pattern works — three literal
+    tier names change rarely enough that the indirection wasn't judged worth it there either) is
+    what removes `/knowledge` before the request ever reaches the API container, which — same as
+    the Compose-era design — has no path-prefix awareness at all (item 34: deliberately no `/api/`
+    prefix, built assuming origin-based separation).
 
-    This surfaced and fixed a real, previously-undiscovered gap: **`webui/vite.config.ts` still
-    described the fully-deleted co-hosted-with-Flask architecture** (`base: '/static/workspace/'`,
-    `outDir: '../api/static/workspace'`, comments about `serve_spa_shell()`/`WEBUI_DEV_SERVER`) —
-    nobody had done a real production build since item 34 deleted that whole serving mechanism, so
-    this had gone unnoticed. Fixed: `base` is always `/` now (webui owns its whole origin, never a
-    sub-path), `outDir` is a plain local `webui/dist/`. `.gitignore`'s `api/static/workspace/`
-    entry (now permanently empty, nothing generates it anymore) replaced with `webui/dist/`.
-    `.gitignore` also gained `.env.prod` (the real Hostinger secrets file, `deploy/.env.prod.example`'s
-    filled-in counterpart) — the existing bare `.env` pattern doesn't match a different filename, so
-    this would otherwise have been silently unprotected against an accidental commit.
+    `knowledge-api` (`02-api.yaml`) pulls the already-published `sgummalla/knowledge` image
+    straight from Docker Hub — no build step on the box for it at all. `knowledge-webui`
+    (`03-webui.yaml`) is different: its image bakes in `VITE_API_BASE_URL` at build time (item
+    35's design — Vite env vars aren't runtime-configurable) and so is deployment-specific, not a
+    reusable published artifact the way the API image is — built once locally on the box
+    (`deploy/Dockerfile.webui`, `node:22-slim` → `nginx:1.27-alpine`, plain static-file serving now
+    that Traefik owns routing/TLS, no reason for a Caddy-specific image anymore) and loaded directly
+    into containerd via `k3s ctr images import` (`docker save` → `k3s ctr images import`), never
+    pushed to a registry — `imagePullPolicy: Never` and the fully-qualified
+    `docker.io/library/knowledge-webui:local` image reference in the Deployment spec both depend on
+    matching exactly what `docker save` embeds for a bare `knowledge-webui:local` tag.
+
+    Both Postgres and the API `Deployment`s use `strategy: { type: Recreate }`, not the Kubernetes
+    default `RollingUpdate` — Postgres because its `PersistentVolumeClaim` uses the `local-path`
+    StorageClass (node-local storage, not shared; a rolling update briefly running two pods risks
+    scheduling the new one onto a different node with an empty volume), the API because — same
+    reasoning `deploy/entrypoint.sh`'s own comment already gives for pinning gunicorn to one
+    worker — job-status and rate-limit state live in an in-memory dict scoped to one process, so a
+    second replica (even briefly, mid-rollout) would silently split that state.
+
+    This surfaced and fixed the same real, previously-undiscovered gap the discarded Compose
+    attempt also found: **`webui/vite.config.ts` still described the fully-deleted
+    co-hosted-with-Flask architecture** (`base: '/static/workspace/'`, `outDir:
+    '../api/static/workspace'`, comments about `serve_spa_shell()`/`WEBUI_DEV_SERVER`) — nobody had
+    done a real production build since item 34 deleted that whole serving mechanism. Fixed: `base`
+    is always `/` now (webui owns its whole origin, never a sub-path), `outDir` is a plain local
+    `webui/dist/`. `.gitignore`'s stale `api/static/workspace/` entry replaced with `webui/dist/`.
 
     **Known, accepted limitation**: `GET /.well-known/oauth-authorization-server` (RFC 8414) is
     spec-required to live at the domain root, but `api.sgummallaworks.com` hosts multiple APIs each
-    wanting their own issuer identity — genuinely incompatible with path-based domain sharing. Left
-    unrouted (404s externally) rather than faked; nothing currently depends on live OAuth
-    auto-discovery (MCP clients authenticate with a pasted personal access token). `docs/
-    HOSTINGER_DEPLOY.md` documents this explicitly rather than leaving it a silent surprise.
+    wanting their own issuer identity — genuinely incompatible with path-based domain sharing. No
+    `Ingress` rule exists for it (404s externally) rather than faking it; nothing currently depends
+    on live OAuth auto-discovery (MCP clients authenticate with a pasted personal access token).
+    `docs/HOSTINGER_DEPLOY.md` documents this explicitly rather than leaving it a silent surprise.
 
     Verified locally before handing off (this session has no access to the real Hostinger box —
-    "I prepare files, you run them" was the explicit access model): a real `npm run build` with a
-    real `VITE_API_BASE_URL`, a real `docker build`/`docker compose build` of the Caddy image (both
-    paths, since compose build-arg wiring can differ from a bare `docker build`), and
-    `caddy validate` against the real `Caddyfile`. Not verified: real DNS/Let's Encrypt issuance,
-    which needs the actual box and actual public DNS — that step is the deploy guide's own
-    responsibility to walk through carefully (step 1: don't start the stack before DNS for
-    `knowledge.sgummallaworks.com` has propagated, or cert issuance fails).
+    "I prepare files, you run them" was the explicit access model): a real `docker build` of
+    `Dockerfile.webui` with a real `VITE_API_BASE_URL`, and a real container run of the built image
+    confirming both a static asset and the SPA client-route fallback (`/browse` → `200` via
+    `try_files`, not a 404) actually serve correctly. Every `deploy/k3s/*.yaml` manifest was
+    validated as well-formed YAML with the right `apiVersion`/`kind`/`metadata.name` shape, but
+    **not** schema-validated against a live cluster (no kubeconfig for the real box in this
+    session's environment) — the Traefik `Middleware` CRD shape and the
+    `traefik.ingress.kubernetes.io/router.middlewares` annotation format in particular are worth a
+    close read before the first real `kubectl apply`, along with confirming this cluster's real
+    `IngressClass` name actually is `traefik` (`kubectl get ingressclass`) before relying on
+    `06-cluster-issuer.yaml`'s HTTP01 solver config, which assumes it.
 
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
