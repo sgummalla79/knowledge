@@ -1,7 +1,5 @@
 import pytest
 
-from api.constants import DEFAULT_OLLAMA_BASE_URL
-from api.infrastructure.embeddings.ollama_provider import OllamaEmbeddingProvider
 from api.infrastructure.embeddings.openai_compatible_provider import OpenAICompatibleEmbeddingProvider
 from api.infrastructure.embeddings.registry import EmbeddingProviderRegistry, UnsupportedEmbeddingProviderError
 from api.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvider
@@ -10,19 +8,6 @@ from api.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvide
 def test_resolve_voyage_returns_voyage_provider():
     provider = EmbeddingProviderRegistry.resolve("voyage", "voyage-3", "test-key")
     assert isinstance(provider, VoyageEmbeddingProvider)
-
-
-def test_resolve_ollama_returns_ollama_provider():
-    provider = EmbeddingProviderRegistry.resolve("ollama", "nomic-embed-text", None)
-    assert isinstance(provider, OllamaEmbeddingProvider)
-    assert provider._base_url == DEFAULT_OLLAMA_BASE_URL
-
-
-def test_resolve_ollama_uses_explicit_base_url_override():
-    provider = EmbeddingProviderRegistry.resolve(
-        "ollama", "nomic-embed-text", None, base_url="http://custom-host:11434"
-    )
-    assert provider._base_url == "http://custom-host:11434"
 
 
 def test_resolve_unsupported_provider_raises():
@@ -39,11 +24,10 @@ def test_resolve_openai_compatible_returns_openai_compatible_provider():
 
 
 def test_known_providers_includes_all_registered_adapters():
-    assert EmbeddingProviderRegistry.known_providers() == {"voyage", "ollama", "openai_compatible"}
+    assert EmbeddingProviderRegistry.known_providers() == {"voyage", "openai_compatible"}
 
 
-def test_supports_model_listing_true_for_ollama_and_openai_compatible():
-    assert EmbeddingProviderRegistry.supports_model_listing("ollama") is True
+def test_supports_model_listing_true_for_openai_compatible():
     assert EmbeddingProviderRegistry.supports_model_listing("openai_compatible") is True
 
 

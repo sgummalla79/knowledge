@@ -5,15 +5,11 @@ from api.domain import error_codes
 from api.domain.errors import ValidationError
 
 
-def test_ollama_default_choice_is_valid_without_api_key():
-    validate_provider_connection("ollama", None, "http://ollama:11434")
-
-
 def test_any_model_name_and_dimensions_accepted_for_a_known_provider():
     # This is the whole point of "bring your own model" — no whitelist on model/dimensions
     # (dimensions/model aren't even parameters here; validate_provider_connection only checks
     # connection requirements).
-    validate_provider_connection("ollama", None, "http://ollama:11434")
+    validate_provider_connection("openai_compatible", "key", "https://api.openai.com/v1")
 
 
 def test_unsupported_provider_rejected():

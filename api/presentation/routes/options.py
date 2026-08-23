@@ -3,7 +3,6 @@ from flask import Blueprint, g, jsonify, request
 from api.application.embedding_model_listing_service import EmbeddingModelListingService
 from api.application.embedding_provider_settings_service import EmbeddingProviderConfigService
 from api.constants import (
-    DEFAULT_OLLAMA_BASE_URL,
     EMBEDDING_MODEL_LISTING_RATE_LIMIT,
     EMBEDDING_MODEL_PRESETS,
     EMBEDDING_PROVIDER_DISPLAY_NAMES,
@@ -62,7 +61,11 @@ def get_embedding_options():
                     "api_key_required": status.provider in EMBEDDING_PROVIDERS_REQUIRING_API_KEY,
                     "base_url_required": status.provider in EMBEDDING_PROVIDERS_REQUIRING_BASE_URL,
                     "base_url_supported": status.provider in EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL,
-                    "default_base_url": DEFAULT_OLLAMA_BASE_URL if status.provider == "ollama" else None,
+                    # No remaining provider has a sane default to fall back to (every
+                    # base_url-supporting provider also requires one — see
+                    # EMBEDDING_PROVIDERS_REQUIRING_BASE_URL) — kept as an explicit field rather
+                    # than removed, since a future self-hosted provider might reintroduce one.
+                    "default_base_url": None,
                     # Tells a UI whether it's worth calling POST /embedding-options/models for
                     # this provider at all, before the user has typed any credentials — Voyage's
                     # SDK has no model-listing endpoint, so it's always false there.

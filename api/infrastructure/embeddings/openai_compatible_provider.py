@@ -12,8 +12,8 @@ _EMBED_PATH = "/embeddings"
 _MODELS_PATH = "/models"
 _REQUEST_TIMEOUT_SECONDS = 120
 _LIST_MODELS_TIMEOUT_SECONDS = 10
-# Mirrors OllamaEmbeddingProvider's rationale: bound each request's duration regardless of total
-# document size, so a transient failure only loses one batch's progress.
+# Bounds each request's duration regardless of total document size, so a transient failure only
+# loses one batch's progress.
 _DOCUMENT_BATCH_SIZE = 100
 
 

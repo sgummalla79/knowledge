@@ -44,7 +44,7 @@ def _status(provider, enabled=False, configured=False, model=None, locked=False)
 
 
 def test_embedding_options_describes_provider_capabilities(client):
-    statuses = [_status("voyage"), _status("ollama", locked=True), _status("openai_compatible")]
+    statuses = [_status("voyage", locked=True), _status("openai_compatible")]
     with patch(
         "api.presentation.routes.options.EmbeddingProviderConfigService.list_status",
         return_value=statuses
@@ -59,23 +59,22 @@ def test_embedding_options_describes_provider_capabilities(client):
     assert isinstance(body["suggested_models"], list)
 
     providers_by_name = {provider["name"]: provider for provider in body["providers"]}
-    ollama = providers_by_name["ollama"]
-    assert ollama["display_name"] == "Ollama"
-    assert ollama["locked"] is True
-    assert ollama["api_key_required"] is False
-    assert ollama["base_url_required"] is False
-    assert ollama["base_url_supported"] is True
-    assert ollama["default_base_url"] == "http://ollama:11434"
 
     # Any registered provider is now reachable — not just the one whitelisted (provider, model).
     voyage = providers_by_name["voyage"]
+    assert voyage["display_name"] == "Voyage"
+    assert voyage["locked"] is True
     assert voyage["api_key_required"] is True
     assert voyage["base_url_supported"] is False
 
     openai_compatible = providers_by_name["openai_compatible"]
+    assert openai_compatible["api_key_required"] is False
     assert openai_compatible["base_url_required"] is True
+    assert openai_compatible["base_url_supported"] is True
+    # No remaining provider has a fallback default base_url (see options.py) — every
+    # base_url-supporting provider now requires one explicitly.
+    assert openai_compatible["default_base_url"] is None
 
-    assert ollama["supports_model_listing"] is True
     assert openai_compatible["supports_model_listing"] is True
     assert voyage["supports_model_listing"] is False
 
@@ -95,12 +94,12 @@ def test_embedding_options_lists_every_known_provider_regardless_of_state(client
     # per provider instead of picking from a filtered list.
     with patch(
         "api.presentation.routes.options.EmbeddingProviderConfigService.list_status",
-        return_value=[_status("voyage"), _status("ollama", enabled=True, configured=True, model="nomic-embed-text"), _status("openai_compatible")]
+        return_value=[_status("voyage"), _status("openai_compatible", enabled=True, configured=True, model="text-embedding-3-small")]
     ):
         response = client.get("/embedding-options")
 
     body = response.get_json()
     provider_names = {provider["name"] for provider in body["providers"]}
-    assert provider_names == {"voyage", "ollama", "openai_compatible"}
-    assert body["default_provider"] == "ollama"
-    assert body["default_model"] == "nomic-embed-text"
+    assert provider_names == {"voyage", "openai_compatible"}
+    assert body["default_provider"] == "openai_compatible"
+    assert body["default_model"] == "text-embedding-3-small"

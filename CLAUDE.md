@@ -837,7 +837,9 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     compose file includes Ollama — dev-preview's Ollama container is still started manually per
     the "Local dev preview" section's existing instructions (unchanged by this item); Ollama
     support is planned for full removal in a later item (see "Not yet done" below), so it
-    deliberately wasn't wired into compose now just to be ripped out again shortly.
+    deliberately wasn't wired into compose now just to be ripped out again shortly. **Superseded by
+    item 37: Ollama was removed entirely** — this paragraph is historical, describing the
+    deliberate choice at the time, not current state.
 
     `deploy/test-image.sh` and `.github/workflows/publish-image.yml` had comments referencing the
     now-deleted prod containers/`promote-image.sh` cleaned up; `deploy/smoke_test.py`'s docstring
@@ -921,7 +923,69 @@ description of it as bundled/co-served, which predates that change. Bundles an M
       has a real hosting story (item 34 called this "a later phase"; no build/deploy path for
       webui/ exists yet beyond `npm run dev` against a real API).
 
-Current test suite: **624 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+36. **Fixed the sign-up org name field eating hyphens while typing.** `normalizeOrgName()`
+    (`webui/src/pages/SignUpPage.tsx`) ran on every keystroke and stripped a trailing hyphen
+    immediately — so typing `my-org` character by character never worked, since the hyphen was
+    removed the instant it became the last character, before the next character could be typed. A
+    trailing hyphen is a normal mid-typing state, not something to eagerly correct;
+    `ORG_NAME_PATTERN` already treats it as transiently invalid the same way it treats length < 3,
+    and `handleSubmit` now trims leading/trailing hyphens before calling `signUp()` instead of the
+    live normalizer doing it on every change. Confirmed with a keystroke-by-keystroke Playwright
+    test (typing `"my-test-org"` one character at a time) before and after.
+
+37. **Removed Ollama entirely as a supported embedding provider** — only Voyage and an
+    OpenAI-compatible endpoint remain. Requested directly (not a hypothetical "someday" — see item
+    34's `docs/DOCKER_HUB.md` note above, which already flagged Ollama's `/settings` walkthrough as
+    part of the stale co-hosted-UI docs anyway) ahead of a first real deployment (Hostinger), where
+    a self-hosted local-only provider has no place.
+    - Deleted `api/infrastructure/embeddings/ollama_provider.py` and
+      `api/tests/unit/test_ollama_provider.py` outright. Removed the `"ollama"` entry from every
+      shared registry/constants collection it appeared in: `EmbeddingProviderRegistry`'s
+      `_PROVIDER_CLASSES`/`_PROVIDER_FACTORIES` (`api/infrastructure/embeddings/registry.py`),
+      `EMBEDDING_MODEL_PRESETS`/`EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL`/
+      `EMBEDDING_PROVIDER_DISPLAY_NAMES` and the now-unused `DEFAULT_OLLAMA_BASE_URL` constant
+      (`api/constants.py`). `GET /embedding-options`'s `default_base_url` field
+      (`api/presentation/routes/options.py`) is now unconditionally `None` — no remaining provider
+      has an optional-but-defaulted base_url (openai_compatible's is supported *and* required, not
+      just defaulted), kept as an explicit field rather than removed in case a future self-hosted
+      provider reintroduces one.
+    - `embed_provider` is a real Postgres `ENUM`, not app-level-validated free text — edited
+      directly in `api/migrations/versions/0001_initial_schema.py` (and the matching
+      `api/infrastructure/orm/embedding_model.py` redefinition) rather than added as a new
+      migration, since this app has no real deployment anywhere yet (that migration's own module
+      docstring) with `provider='ollama'` data to preserve or a schema history to respect — nothing
+      to migrate away from, just a value that should never have shipped to the first real
+      deployment.
+    - Test fixtures across ~11 unit test files and one integration test
+      (`test_embedding_dimension_resize.py`) that used `"ollama"` purely as a generic
+      no-particular-requirements example provider were repointed at `"openai_compatible"` (with a
+      real `base_url`, since that's now required); tests that specifically proved Ollama's
+      keyless-and-base-url-less behavior (`test_ollama_default_choice_is_valid_without_api_key`,
+      `test_update_ollama_without_api_key_accepted_by_schema`) were deleted outright rather than
+      repointed — no remaining provider satisfies "valid with neither an api_key nor a base_url"
+      (voyage requires the former, openai_compatible the latter), so there's no equivalent case to
+      test. 608 tests passing (down from 624 — accounts for the deleted Ollama-specific test file
+      and test functions, not a regression).
+    - `webui/src/` needed **zero changes** — `EmbeddingModelsPage.tsx` is fully data-driven off
+      `GET /embedding-options`, confirmed by a full-tree grep turning up no Ollama references
+      anywhere in `webui/src/` to begin with.
+    - Docs: deleted `docs/DOCKER_HUB.md`'s entire `### Ollama` setup subsection (compose YAML with
+      an `ollama` service, model-pull instructions, curl examples) and its provider-count/table
+      references; updated `docs/DATA_MODEL.md`'s `embed_provider` column description to the
+      remaining two values (left its unrelated historical "Voyage→Ollama cutover" mechanism note
+      alone — that's describing a real past migration event, not current provider support).
+    - **Local dev preview lost its zero-setup, no-external-account embedding option** — Ollama was
+      the only provider needing neither a real API key nor a real hosted endpoint. The "Local dev
+      preview" section above dropped the Ollama container entirely (table row, first-time-setup
+      step, teardown command) and no longer gives a concrete "configure it like this" example,
+      since both remaining providers need real credentials/endpoints this file can't supply. If you
+      need a genuinely free/local embedding option back for dev-preview specifically, that's new
+      work, not a revert — nothing here restores it.
+    - `deploy/` scripts needed no changes (dev-preview's Ollama container was only ever started via
+      CLAUDE.md's own manual instructions, never wired into any script — see item 33's superseded
+      note above); `api/mcp_server/` needed no changes (already fully provider-agnostic).
+
+Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
@@ -931,9 +995,6 @@ Current test suite: **624 tests passing** (`python -m pytest api/tests/ api/mcp_
   creates a new identity per invite today, with `username` defaulting to the invited email as a
   stopgap — a real design still needs to let the inviter choose the invitee's username directly,
   rather than assuming an email-shaped string is also a good username.
-- Ollama support (embedding provider, dev-preview's throwaway Ollama container/instructions) is
-  planned for full removal in an upcoming task — not started yet; item 33 above deliberately left
-  existing Ollama references alone in anticipation of that.
 - webui/ has no real hosting/deploy story yet (item 34 dropped it from the Docker image; item 35
   only got local dev working via `npm run dev` + `VITE_API_BASE_URL`) — a real build/serve path is
   still needed, and `docs/DOCKER_HUB.md` needs a rewrite once it exists (currently describes the
@@ -970,8 +1031,8 @@ on this machine.
 ## Local dev preview — for interactively clicking around a change, not for CI-style verification
 
 A third option alongside plain `pytest` and `deploy/test-image.sh`: a persistent local Flask dev
-server + throwaway Postgres/Ollama containers, for manually exercising a change in the browser
-(uploads, search, Settings pages) without waiting on a Docker image build.
+server + a throwaway Postgres container, for manually exercising a change in the browser (uploads,
+search, Settings pages) without waiting on a Docker image build.
 `deploy/dev-preview-up.sh`/`.ps1` and `deploy/dev-preview-down.sh`/`.ps1` automate the entire flow
 below (Postgres via `deploy/docker-compose.dev-preview.yml`, migrations, Flask, and webui/'s own
 Vite dev server) — run those instead of typing the steps out by hand; the manual commands below are
@@ -983,20 +1044,11 @@ conventions — reuse these exact values every time rather than picking new ones
 | Flask dev server | `http://127.0.0.1:15100` |
 | Vite dev server (webui/, HMR) | `http://127.0.0.1:5173` |
 | Postgres container | `knowledge-dev-preview`, port `15432`, db/user/password all `rag` |
-| Ollama container | `knowledge-dev-preview-ollama`, port `11500` |
 | `SECRET_KEY` | `dev-preview-secret` |
 | Flask PID file | `/tmp/workspace-preview.pid` |
 | Flask log file | `/tmp/knowledge-dev-preview-flask.log` |
 | Vite PID file | `/tmp/workspace-preview-vite.pid` |
 | Vite log file | `/tmp/knowledge-dev-preview-vite.log` |
-
-**Why a separate throwaway Ollama container, not prod's:** the prod stack's `ollama` container
-(started outside `deploy/docker-compose.yml` historically — check `docker ps` for
-`knowledge-ollama-1`) only publishes port 11434 *inside* the compose network (`ollama:11434`),
-not to the host, so a bare host-side Flask process can't reach it — and recreating that container
-to add a port mapping risks disrupting whatever's currently using it. Spinning up a second,
-independent Ollama container costs one quick model pull (`nomic-embed-text` is ~274MB) and keeps
-this preview fully isolated from prod, same rationale as the throwaway Postgres.
 
 **Quirk:** a `.venv`'s console-script shebangs (`pip`, `alembic`, etc.) embed an absolute path —
 after any folder move/rename (this happened for `rag-api` → `knowledge-api`, and again for
@@ -1012,16 +1064,11 @@ console script directly.
 # for you along with the rest of the steps below.
 docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml up -d
 
-# 2. Throwaway Ollama
-docker run -d --name knowledge-dev-preview-ollama -p 11500:11434 \
-  -v knowledge-dev-preview-ollama-data:/root/.ollama ollama/ollama
-docker exec knowledge-dev-preview-ollama ollama pull nomic-embed-text
-
-# 3. Migrations
+# 2. Migrations
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
   api/.venv/bin/python -m alembic -c api/alembic.ini upgrade head
 
-# 4. Vite dev server (webui/, HMR) — leave running, tracking its PID. Overrides
+# 3. Vite dev server (webui/, HMR) — leave running, tracking its PID. Overrides
 # webui/.env.development's VITE_API_BASE_URL (which points at the verify/"prod" API port, 13102 —
 # see session history item 35) to this flow's Flask port instead.
 cd webui && VITE_API_BASE_URL=http://127.0.0.1:15100 \
@@ -1030,7 +1077,7 @@ disown
 echo $! > /tmp/workspace-preview-vite.pid
 cd ..
 
-# 5. Start Flask, tracking its PID — pure JSON API now (see session history item 34), no HTML/SPA
+# 4. Start Flask, tracking its PID — pure JSON API now (see session history item 34), no HTML/SPA
 # serving of any kind, so no WEBUI_DEV_SERVER or equivalent to set here. Its default CORS allowlist
 # (DEFAULT_WEBUI_ORIGIN, api/constants.py) already matches Vite's fixed 127.0.0.1:5173 above, so no
 # WEBUI_ORIGINS override is needed for this exact port combination either.
@@ -1042,15 +1089,18 @@ echo $! > /tmp/workspace-preview.pid
 ```
 Then open `http://127.0.0.1:5173/sign-in` (Vite serves the actual UI now — Flask's own
 `127.0.0.1:15100` answers only JSON, see item 34/35) — `admin@local`/`admin`, forced password
-change on first login — and configure the embedding provider once (Providers tab): model
-`nomic-embed-text`, base URL `http://127.0.0.1:11500`, dimensions `768`, then Enable.
+change on first login. To ingest/query anything you'll also need to configure an embedding
+provider once (Providers tab) — Voyage (needs a real API key) or an OpenAI-compatible endpoint
+(needs a real base URL); neither is a zero-setup local default anymore now that Ollama support has
+been removed (see item 36), so there's no single example to give here — use whichever real
+provider/credentials you have.
 
 **Day-to-day after that (containers already running):**
 - **Backend code change:** Flask's dev server doesn't hot-reload — kill the tracked PID
   (`kill $(cat /tmp/workspace-preview.pid)`, never by port — see the process-safety note below)
-  and re-run step 5 above (containers/DB/model/Vite stay up, so only Flask needs restarting).
+  and re-run step 4 above (Postgres/Vite stay up, so only Flask needs restarting).
 - **Frontend-only change:** nothing to do — Vite's dev server hot-reloads the browser directly.
-  Leave `npm run dev` (step 4) running for the whole session; only restart it if it crashes or the
+  Leave `npm run dev` (step 3) running for the whole session; only restart it if it crashes or the
   webui/ dependency tree changes (e.g. after `npm install`). `npm run build` is no longer part of
   producing the API image (`deploy/Dockerfile` dropped its webui/ build stage — see item 34) and
   webui/ has no real hosting story yet (see "Not yet done" below) — `npm run dev` against a real
@@ -1068,8 +1118,6 @@ change on first login — and configure the embedding provider once (Providers t
 kill $(cat /tmp/workspace-preview.pid) 2>/dev/null
 kill $(cat /tmp/workspace-preview-vite.pid) 2>/dev/null
 docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml down
-docker rm -f knowledge-dev-preview-ollama
-docker volume rm knowledge-dev-preview-ollama-data
 ```
 
 ## Versioning
