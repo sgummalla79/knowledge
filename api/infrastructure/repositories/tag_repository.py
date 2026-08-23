@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from api.domain import error_codes
@@ -38,6 +39,14 @@ class TagRepository:
                 field="name",
             )
         return _to_entity(model)
+
+    def find_by_name_ci(self, org_id: UUID, name: str) -> TagEntity | None:
+        model = (
+            self._session.query(TagModel)
+            .filter(TagModel.org_id == org_id, func.lower(TagModel.name) == name.lower())
+            .first()
+        )
+        return _to_entity(model) if model is not None else None
 
     def get(self, tag_id: UUID) -> TagEntity | None:
         model = self._session.get(TagModel, tag_id)

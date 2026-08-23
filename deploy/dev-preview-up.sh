@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Starts the local dev-preview stack: Postgres/pgvector in Docker, the Flask backend and the
-# built frontend running natively (no app Docker image). Conventions match CLAUDE.md's
-# "Local dev preview" table — keep this in sync with dev-preview-down.sh.
+# Starts the local dev-preview stack: Postgres/pgvector via docker compose
+# (deploy/docker-compose.dev-preview.yml), the Flask backend and the built frontend running
+# natively (no app Docker image). Conventions match CLAUDE.md's "Local dev preview" table — keep
+# this in sync with dev-preview-down.sh.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PG_CONTAINER=knowledge-dev-preview
+COMPOSE="docker compose -p knowledge-dev-preview -f $REPO_ROOT/deploy/docker-compose.dev-preview.yml"
 PG_PORT=15432
-PG_IMAGE=pgvector/pgvector:pg16
 FLASK_PORT=15100
 SECRET_KEY=dev-preview-secret
 DATABASE_URL="postgresql://rag:rag@127.0.0.1:${PG_PORT}/rag"
@@ -15,25 +15,13 @@ PID_FILE=/tmp/workspace-preview.pid
 LOG_FILE=/tmp/knowledge-dev-preview-flask.log
 VENV_PY="$REPO_ROOT/api/.venv/bin/python"
 
-echo "==> Postgres (${PG_CONTAINER})"
-if docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
-  if [ "$(docker inspect -f '{{.State.Running}}' "$PG_CONTAINER")" != "true" ]; then
-    docker start "$PG_CONTAINER" >/dev/null
-    echo "started existing container"
-  else
-    echo "already running"
-  fi
-else
-  echo "container not found — pulling ${PG_IMAGE} and creating it"
-  docker run -d --name "$PG_CONTAINER" -p "${PG_PORT}:5432" \
-    -e POSTGRES_DB=rag -e POSTGRES_USER=rag -e POSTGRES_PASSWORD=rag \
-    "$PG_IMAGE" >/dev/null
-fi
+echo "==> Postgres (knowledge-dev-preview)"
+$COMPOSE up -d
 
 echo "==> waiting for Postgres to accept connections"
 ready=false
 for _ in $(seq 1 30); do
-  if docker exec "$PG_CONTAINER" pg_isready -U rag >/dev/null 2>&1; then
+  if $COMPOSE exec -T knowledge-dev-preview pg_isready -U rag >/dev/null 2>&1; then
     ready=true
     break
   fi

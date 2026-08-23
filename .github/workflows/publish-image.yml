@@ -20,8 +20,7 @@
 # Requires repo secrets DOCKERHUB_USERNAME + DOCKERHUB_TOKEN (a Docker Hub access token with
 # Read/Write scope -- Account Settings -> Security -> New Access Token).
 #
-# This workflow never touches this machine's local `api`/`knowledge-db` prod containers (see
-# CLAUDE.md, "Docker testing workflow") -- it only builds and pushes an image from CI.
+# This workflow never touches any local containers -- it only builds and pushes an image from CI.
 name: Publish Image
 
 on:

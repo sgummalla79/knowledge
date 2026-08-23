@@ -3,15 +3,14 @@ from uuid import UUID
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp.exceptions import ToolError
 
+from api.constants import MCP_TIERS
 from api.infrastructure.repositories.mcp_settings_repository import MCPSettingsRepository
 
 # One tool-tier name per mounted MCP endpoint (/mcp/rag, /mcp/read, /mcp/write) — see
 # mcp_server/server.py — mapped to the mcp_settings column an org admin toggles to activate it.
-_TIER_SETTINGS_COLUMN = {
-    "rag": "rag_read_enabled",
-    "read": "object_read_enabled",
-    "write": "object_write_enabled",
-}
+# Derived from api.constants.MCP_TIERS (column, segment) rather than its own copy — see that
+# constant's docstring.
+_TIER_SETTINGS_COLUMN = {segment: column for column, segment in MCP_TIERS}
 
 
 def current_caller() -> dict:

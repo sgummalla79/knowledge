@@ -8,6 +8,7 @@ from api.constants import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TOP_K,
+    MCP_TIERS,
     SESSION_TIMEOUT_MAX_MINUTES,
     SESSION_TIMEOUT_MIN_MINUTES,
     WEB_CRAWL_MAX_PAGES_LIMIT,
@@ -680,6 +681,20 @@ class ProfileResponse(BaseModel):
         )
 
 
+class PermissionOption(BaseModel):
+    value: str
+    label: str
+
+
+class PermissionGroup(BaseModel):
+    label: str
+    permissions: list[PermissionOption]
+
+
+class PermissionCatalogResponse(BaseModel):
+    groups: list[PermissionGroup]
+
+
 class ApplicationOAuthClientSecretResponse(ApplicationResponse):
     """client_credentials' one-time-reveal counterpart — client_id is just application.id (already
     in the base response), client_secret is the one-time-reveal secret (returned only from
@@ -754,6 +769,11 @@ class MCPSettingsResponse(BaseModel):
     object_read_enabled: bool
     object_write_enabled: bool
     last_modified_at: datetime
+    # column -> URL segment (e.g. "rag_read_enabled" -> "rag") for webui to build each tier's
+    # connection URL (/<org-slug>/mcp/<segment>) from, without its own hardcoded copy of this
+    # mapping — see api.constants.MCP_TIERS, the single source both this and
+    # api/mcp_server/permissions.py derive from.
+    tier_url_segments: dict[str, str]
 
     @classmethod
     def from_entity(cls, settings: MCPSettings) -> "MCPSettingsResponse":
@@ -763,6 +783,7 @@ class MCPSettingsResponse(BaseModel):
             object_read_enabled=settings.object_read_enabled,
             object_write_enabled=settings.object_write_enabled,
             last_modified_at=settings.last_modified_at,
+            tier_url_segments=dict(MCP_TIERS),
         )
 
 

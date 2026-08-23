@@ -256,4 +256,17 @@ export interface MCPSettings {
   object_read_enabled: boolean
   object_write_enabled: boolean
   last_modified_at: string
+  // e.g. { rag_read_enabled: "rag", object_read_enabled: "read", object_write_enabled: "write" }
+  // — server-authoritative, not a hardcoded frontend mapping (see api.constants.MCP_TIERS).
+  tier_url_segments: Record<string, string>
+}
+
+export interface PermissionOption {
+  value: string
+  label: string
+}
+
+export interface PermissionGroup {
+  label: string
+  permissions: PermissionOption[]
 }
