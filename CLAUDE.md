@@ -1047,6 +1047,58 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     regressing item 35's work, so only this one isolated, self-contained backend fix was
     cherry-picked out of it — the rest of that branch is superseded, not merged.
 
+40. **Built the real Hostinger deployment infrastructure** — `docs/HOSTINGER_DEPLOY.md` (the full
+    walkthrough), `deploy/docker-compose.prod.yml`, `deploy/Caddyfile`, `deploy/Dockerfile.caddy`
+    (+ its own `Dockerfile.caddy.dockerignore` — Docker's per-Dockerfile-path dockerignore lookup,
+    same convention `Dockerfile.dockerignore` already established), `deploy/.env.prod.example`.
+    Real domains: `api.sgummallaworks.com/knowledge` (path-prefixed — that domain is shared across
+    multiple APIs) and `knowledge.sgummallaworks.com` (webui, its own subdomain, no prefix).
+
+    **Caddy, not Traefik**, as the single reverse proxy for everything (path-prefix stripping for
+    the shared API domain, automatic HTTPS via Let's Encrypt, and serving webui's built static
+    files directly — no separate static-file container) — a deliberate choice against
+    `api/config.py`'s older comment assuming Traefik, made once it was clear nothing was actually
+    deployed yet (see the Hostinger box's own diagnostic: fresh Ubuntu 24.04, no Docker, nothing on
+    80/443, despite `api.sgummallaworks.com` already resolving there). Reasoning: for a
+    solo operator, a single human-readable `Caddyfile` beats debugging Traefik's label-based
+    routing spread across services, and Caddy's automatic HTTPS needs zero extra config — the one
+    real cost is Traefik's Docker-native auto-discovery (a new API added later needs a manual
+    `Caddyfile` edit + reload, not a fully hands-off addition), judged not worth the added
+    config-complexity risk for something that happens rarely.
+
+    `deploy/Dockerfile.caddy` is a two-stage build: `node:22-slim` runs `npm run build` with
+    `VITE_API_BASE_URL` passed as a Docker build arg (baked into the bundle at build time, per item
+    35's design — Vite env vars aren't runtime-configurable), then `caddy:2-alpine` copies both the
+    built `webui/dist/` and `deploy/Caddyfile` in. One image per API-origin build; rebuilding with a
+    different `VITE_API_BASE_URL` targets a different backend.
+
+    This surfaced and fixed a real, previously-undiscovered gap: **`webui/vite.config.ts` still
+    described the fully-deleted co-hosted-with-Flask architecture** (`base: '/static/workspace/'`,
+    `outDir: '../api/static/workspace'`, comments about `serve_spa_shell()`/`WEBUI_DEV_SERVER`) —
+    nobody had done a real production build since item 34 deleted that whole serving mechanism, so
+    this had gone unnoticed. Fixed: `base` is always `/` now (webui owns its whole origin, never a
+    sub-path), `outDir` is a plain local `webui/dist/`. `.gitignore`'s `api/static/workspace/`
+    entry (now permanently empty, nothing generates it anymore) replaced with `webui/dist/`.
+    `.gitignore` also gained `.env.prod` (the real Hostinger secrets file, `deploy/.env.prod.example`'s
+    filled-in counterpart) — the existing bare `.env` pattern doesn't match a different filename, so
+    this would otherwise have been silently unprotected against an accidental commit.
+
+    **Known, accepted limitation**: `GET /.well-known/oauth-authorization-server` (RFC 8414) is
+    spec-required to live at the domain root, but `api.sgummallaworks.com` hosts multiple APIs each
+    wanting their own issuer identity — genuinely incompatible with path-based domain sharing. Left
+    unrouted (404s externally) rather than faked; nothing currently depends on live OAuth
+    auto-discovery (MCP clients authenticate with a pasted personal access token). `docs/
+    HOSTINGER_DEPLOY.md` documents this explicitly rather than leaving it a silent surprise.
+
+    Verified locally before handing off (this session has no access to the real Hostinger box —
+    "I prepare files, you run them" was the explicit access model): a real `npm run build` with a
+    real `VITE_API_BASE_URL`, a real `docker build`/`docker compose build` of the Caddy image (both
+    paths, since compose build-arg wiring can differ from a bare `docker build`), and
+    `caddy validate` against the real `Caddyfile`. Not verified: real DNS/Let's Encrypt issuance,
+    which needs the actual box and actual public DNS — that step is the deploy guide's own
+    responsibility to walk through carefully (step 1: don't start the stack before DNS for
+    `knowledge.sgummallaworks.com` has propagated, or cert issuance fails).
+
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps

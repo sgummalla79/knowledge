@@ -1,0 +1,28 @@
+# Single reverse proxy for the whole Hostinger deployment (see docs/HOSTINGER_DEPLOY.md) —
+# terminates TLS (automatic via Let's Encrypt) for both domains, strips the /knowledge path
+# prefix before forwarding to the API container (api.sgummallaworks.com is shared across
+# multiple APIs, each getting its own path block below), and serves webui's built static files
+# directly for knowledge.sgummallaworks.com — no separate static-file container needed.
+
+api.sgummallaworks.com {
+	handle_path /knowledge/* {
+		reverse_proxy knowledge-api:13102
+	}
+
+	# Add a new `handle_path /other-api/* { reverse_proxy other-api:PORT }` block here for each
+	# additional API this domain hosts — each one is independent, no shared state between them.
+
+	handle {
+		respond "Not found" 404
+	}
+}
+
+knowledge.sgummallaworks.com {
+	root * /srv/webui
+	encode gzip
+	# webui is a client-side-routed SPA (React Router) — any path that isn't a real static file
+	# (an asset, favicon, etc.) must still serve index.html so the client-side router can take
+	# over, or a hard refresh on e.g. /browse would 404 instead of loading the app.
+	try_files {path} /index.html
+	file_server
+}
