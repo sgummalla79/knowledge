@@ -25,7 +25,7 @@ cross-origin (`webui/src/api/config.ts`'s `VITE_API_BASE_URL` + this API's CORS 
 `api/presentation/web/cors.py`) — see item 34/35 for the full story, and don't trust item 13's
 description of it as bundled/co-served, which predates that change. Bundles an MCP server under
 `api/mcp_server/`, exposing three permission-gated tool tiers over streamable-HTTP at
-`/<org-slug>/mcp/{rag,read,write}`, on the same port as the REST API (not loopback-only — see item
+`/<org-slug>/mcp/{search,read,write}`, on the same port as the REST API (not loopback-only — see item
 16/23) and secured by the same OAuth2/permission stack as the rest of the API.
 
 ## Session history — what's been built (in build order)
@@ -984,6 +984,52 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     - `deploy/` scripts needed no changes (dev-preview's Ollama container was only ever started via
       CLAUDE.md's own manual instructions, never wired into any script — see item 33's superseded
       note above); `api/mcp_server/` needed no changes (already fully provider-agnostic).
+
+38. **Renamed the MCP "rag" tool tier to "search"** — route (`/mcp/rag` → `/mcp/search`), DB column
+    (`mcp_settings.rag_read_enabled` → `search_read_enabled`), the tier string checked by
+    `require_tier_permission`, the tool module (`api/mcp_server/tools/rag.py` →
+    `api/mcp_server/tools/search.py`), and the webui Settings > MCP label/example. Prompted by a
+    user pointing out that the Settings > MCP page's "RAG (search)" label for the tier implied the
+    connection URL should be `/mcp/search`, when it was actually `/mcp/rag` — a fair reading, since
+    "RAG" is this whole app's general domain (a RAG backend), so a tier bearing that exact name
+    read as ambiguous sitting next to the other two tiers ("read"/"write"), which are both named
+    for what they let a caller *do*, not a domain buzzword.
+    - `mcp_settings.rag_read_enabled` already had real rows in local dev-preview/verify/test
+      Postgres instances (unlike item 37's Ollama enum value, which nothing had ever set) — so
+      this got a real migration (`0017_rename_mcp_rag_tier_to_search.py`,
+      `ALTER TABLE mcp_settings RENAME COLUMN`), not an in-place edit of the migration that created
+      the column (`0008_mcp_access.py`, left untouched).
+    - `api/constants.py`'s `MCP_TIERS` (the single (column, URL-segment) source both
+      `api/mcp_server/permissions.py` and `GET /mcp-settings`'s `tier_url_segments` derive from)
+      changed from `("rag_read_enabled", "rag")` to `("search_read_enabled", "search")` — every
+      downstream consumer (permissions tier-lookup, the settings response, webui's per-tier URL
+      construction) picked up the rename automatically through that one source, no separate copies
+      to chase. The one place that genuinely hardcodes the tier names outside `MCP_TIERS` is
+      `api/presentation/web/mcp_org_scoping.py`'s two regexes (`rag|read|write` →
+      `search|read|write`) — deliberately not derived from `MCP_TIERS`, since regex alternation
+      isn't worth the indirection for three literals that change this rarely.
+    - Every "rag" identifier tied to this tier was renamed in lockstep: `api/mcp_server/server.py`'s
+      import alias and `_TIERS` dict key, `tools/rag.py`'s own `_TIER` constant (module renamed to
+      `tools/search.py`), the domain entity/port/service/repository/route/schema chain
+      (`rag_read_enabled` → `search_read_enabled` throughout), test fixtures across
+      `api/tests/integration/test_mcp_settings_service.py`,
+      `api/mcp_server/tests/unit/test_permissions.py`, `api/mcp_server/tests/integration/
+      test_asgi_org_scoping.py` (the middleware regex's own test coverage — updated in lockstep
+      with the regex), `conftest.py`'s `enable_tier(..., rag=...)` helper kwarg (→ `search=...`),
+      and `test_tools_rag.py` (renamed to `test_tools_search.py`, its `FastMCP(name="test-rag")` and
+      one rag-specific test function name updated too). `webui/src/api/types.ts`'s `MCPSettings`
+      interface and `MCPSettingsPage.tsx`'s `TIERS` array/form-state/dirty-check all renamed the
+      same way; the tile's label changed from `"RAG (search)"` (the ambiguous one) to plain
+      `"Search"`, and the `claude mcp add` example's arbitrary client-side server name changed from
+      `knowledge-rag` to `knowledge-search` for consistency (that name is cosmetic — any string
+      works as the `claude mcp add` argument — but matching the tier avoids a confusing mismatch in
+      the copy-pasted example). 608 tests passing throughout (same count as item 37 — a rename, not
+      a coverage change).
+    - **If this file, comments, or memory ever mention `/mcp/rag`, `rag_read_enabled`, or a `"RAG"`
+      tier/tool-tier label as current, that reference predates this item and is stale** — including
+      items 16, 22, and 23 above, which still describe the tier as "rag" throughout (frozen
+      historical entries, accurately describing what was built at the time — not corrected
+      retroactively, this repo's own established convention).
 
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 

@@ -303,7 +303,7 @@ DEFAULT_VIEWER_PERMISSIONS = (
 # from) derive from, so the mapping can't drift between the two the way it did as two independent
 # hardcoded copies before this.
 MCP_TIERS: tuple[tuple[str, str], ...] = (
-    ("rag_read_enabled", "rag"),
+    ("search_read_enabled", "search"),
     ("object_read_enabled", "read"),
     ("object_write_enabled", "write"),
 )

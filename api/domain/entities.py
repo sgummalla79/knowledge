@@ -325,7 +325,7 @@ class MCPSettings:
     same convention embedding_settings historically used before it went per-provider."""
 
     org_id: UUID
-    rag_read_enabled: bool
+    search_read_enabled: bool
     object_read_enabled: bool
     object_write_enabled: bool
     last_modified_by: UUID | None

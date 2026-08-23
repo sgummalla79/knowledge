@@ -19,7 +19,7 @@ class MCPSettingsService:
             return settings
         return MCPSettings(
             org_id=org_id,
-            rag_read_enabled=False,
+            search_read_enabled=False,
             object_read_enabled=False,
             object_write_enabled=False,
             last_modified_by=None,
@@ -29,9 +29,9 @@ class MCPSettingsService:
     def update(
         self,
         org_id: UUID,
-        rag_read_enabled: bool,
+        search_read_enabled: bool,
         object_read_enabled: bool,
         object_write_enabled: bool,
         modified_by: UUID,
     ) -> MCPSettings:
-        return self._mcp_settings.upsert(org_id, rag_read_enabled, object_read_enabled, object_write_enabled, modified_by)
+        return self._mcp_settings.upsert(org_id, search_read_enabled, object_read_enabled, object_write_enabled, modified_by)

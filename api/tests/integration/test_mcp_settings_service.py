@@ -27,7 +27,7 @@ def test_get_defaults_to_all_tiers_off_when_no_row_exists(db_session, org_id):
     settings = _service(db_session).get(org_id)
 
     assert settings.org_id == org_id
-    assert settings.rag_read_enabled is False
+    assert settings.search_read_enabled is False
     assert settings.object_read_enabled is False
     assert settings.object_write_enabled is False
 
@@ -38,13 +38,13 @@ def test_update_persists_and_get_reflects_it(db_session, org_id, identity_id):
     updated = service.update(org_id, True, True, False, identity_id)
     db_session.commit()
 
-    assert updated.rag_read_enabled is True
+    assert updated.search_read_enabled is True
     assert updated.object_read_enabled is True
     assert updated.object_write_enabled is False
     assert updated.last_modified_by == identity_id
 
     reloaded = service.get(org_id)
-    assert reloaded.rag_read_enabled is True
+    assert reloaded.search_read_enabled is True
     assert reloaded.object_read_enabled is True
     assert reloaded.object_write_enabled is False
 
@@ -58,7 +58,7 @@ def test_update_twice_upserts_the_same_row(db_session, org_id, identity_id):
     db_session.commit()
 
     settings = service.get(org_id)
-    assert settings.rag_read_enabled is False
+    assert settings.search_read_enabled is False
     assert settings.object_read_enabled is True
     assert settings.object_write_enabled is True
 
@@ -71,4 +71,4 @@ def test_settings_are_isolated_per_org(db_session, org_id, identity_id):
     service.update(org_id, True, True, True, identity_id)
     db_session.commit()
 
-    assert service.get(other_org_id).rag_read_enabled is False
+    assert service.get(other_org_id).search_read_enabled is False

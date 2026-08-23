@@ -25,6 +25,6 @@ def get_mcp_settings():
 def update_mcp_settings():
     dto = MCPSettingsUpdateRequest.model_validate(request.get_json(silent=True) or {})
     settings = _service().update(
-        g.org_id, dto.rag_read_enabled, dto.object_read_enabled, dto.object_write_enabled, g.user_id
+        g.org_id, dto.search_read_enabled, dto.object_read_enabled, dto.object_write_enabled, g.user_id
     )
     return jsonify(MCPSettingsResponse.from_entity(settings).model_dump(mode="json"))

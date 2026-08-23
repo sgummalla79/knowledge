@@ -6,7 +6,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from api.constants import MCP_TIERS
 from api.infrastructure.repositories.mcp_settings_repository import MCPSettingsRepository
 
-# One tool-tier name per mounted MCP endpoint (/mcp/rag, /mcp/read, /mcp/write) — see
+# One tool-tier name per mounted MCP endpoint (/mcp/search, /mcp/read, /mcp/write) — see
 # mcp_server/server.py — mapped to the mcp_settings column an org admin toggles to activate it.
 # Derived from api.constants.MCP_TIERS (column, segment) rather than its own copy — see that
 # constant's docstring.
@@ -34,7 +34,7 @@ def require_tier_permission(session, tier: str, permission: str | None) -> dict:
 
     1. This application has mcp_access at all (read straight off the AccessToken claims already
        resolved by KnowledgeTokenVerifier — no DB round trip).
-    2. This tool's tier (rag/read/write) is activated for the caller's org (mcp_settings — one DB
+    2. This tool's tier (search/read/write) is activated for the caller's org (mcp_settings — one DB
        row read).
     3. If a permission is given, the caller's already-resolved scopes grant it — the exact same
        `caller.scopes` AppAuthService.authenticate_bearer_token resolved fresh for this request
