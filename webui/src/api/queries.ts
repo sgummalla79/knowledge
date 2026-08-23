@@ -13,6 +13,7 @@ import type {
   MCPSettings,
   Org,
   OrgMember,
+  PermissionGroup,
   PersonalAccessToken,
   Profile,
   Shelf,
@@ -45,6 +46,13 @@ export function useProfiles(enabled = true) {
   return useQuery({ queryKey: ['profiles'], queryFn: () => api.get<Profile[]>('/profiles'), enabled })
 }
 
+export function usePermissionCatalog() {
+  return useQuery({
+    queryKey: ['profiles', 'permissions'],
+    queryFn: () => api.get<{ groups: PermissionGroup[] }>('/profiles/permissions'),
+  })
+}
+
 export function usePersonalAccessTokens() {
   return useQuery({
     queryKey: ['personal-access-tokens'],
@@ -62,10 +70,6 @@ export function useCategories() {
 
 export function useShelves() {
   return useQuery({ queryKey: ['shelves'], queryFn: () => api.get<Shelf[]>('/shelves') })
-}
-
-export function useTags() {
-  return useQuery({ queryKey: ['tags'], queryFn: () => api.get<Tag[]>('/tags') })
 }
 
 export function useIngestionJobs(limit = 10) {

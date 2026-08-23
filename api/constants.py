@@ -295,3 +295,14 @@ DEFAULT_VIEWER_PERMISSIONS = (
     "embedding_models:read",
     "queries:execute",
 )
+
+# One (mcp_settings column, mounted URL segment) pair per MCP tool tier — the single source both
+# api/mcp_server/permissions.py (looks up a tier's enabled-column by URL segment) and
+# GET /mcp-settings's response (tells webui which segment to build each tier's connection URL
+# from) derive from, so the mapping can't drift between the two the way it did as two independent
+# hardcoded copies before this.
+MCP_TIERS: tuple[tuple[str, str], ...] = (
+    ("rag_read_enabled", "rag"),
+    ("object_read_enabled", "read"),
+    ("object_write_enabled", "write"),
+)

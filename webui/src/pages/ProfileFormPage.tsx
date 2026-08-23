@@ -3,78 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
-import { useProfiles } from '../api/queries'
-
-// Mirrors api/constants.py's OBJECT_PERMISSIONS — a fixed protocol vocabulary (a new object type
-// needs a new backend route anyway). Covers org/org_members/applications/profiles themselves too,
-// unlike a connected application's own scopes (removed — see PersonalAccessToken/ApplicationCreatePage).
-const PERMISSION_GROUPS: { label: string; permissions: { value: string; label: string }[] }[] = [
-  { label: 'Organization', permissions: [{ value: 'org:write', label: 'Rename / describe org' }] },
-  {
-    label: 'Documents',
-    permissions: [
-      { value: 'documents:read', label: 'Read' },
-      { value: 'documents:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Categories',
-    permissions: [
-      { value: 'categories:read', label: 'Read' },
-      { value: 'categories:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Shelves',
-    permissions: [
-      { value: 'shelves:read', label: 'Read' },
-      { value: 'shelves:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Tags',
-    permissions: [
-      { value: 'tags:read', label: 'Read' },
-      { value: 'tags:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Embedding models',
-    permissions: [
-      { value: 'embedding_models:read', label: 'Read' },
-      { value: 'embedding_models:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Org members',
-    permissions: [
-      { value: 'org_members:read', label: 'Read' },
-      { value: 'org_members:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Connected applications',
-    permissions: [
-      { value: 'applications:read', label: 'Read' },
-      { value: 'applications:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'Profiles',
-    permissions: [
-      { value: 'profiles:read', label: 'Read' },
-      { value: 'profiles:write', label: 'Write' },
-    ],
-  },
-  {
-    label: 'MCP settings',
-    permissions: [
-      { value: 'mcp_settings:read', label: 'Read' },
-      { value: 'mcp_settings:write', label: 'Write' },
-    ],
-  },
-  { label: 'Search', permissions: [{ value: 'queries:execute', label: 'Execute queries' }] },
-]
+import { usePermissionCatalog, useProfiles } from '../api/queries'
 
 // Routed at setup/profiles/new and setup/profiles/:id/edit (see App.tsx) — a full page rather than a
 // modal so a permission list this long has room to breathe. The back link (not a browser-history
@@ -85,6 +14,7 @@ export function ProfileFormPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const profiles = useProfiles()
+  const permissionCatalog = usePermissionCatalog()
   const profile = id ? profiles.data?.find((entry) => entry.id === id) : null
 
   const [name, setName] = useState(profile?.name ?? '')
@@ -159,7 +89,7 @@ export function ProfileFormPage() {
     }
   }
 
-  if (id && profiles.isLoading) {
+  if ((id && profiles.isLoading) || permissionCatalog.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>
   }
 
@@ -232,7 +162,7 @@ export function ProfileFormPage() {
               </p>
             ) : (
               <div className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-sm border border-border p-4">
-                {PERMISSION_GROUPS.map((group) => (
+                {(permissionCatalog.data?.groups ?? []).map((group) => (
                   <div key={group.label}>
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {group.label}

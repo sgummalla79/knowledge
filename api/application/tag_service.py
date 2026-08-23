@@ -11,6 +11,13 @@ class TagService:
         self._repository = repository
 
     def create_tag(self, org_id: UUID, name: str) -> Tag:
+        # Case-insensitive get-or-create — "Billing" reuses an existing "billing" rather than
+        # creating a case-variant duplicate. This is the single point every caller (webui,
+        # Postman, MCP's object-write tier) goes through, so the dedup rule can't be bypassed by
+        # calling the API directly instead of through a client that happens to pre-check locally.
+        existing = self._repository.find_by_name_ci(org_id, name)
+        if existing is not None:
+            return existing
         return self._repository.create(org_id, name=name)
 
     def list_tags(self, org_id: UUID) -> list[Tag]:
