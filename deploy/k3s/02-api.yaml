@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-api
+  namespace: knowledge
+spec:
+  replicas: 1
+  # Never scale this beyond 1: job status and rate-limit state live in an in-memory dict scoped to
+  # one process (same reason the container itself runs a single gunicorn worker -- see
+  # deploy/entrypoint.sh's own comment). A second replica would silently split that state.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: knowledge-api }
+  template:
+    metadata:
+      labels: { app: knowledge-api }
+    spec:
+      containers:
+        - name: knowledge-api
+          # Bump this tag to upgrade -- check docker.io/sgummalla/knowledge/tags or this repo's
+          # VERSION file for the current one, then `kubectl apply -f` this file again.
+          image: sgummalla/knowledge:4.3.2
+          ports:
+            - containerPort: 13102
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: knowledge-secrets, key: database-url }
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: knowledge-secrets, key: secret-key }
+            - name: LOG_LEVEL
+              value: INFO
+            # Real TLS terminates at Traefik in front of this pod -- see api/config.py's own
+            # comment on why this must be explicit rather than left at its plain-HTTP-safe default.
+            - name: SESSION_COOKIE_SECURE
+              value: "true"
+            - name: WEBUI_ORIGINS
+              value: https://knowledge.sgummallaworks.com
+          readinessProbe:
+            httpGet: { path: /health, port: 13102 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 13102 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge-api
+  namespace: knowledge
+spec:
+  selector: { app: knowledge-api }
+  ports:
+    - port: 13102
+      targetPort: 13102
