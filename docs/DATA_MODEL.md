@@ -321,7 +321,7 @@ An org's registered embedders — many rows per org, unlike the old single globa
 |---|---|---|---|
 | `id` | `uuid` | no | PK |
 | `org_id` | `uuid` | no | FK → `organizations.id`, `ON DELETE CASCADE` |
-| `provider` | `embed_provider` enum | no | `voyage` \| `ollama` \| `openai_compatible` — **this app's actual registry values**, not the design spec's literal `openai`/`cohere`/`voyage`/`self_hosted`/`custom` list, which doesn't match what `EmbeddingProviderRegistry` can construct a client for |
+| `provider` | `embed_provider` enum | no | `voyage` \| `openai_compatible` — **this app's actual registry values**, not the design spec's literal `openai`/`cohere`/`voyage`/`self_hosted`/`custom` list, which doesn't match what `EmbeddingProviderRegistry` can construct a client for |
 | `name` | `string` | no | display name |
 | `model_identifier` | `string` | no | provider's model name |
 | `dimensions` | `int` | no | verified live against the provider's actual output at save time |

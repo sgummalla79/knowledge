@@ -9,7 +9,6 @@ EMBEDDING_DIM = 768
 # provider/model/dimension combos as a starting point — never validated or enforced against; any
 # provider registered in EmbeddingProviderRegistry accepts any model/dimensions the caller supplies.
 EMBEDDING_MODEL_PRESETS = [
-    {"provider": "ollama", "model": "nomic-embed-text", "dimensions": 768},
     {"provider": "voyage", "model": "voyage-3", "dimensions": 1024},
     {"provider": "openai_compatible", "model": "text-embedding-3-small", "dimensions": 1536},
 ]
@@ -20,10 +19,13 @@ EMBEDDING_PROVIDERS_REQUIRING_API_KEY = {"voyage"}
 
 # Providers that accept a connection override via embedding_settings.base_url (self-hosted
 # providers only). Drives whether GET /embedding-options advertises a base_url field.
-EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"ollama", "openai_compatible"}
+EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL = {"openai_compatible"}
 
-# Providers with no sane default base_url to fall back to (unlike ollama's DEFAULT_OLLAMA_BASE_URL)
-# — base_url is mandatory for these, not just an optional override.
+# Providers with no sane default base_url to fall back to — base_url is mandatory for these, not
+# just an optional override. Currently identical to EMBEDDING_PROVIDERS_SUPPORTING_BASE_URL above
+# (no remaining provider has an optional-but-defaulted base_url), kept as a separate set since the
+# two questions ("does this provider take a base_url" vs. "is it required") are independent and a
+# future self-hosted provider could answer them differently.
 EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 
 # Display labels for the Settings > Providers page — the "openai_compatible" registry key isn't
@@ -31,15 +33,8 @@ EMBEDDING_PROVIDERS_REQUIRING_BASE_URL = {"openai_compatible"}
 # (Open/Closed: a new provider needs an entry here, not a frontend edit).
 EMBEDDING_PROVIDER_DISPLAY_NAMES = {
     "voyage": "Voyage",
-    "ollama": "Ollama",
     "openai_compatible": "OpenAI",
 }
-
-# Kept as the registry's fallback base_url for the "ollama" adapter (api/infrastructure/embeddings/
-# registry.py) — only used if/when a caller configures ollama and doesn't supply their own
-# base_url; no embedding_models row exists until an admin actually configures one, so this isn't a
-# runtime dependency by itself.
-DEFAULT_OLLAMA_BASE_URL = "http://ollama:11434"
 
 # Fallback chunking parameters used only when an embedding provider is configured without
 # explicit values; callers can always override per-provider via the embedding-settings request body.

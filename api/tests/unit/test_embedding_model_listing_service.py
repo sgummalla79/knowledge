@@ -14,7 +14,7 @@ def _mock_provider():
     # Protocol checks the *class*, and MagicMock's class doesn't declare list_models unless spec
     # tells it to — without spec, isinstance(MagicMock(), SupportsModelListing) is False even
     # though the mock plainly has a list_models attribute. Confirmed real provider classes
-    # (OllamaEmbeddingProvider et al.) aren't affected — this is a Mock-only artifact.
+    # (OpenAICompatibleEmbeddingProvider et al.) aren't affected — this is a Mock-only artifact.
     return MagicMock(spec=SupportsModelListing)
 
 
@@ -27,7 +27,7 @@ def test_list_models_returns_provider_models():
         "api.application.embedding_model_listing_service.EmbeddingProviderRegistry.resolve",
         return_value=provider_instance,
     ):
-        result = service.list_models("ollama", None, "http://ollama:11434")
+        result = service.list_models("openai_compatible", None, "https://api.example.com/v1")
 
     assert result == ["nomic-embed-text", "mxbai-embed-large"]
 
@@ -65,6 +65,6 @@ def test_list_models_wraps_provider_failure():
         return_value=provider_instance,
     ):
         with pytest.raises(ValidationError) as exc_info:
-            service.list_models("ollama", None, "http://ollama:11434")
+            service.list_models("openai_compatible", None, "https://api.example.com/v1")
 
     assert exc_info.value.code == error_codes.EMBEDDING_MODEL_LISTING_FAILED

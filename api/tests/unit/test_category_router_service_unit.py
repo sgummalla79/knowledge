@@ -13,7 +13,7 @@ from api.domain.errors import ValidationError
 
 def _embedding_settings(**overrides):
     fields = dict(
-        id=uuid4(), provider="ollama", model="nomic-embed-text", api_key=None, base_url="http://ollama:11434",
+        id=uuid4(), provider="openai_compatible", model="text-embedding-3-small", api_key=None, base_url="https://api.example.com/v1",
         dimensions=768, chunk_size=800, chunk_overlap=100,
         created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
     )

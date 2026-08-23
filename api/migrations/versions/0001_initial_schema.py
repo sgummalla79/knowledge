@@ -13,9 +13,13 @@ schema, not the other way around.
 Source of truth is the "Knowledge data library pages" DataModel-Spec.dc.html / schema.sql this app
 was designed against, with these deliberate, documented deviations:
 
-- `embed_provider` uses this app's actual three registry values (voyage/ollama/openai_compatible —
-  see app/infrastructure/embeddings/registry.py), not the spec's literal openai/cohere/voyage/
-  self_hosted/custom list, which doesn't match what this app can construct a client for.
+- `embed_provider` uses this app's actual registry values (voyage/openai_compatible — see
+  app/infrastructure/embeddings/registry.py), not the spec's literal openai/cohere/voyage/
+  self_hosted/custom list, which doesn't match what this app can construct a client for. A third
+  value, "ollama", was part of this enum from this migration's original authoring until Ollama
+  support was removed entirely (see this repo's CLAUDE.md session history) — edited directly here
+  rather than via a later migration since no real deployment has ever existed with "ollama" data
+  to preserve (this file's own module docstring above).
 - `chunks.embedding` is dimensionless (`vector()`), not the spec's fixed `vector(1536)` — per-org
   "bring your own embedding model" means different orgs (and a mid-reindex org) can have different
   `dimensions`; a single fixed-width column can't represent that. A genuinely correct multi-
@@ -82,7 +86,7 @@ depends_on = None
 
 org_plan = ENUM("free", "team", "enterprise", name="org_plan", create_type=False)
 user_role = ENUM("admin", "contributor", "viewer", name="user_role", create_type=False)
-embed_provider = ENUM("voyage", "ollama", "openai_compatible", name="embed_provider", create_type=False)
+embed_provider = ENUM("voyage", "openai_compatible", name="embed_provider", create_type=False)
 embed_model_status = ENUM("active", "retired", "disabled", name="embed_model_status", create_type=False)
 source_type = ENUM("upload", "url", "connector", name="source_type", create_type=False)
 source_status = ENUM("active", "paused", "error", name="source_status", create_type=False)

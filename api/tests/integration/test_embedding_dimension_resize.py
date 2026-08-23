@@ -111,15 +111,15 @@ def test_enable_switch_reembeds_real_category_description_embeddings(db_session,
     mocked equivalent)."""
     org = bootstrap_default_organization(db_session)
     provider_settings_repo = EmbeddingProviderSettingsRepository(db_session)
-    # voyage's config must exist *before* ollama becomes the active provider — update_config()
-    # refuses to configure any provider other than whichever one is currently active, so it can't
-    # be configured after the fact here; this mirrors a provider that was set up once and later
-    # switched away from, not one being configured for the first time mid-switch.
+    # voyage's config must exist *before* openai_compatible becomes the active provider —
+    # update_config() refuses to configure any provider other than whichever one is currently
+    # active, so it can't be configured after the fact here; this mirrors a provider that was set
+    # up once and later switched away from, not one being configured for the first time mid-switch.
     provider_settings_repo.upsert_config(org.id, "voyage", "voyage-4-lite", "test-key", None, 1024, 800, 100)
     provider_settings_repo.upsert_config(
-        org.id, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100
+        org.id, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 800, 100
     )
-    provider_settings_repo.set_enabled(org.id, "ollama", True)
+    provider_settings_repo.set_enabled(org.id, "openai_compatible", True)
     db_session.commit()
 
     category_repo = CategoryRepository(db_session)
@@ -139,9 +139,9 @@ def test_enable_switch_reembeds_real_category_description_embeddings(db_session,
         "api.application.embedding_provider_settings_service.EmbeddingProviderRegistry.resolve",
         return_value=provider,
     ):
-        # The real switch-away path: ollama is active, voyage is only configured — enable()
-        # disables ollama (chunk_count == 0), resizes chunks.embedding, and must resync every
-        # category's description_embedding against the newly-active provider.
+        # The real switch-away path: openai_compatible is active, voyage is only configured —
+        # enable() disables openai_compatible (chunk_count == 0), resizes chunks.embedding, and
+        # must resync every category's description_embedding against the newly-active provider.
         embedding_provider_service.enable(org.id, "voyage")
     db_session.commit()
 

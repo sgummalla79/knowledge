@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import ENUM, UUID
 
 from api.infrastructure.orm.base import Base
 
-embed_provider = ENUM("voyage", "ollama", "openai_compatible", name="embed_provider", create_type=False)
+embed_provider = ENUM("voyage", "openai_compatible", name="embed_provider", create_type=False)
 embed_model_status = ENUM("active", "retired", "disabled", name="embed_model_status", create_type=False)
 
 
