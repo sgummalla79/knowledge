@@ -248,15 +248,15 @@ export interface PersonalAccessTokenWithSecret extends PersonalAccessToken {
 }
 
 // One row per org: independent on/off switches for each of the three MCP tool tiers
-// (/mcp/rag, /mcp/read, /mcp/write) — an application still needs its own mcp_access to reach any
-// of them, and the connecting identity's profile still gates individual tool calls.
+// (/mcp/search, /mcp/read, /mcp/write) — an application still needs its own mcp_access to reach
+// any of them, and the connecting identity's profile still gates individual tool calls.
 export interface MCPSettings {
   org_id: string
-  rag_read_enabled: boolean
+  search_read_enabled: boolean
   object_read_enabled: boolean
   object_write_enabled: boolean
   last_modified_at: string
-  // e.g. { rag_read_enabled: "rag", object_read_enabled: "read", object_write_enabled: "write" }
+  // e.g. { search_read_enabled: "search", object_read_enabled: "read", object_write_enabled: "write" }
   // — server-authoritative, not a hardcoded frontend mapping (see api.constants.MCP_TIERS).
   tier_url_segments: Record<string, string>
 }

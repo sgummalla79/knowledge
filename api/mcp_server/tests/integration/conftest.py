@@ -96,11 +96,11 @@ def authenticate_as(org_id, identity_id, scopes, mcp_access=True):
     auth_context_var.set(AuthenticatedUser(access_token))
 
 
-def enable_tier(db_session, org_id, *, rag=False, read=False, write=False):
+def enable_tier(db_session, org_id, *, search=False, read=False, write=False):
     """Seeds/updates the org's mcp_settings row directly (bypassing MCPSettingsService, which
     needs a real identity for last_modified_by) — every tool call gates on this being on for its
     tier before the caller's own scopes are even checked."""
     from api.infrastructure.repositories.mcp_settings_repository import MCPSettingsRepository
 
-    MCPSettingsRepository(db_session).upsert(org_id, rag, read, write, None)
+    MCPSettingsRepository(db_session).upsert(org_id, search, read, write, None)
     db_session.commit()

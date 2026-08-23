@@ -8,10 +8,10 @@ import { useMCPSettings, useOrgs } from '../api/queries'
 import type { MCPSettings } from '../api/types'
 import { useToast } from '../components/toastContext'
 
-const TIERS: { key: keyof Pick<MCPSettings, 'rag_read_enabled' | 'object_read_enabled' | 'object_write_enabled'>; label: string; description: string }[] = [
+const TIERS: { key: keyof Pick<MCPSettings, 'search_read_enabled' | 'object_read_enabled' | 'object_write_enabled'>; label: string; description: string }[] = [
   {
-    key: 'rag_read_enabled',
-    label: 'RAG (search)',
+    key: 'search_read_enabled',
+    label: 'Search',
     description: 'search, list_categories, get_document, get_document_chunks — hybrid search and reading what it found.',
   },
   {
@@ -65,7 +65,7 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
   const queryClient = useQueryClient()
   const { showToast } = useToast()
   const [values, setValues] = useState({
-    rag_read_enabled: settings.rag_read_enabled,
+    search_read_enabled: settings.search_read_enabled,
     object_read_enabled: settings.object_read_enabled,
     object_write_enabled: settings.object_write_enabled,
   })
@@ -73,7 +73,7 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
   const [error, setError] = useState<string | null>(null)
 
   const dirty =
-    values.rag_read_enabled !== settings.rag_read_enabled ||
+    values.search_read_enabled !== settings.search_read_enabled ||
     values.object_read_enabled !== settings.object_read_enabled ||
     values.object_write_enabled !== settings.object_write_enabled
 
@@ -130,7 +130,7 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
           <code className="text-foreground">Authorization: Bearer &lt;token&gt;</code> header. For
           Claude Code specifically:{' '}
           <code className="text-foreground">
-            claude mcp add --transport http knowledge-rag &lt;url&gt; --header "Authorization:
+            claude mcp add --transport http knowledge-search &lt;url&gt; --header "Authorization:
             Bearer &lt;token&gt;"
           </code>
         </p>

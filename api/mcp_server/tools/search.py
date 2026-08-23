@@ -16,11 +16,11 @@ from api.infrastructure.repositories.query_repository import QueryRepository
 from api.mcp_server.db import session_scope, set_rls_session_vars
 from api.mcp_server.permissions import require_tier_permission
 
-# Mounted at /mcp/rag (see mcp_server/server.py) — everything an LLM client needs to search this
-# org's knowledge base and read what it found, nothing else. Moved from the original flat
+# Mounted at /mcp/search (see mcp_server/server.py) — everything an LLM client needs to search
+# this org's knowledge base and read what it found, nothing else. Moved from the original flat
 # tools.py, not rewritten.
 
-_TIER = "rag"
+_TIER = "search"
 
 
 def _document_dict(document) -> dict:

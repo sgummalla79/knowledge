@@ -36,7 +36,7 @@ def _set_access_token(org_id, identity_id, application_id, scopes, mcp_access=Tr
 def _settings(**overrides):
     fields = dict(
         org_id=uuid4(),
-        rag_read_enabled=False,
+        search_read_enabled=False,
         object_read_enabled=False,
         object_write_enabled=False,
         last_modified_by=None,
@@ -75,7 +75,7 @@ def test_require_tier_permission_denied_when_mcp_access_off():
     _set_access_token(org_id, identity_id, application_id, ["documents:read"], mcp_access=False)
 
     with pytest.raises(ToolError, match="MCP access"):
-        require_tier_permission(_SESSION, "rag", "documents:read")
+        require_tier_permission(_SESSION, "search", "documents:read")
 
 
 def test_require_tier_permission_denied_when_tier_disabled_for_org():
@@ -84,10 +84,10 @@ def test_require_tier_permission_denied_when_tier_disabled_for_org():
 
     with patch(
         "api.mcp_server.permissions.MCPSettingsRepository.get",
-        return_value=_settings(org_id=org_id, rag_read_enabled=False),
+        return_value=_settings(org_id=org_id, search_read_enabled=False),
     ):
         with pytest.raises(ToolError, match="not enabled"):
-            require_tier_permission(_SESSION, "rag", "documents:read")
+            require_tier_permission(_SESSION, "search", "documents:read")
 
 
 def test_require_tier_permission_denied_when_no_settings_row_exists():
@@ -97,7 +97,7 @@ def test_require_tier_permission_denied_when_no_settings_row_exists():
 
     with patch("api.mcp_server.permissions.MCPSettingsRepository.get", return_value=None):
         with pytest.raises(ToolError, match="not enabled"):
-            require_tier_permission(_SESSION, "rag", "documents:read")
+            require_tier_permission(_SESSION, "search", "documents:read")
 
 
 def test_require_tier_permission_denied_when_permission_not_granted():
@@ -106,10 +106,10 @@ def test_require_tier_permission_denied_when_permission_not_granted():
 
     with patch(
         "api.mcp_server.permissions.MCPSettingsRepository.get",
-        return_value=_settings(org_id=org_id, rag_read_enabled=True),
+        return_value=_settings(org_id=org_id, search_read_enabled=True),
     ):
         with pytest.raises(ToolError, match="not authorized"):
-            require_tier_permission(_SESSION, "rag", "documents:write")
+            require_tier_permission(_SESSION, "search", "documents:write")
 
 
 def test_require_tier_permission_allowed_when_all_three_gates_pass():
@@ -118,9 +118,9 @@ def test_require_tier_permission_allowed_when_all_three_gates_pass():
 
     with patch(
         "api.mcp_server.permissions.MCPSettingsRepository.get",
-        return_value=_settings(org_id=org_id, rag_read_enabled=True),
+        return_value=_settings(org_id=org_id, search_read_enabled=True),
     ):
-        caller = require_tier_permission(_SESSION, "rag", "documents:read")
+        caller = require_tier_permission(_SESSION, "search", "documents:read")
 
     assert caller["org_id"] == org_id
 

@@ -12,14 +12,14 @@ from api.infrastructure.repositories.document_repository import DocumentReposito
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
 from conftest import authenticate_as, enable_tier
-from api.mcp_server.tools.rag import register
+from api.mcp_server.tools.search import register
 
 # Calls the real registered tools via FastMCP.call_tool — not a refactored internal function — so
 # this exercises the exact require_tier_permission + repository wiring a live MCP client would hit.
 
 
 def _test_server() -> FastMCP:
-    mcp = FastMCP(name="test-rag")
+    mcp = FastMCP(name="test-search")
     register(mcp)
     return mcp
 
@@ -49,7 +49,7 @@ def org_id(db_session):
 def test_list_categories_returns_only_this_orgs_categories(db_session, org_id):
     CategoryRepository(db_session).create(org_id, "Engineering", "engineering", description=None)
     db_session.commit()
-    enable_tier(db_session, org_id, rag=True)
+    enable_tier(db_session, org_id, search=True)
 
     authenticate_as(org_id, uuid4(), ["categories:read"])
     server = _test_server()
@@ -63,7 +63,7 @@ def test_list_categories_returns_only_this_orgs_categories(db_session, org_id):
 def test_list_categories_without_permission_raises(db_session, org_id):
     CategoryRepository(db_session).create(org_id, "Engineering", "engineering", description=None)
     db_session.commit()
-    enable_tier(db_session, org_id, rag=True)
+    enable_tier(db_session, org_id, search=True)
 
     authenticate_as(org_id, uuid4(), ["documents:read"])  # categories:read not granted
     server = _test_server()
@@ -72,7 +72,7 @@ def test_list_categories_without_permission_raises(db_session, org_id):
         asyncio.run(server.call_tool("list_categories", {}))
 
 
-def test_list_categories_raises_when_rag_tier_disabled_for_org():
+def test_list_categories_raises_when_search_tier_disabled_for_org():
     org_id = uuid4()
     authenticate_as(org_id, uuid4(), ["categories:read"])  # no enable_tier call — tier off by default
     server = _test_server()
@@ -82,7 +82,7 @@ def test_list_categories_raises_when_rag_tier_disabled_for_org():
 
 
 def test_list_categories_raises_when_application_lacks_mcp_access(db_session, org_id):
-    enable_tier(db_session, org_id, rag=True)
+    enable_tier(db_session, org_id, search=True)
     authenticate_as(org_id, uuid4(), ["categories:read"], mcp_access=False)
     server = _test_server()
 
@@ -104,7 +104,7 @@ def test_get_document_enforces_org_isolation(db_session, org_id):
         status="indexed",
     )
     db_session.commit()
-    enable_tier(db_session, org_id, rag=True)
+    enable_tier(db_session, org_id, search=True)
 
     authenticate_as(uuid4(), uuid4(), ["documents:read"])  # a different, unrelated org
     server = _test_server()
