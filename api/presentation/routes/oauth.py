@@ -174,7 +174,12 @@ def authorize_context():
 
     raw_identity_id = session.get("identity_id")
     if not raw_identity_id:
-        return jsonify({"redirect": f"/sign-in?{urlencode({'next': request.full_path})}"})
+        # Not request.full_path — that's this endpoint's own path (/oauth/authorize-context),
+        # since that's what the frontend actually fetched. `next` needs to point back at the real
+        # consent *page* (/oauth/authorize) the caller is looking at, with the identical query
+        # string (the frontend always calls this endpoint with the page's own params — see
+        # AuthorizePage.tsx), so signing in lands back on the consent screen, not raw JSON.
+        return jsonify({"redirect": f"/sign-in?{urlencode({'next': f'/oauth/authorize?{request.query_string.decode()}'})}"})
 
     member = OrgMemberRepository(get_session()).get(application.org_id, UUID(raw_identity_id))
     if member is None:

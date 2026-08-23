@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from unittest.mock import patch
+from urllib.parse import unquote
 from uuid import uuid4
 
 import pytest
@@ -283,7 +284,15 @@ def test_authorize_context_not_logged_in_returns_sign_in_redirect(client):
         response = client.get(f"/oauth/authorize-context?client_id={application.id}&{_VALID_QS}")
 
     assert response.status_code == 200
-    assert "/sign-in" in response.get_json()["redirect"]
+    redirect = response.get_json()["redirect"]
+    assert redirect.startswith("/sign-in")
+    # The `next` param must point back at the real consent *page* (/oauth/authorize), not this
+    # JSON endpoint's own path (/oauth/authorize-context) — a real bug found via end-to-end
+    # verification this session (see this repo's Phase B history): signing in via a `next` that
+    # pointed at -context would land the browser on raw JSON instead of the consent screen.
+    next_param = redirect.split("next=", 1)[1]
+    assert unquote(next_param).startswith("/oauth/authorize?")
+    assert "authorize-context" not in unquote(next_param)
 
 
 def test_authorize_context_not_an_org_member_returns_error(client):
