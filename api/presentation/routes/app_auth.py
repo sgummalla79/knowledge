@@ -1,7 +1,7 @@
 from functools import wraps
 from uuid import UUID
 
-from flask import g, request, session
+from flask import g, request
 
 from api.application.app_auth_service import AppAuthService
 from api.application.permission_service import PermissionService
@@ -12,6 +12,7 @@ from api.infrastructure.repositories.org_member_repository import OrgMemberRepos
 from api.infrastructure.repositories.personal_access_token_repository import PersonalAccessTokenRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
 from api.presentation.web.csrf import validate_csrf
+from api.presentation.web.session_guard import resolve_cookie_session
 
 # CSRF only matters for the session-cookie branch below — a cookie rides along automatically with
 # any cross-site request a browser makes, which is exactly what CSRF protects against; a bearer
@@ -62,18 +63,24 @@ def require_permission(permission: str):
     Session-cookie callers additionally need a valid `X-CSRF-Token` header on any mutating method
     (see `_CSRF_PROTECTED_METHODS` above) — a cookie is sent automatically by the browser on any
     cross-site request, which is exactly the attack CSRF protection defends against; a bearer
-    token is never attached automatically, so token-authenticated callers are exempt."""
+    token is never attached automatically, so token-authenticated callers are exempt.
+
+    Session-cookie resolution goes through resolve_cookie_session() (session_guard.py), which also
+    enforces the caller's org's configured session-inactivity timeout — not a concept that applies
+    to bearer tokens, which have their own independent expiry (JWT `exp`) and revocation
+    (refresh_tokens/personal_access_tokens)."""
 
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
             target_org_id: UUID | None = kwargs.get("org_id")
 
-            if session.get("identity_id") and session.get("active_org_id"):
+            resolved = resolve_cookie_session()
+            if resolved is not None:
                 if request.method in _CSRF_PROTECTED_METHODS and not validate_csrf(request.headers.get("X-CSRF-Token")):
                     raise AuthenticationError("Session expired — please reload the page.")
-                user_id = UUID(session["identity_id"])
-                org_id = target_org_id or UUID(session["active_org_id"])
+                user_id, session_org_id = resolved
+                org_id = target_org_id or session_org_id
                 g.user_id = user_id
                 g.org_id = org_id
                 set_rls_session_vars(org_id, user_id)

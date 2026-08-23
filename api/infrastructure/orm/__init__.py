@@ -19,6 +19,7 @@ from api.infrastructure.orm.profile_permission import ProfilePermission
 from api.infrastructure.orm.query import Query
 from api.infrastructure.orm.query_result import QueryResult
 from api.infrastructure.orm.refresh_token import RefreshToken
+from api.infrastructure.orm.session_settings import SessionSettings
 from api.infrastructure.orm.shelf import Shelf
 from api.infrastructure.orm.source import Source
 from api.infrastructure.orm.tag import Tag
@@ -48,6 +49,7 @@ __all__ = [
     "Query",
     "QueryResult",
     "RefreshToken",
+    "SessionSettings",
     "Shelf",
     "Source",
     "Tag",

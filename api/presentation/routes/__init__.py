@@ -13,6 +13,7 @@ from api.presentation.routes.profiles import profiles_bp
 from api.presentation.routes.queries import queries_bp
 from api.presentation.routes.query import query_bp
 from api.presentation.routes.router_query import router_query_bp
+from api.presentation.routes.session_settings import session_settings_bp
 from api.presentation.routes.shelves import shelves_bp
 from api.presentation.routes.stats import stats_bp
 from api.presentation.routes.tags import tags_bp
@@ -26,6 +27,7 @@ ALL_BLUEPRINTS = [
     options_bp,
     embedding_settings_bp,
     mcp_settings_bp,
+    session_settings_bp,
     oauth_bp,
     well_known_bp,
     orgs_bp,

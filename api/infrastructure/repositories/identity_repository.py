@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -95,3 +96,18 @@ class IdentityRepository:
                 field="username",
             )
         return _to_entity(model)
+
+    def get_last_active_at(self, identity_id: UUID) -> datetime | None:
+        """Narrow, single-purpose read for api/presentation/web/session_guard.py's inactivity
+        check — deliberately not routed through get_by_id/the full Identity entity, so a
+        nonexistent identity_id (e.g. a test's fake session, never seeded in the DB) returns
+        plain None rather than requiring a full fake entity, and None is already the correct
+        "never checked before, don't reject" behavior either way."""
+        model = self._session.get(IdentityModel, identity_id)
+        return model.last_active_at if model is not None else None
+
+    def touch_last_active(self, identity_id: UUID) -> None:
+        model = self._session.get(IdentityModel, identity_id)
+        if model is not None:
+            model.last_active_at = datetime.now(timezone.utc)
+            self._session.flush()

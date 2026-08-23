@@ -17,6 +17,7 @@ from api.infrastructure.repositories.org_member_repository import OrgMemberRepos
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
 from api.presentation.web.csrf import csrf_token, validate_csrf
+from api.presentation.web.session_guard import resolve_cookie_session
 from api.rate_limit import _login_rate_limit_key, limiter
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
@@ -55,16 +56,15 @@ def require_org_session(view):
     authenticated identity and an active org membership. Raises AuthenticationError (401 JSON)
     rather than redirecting, since these are fetch()-called from within the already-gated SPA.
     Does not check any specific permission itself (see require_permission in app_auth.py, which
-    wraps this for routes that need one) — only identity/org-membership."""
+    wraps this for routes that need one) — only identity/org-membership (and, via
+    resolve_cookie_session, the org's configured session-inactivity timeout)."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        raw_identity_id = session.get("identity_id")
-        raw_org_id = session.get("active_org_id")
-        if not raw_identity_id or not raw_org_id:
+        resolved = resolve_cookie_session()
+        if resolved is None:
             raise AuthenticationError("Not authenticated.")
-        g.user_id = UUID(raw_identity_id)
-        g.org_id = UUID(raw_org_id)
+        g.user_id, g.org_id = resolved
         set_rls_session_vars(g.org_id, g.user_id)
         return view(*args, **kwargs)
 

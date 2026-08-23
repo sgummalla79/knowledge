@@ -333,6 +333,20 @@ class MCPSettings:
 
 
 @dataclass(frozen=True)
+class SessionSettings:
+    """One row per org: how long a browser (cookie) session may sit idle before it's rejected,
+    even though the signed cookie itself hasn't cryptographically expired — enforced in
+    api/presentation/web/session_guard.py, not by Flask's own session machinery. Absent row means
+    the default (SESSION_TIMEOUT_DEFAULT_MINUTES) — see SessionSettingsService's "no row yet"
+    default, same convention MCPSettings above uses."""
+
+    org_id: UUID
+    inactivity_timeout_minutes: int
+    last_modified_by: UUID | None
+    last_modified_at: datetime
+
+
+@dataclass(frozen=True)
 class ApplicationOAuthClient:
     """Shared credential row for both oauth_client_credentials and oauth_authorization_code —
     application_id itself is the wire-format client_id, so there's no separate client_id column.

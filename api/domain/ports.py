@@ -24,6 +24,7 @@ from api.domain.entities import (
     QueryResult,
     RefreshToken,
     ScoredChunk,
+    SessionSettings,
     Shelf,
     Source,
     Tag,
@@ -266,6 +267,10 @@ class IdentityRepositoryPort(Protocol):
 
     def update_username(self, identity_id: UUID, username: str) -> Identity: ...
 
+    def get_last_active_at(self, identity_id: UUID) -> datetime | None: ...
+
+    def touch_last_active(self, identity_id: UUID) -> None: ...
+
 
 class OrgMemberRepositoryPort(Protocol):
     def create(self, org_id: UUID, identity_id: UUID, profile_id: UUID, *, invited_by: UUID | None = None) -> OrgMember: ...
@@ -314,6 +319,12 @@ class MCPSettingsRepositoryPort(Protocol):
         object_write_enabled: bool,
         modified_by: UUID | None,
     ) -> MCPSettings: ...
+
+
+class SessionSettingsRepositoryPort(Protocol):
+    def get(self, org_id: UUID) -> SessionSettings | None: ...
+
+    def upsert(self, org_id: UUID, inactivity_timeout_minutes: int, modified_by: UUID | None) -> SessionSettings: ...
 
 
 class PersonalAccessTokenRepositoryPort(Protocol):

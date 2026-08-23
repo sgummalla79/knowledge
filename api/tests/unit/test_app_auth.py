@@ -9,7 +9,7 @@ from api import create_app
 from api.application.app_auth_service import AppAuthService
 from api.config import config
 from api.constants import JWT_ALGORITHM
-from api.domain.entities import Application, Category, PersonalAccessToken, ResolvedCaller
+from api.domain.entities import Application, Category, PersonalAccessToken, ResolvedCaller, SessionSettings
 from api.infrastructure.auth.jwt_tokens import encode_access_token
 from api.infrastructure.auth.token_hashing import hash_token
 
@@ -371,3 +371,36 @@ def test_bearer_token_mutation_needs_no_csrf(client):
         response = client.post("/categories", json={"name": "test"}, headers={"Authorization": "Bearer whatever"})
 
     assert response.status_code == 201
+
+
+# ── Session inactivity timeout, end-to-end through a real route ─────────────────────────────────
+#
+# The org-configurable session-inactivity feature (session_guard.resolve_cookie_session,
+# session_settings) — unit-tested directly in test_session_guard.py; this is the one route-level
+# regression proving it's actually wired into require_permission, not just the helper itself.
+
+
+def test_stale_cookie_session_is_rejected_on_a_real_permission_gated_route(client):
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(uuid4())
+        sess["active_org_id"] = str(uuid4())
+
+    stale_settings = SessionSettings(
+        org_id=uuid4(),
+        inactivity_timeout_minutes=120,
+        last_modified_by=None,
+        last_modified_at=datetime.now(timezone.utc),
+    )
+    with (
+        patch(
+            "api.infrastructure.repositories.identity_repository.IdentityRepository.get_last_active_at",
+            return_value=datetime.now(timezone.utc) - timedelta(hours=3),
+        ),
+        patch(
+            "api.application.session_settings_service.SessionSettingsService.get", return_value=stale_settings
+        ),
+    ):
+        # Rejected at the staleness check, before permission resolution is even reached.
+        response = client.get("/categories")
+
+    assert response.status_code == 401

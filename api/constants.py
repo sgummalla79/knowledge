@@ -123,6 +123,14 @@ WEB_CRAWL_MAX_PAGES_LIMIT = 100
 # IP, so this bounds both a single attacker hammering one account and one hammering many accounts.
 LOGIN_RATE_LIMIT = "5 per minute"
 
+# Org-configurable browser (cookie) session inactivity timeout (api/presentation/web/
+# session_guard.py, session_settings table) — how long a session may sit idle before it's
+# rejected even though the signed cookie itself hasn't expired. Default 2h; admin-adjustable
+# 15min-24h.
+SESSION_TIMEOUT_MIN_MINUTES = 15
+SESSION_TIMEOUT_MAX_MINUTES = 1440
+SESSION_TIMEOUT_DEFAULT_MINUTES = 120
+
 # Per-page static HTTP fetch timeout (api/infrastructure/web/fetcher.py).
 WEB_CRAWL_REQUEST_TIMEOUT_SECONDS = 30
 
@@ -252,12 +260,15 @@ OBJECT_PERMISSIONS = (
     "profiles:write",
     "mcp_settings:read",
     "mcp_settings:write",
+    "session_settings:read",
+    "session_settings:write",
     "queries:execute",
 )
 
 # Seeded alongside Admin for every org (ProfileService.create_contributor_profile) — read/write on
 # the core content objects a day-to-day contributor manages, deliberately excluding the org-admin
-# surface (org:write, org_members, applications, profiles, mcp_settings) and embedding_models:write
+# surface (org:write, org_members, applications, profiles, mcp_settings, session_settings) and
+# embedding_models:write
 # (changing the active embedding model is a global, destructive-ish operation, not routine content
 # work).
 DEFAULT_CONTRIBUTOR_PERMISSIONS = (
