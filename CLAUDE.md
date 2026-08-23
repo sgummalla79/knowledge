@@ -1031,6 +1031,22 @@ description of it as bundled/co-served, which predates that change. Bundles an M
       historical entries, accurately describing what was built at the time — not corrected
       retroactively, this repo's own established convention).
 
+39. **Fixed `GET /oauth/authorize-context`'s not-logged-in redirect pointing at itself.** `next`
+    was built from `request.full_path` — this endpoint's own path
+    (`/oauth/authorize-context?...`), the JSON bootstrap route `AuthorizePage.tsx` fetches — instead
+    of the real consent *page* (`/oauth/authorize`). Signing in via that link would have landed the
+    browser on raw JSON instead of the consent screen. Fixed to build `next` from
+    `/oauth/authorize` plus the same query string, with a regression test.
+
+    Found via a routine branch-cleanup pass, not fresh work: a local, never-merged branch
+    (`releases/v4-webui-phase-b`, authored the night before item 35's session, independently
+    redoing the same "fix webui/ for the standalone API" work with a different frontend approach —
+    a dev-only Vite proxy instead of item 35's CORS + `VITE_API_BASE_URL`) had already found and
+    fixed this exact bug during its own end-to-end testing. That branch's frontend approach diverges
+    too far from what's already shipped and verified to merge wholesale without real risk of
+    regressing item 35's work, so only this one isolated, self-contained backend fix was
+    cherry-picked out of it — the rest of that branch is superseded, not merged.
+
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
