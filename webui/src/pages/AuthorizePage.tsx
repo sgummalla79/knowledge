@@ -1,17 +1,47 @@
-import { useState } from 'react'
-import { submitAuthorizeDecision } from '../api/oauth'
+import { useEffect, useState } from 'react'
+import { fetchAuthorizeContext, submitAuthorizeDecision } from '../api/oauth'
+import type { OAuthAuthorizeRequest, OAuthErrorInfo } from '../api/shell'
 import { AuthCard } from '../components/AuthCard'
 
-// Reads window.__OAUTH_AUTHORIZE__/__OAUTH_ERROR__, injected by GET /oauth/authorize (see
-// api/presentation/routes/oauth.py) — whichever one the server decided to render. There's no
-// scope picker here: this app has nothing of its own to authorize per request — the resulting
-// token is simply capped at whatever the signed-in member's own profile already grants, so the
-// only real decision is "let this application act as me, yes or no."
+// Fetches GET /oauth/authorize-context on mount (see api/presentation/routes/oauth.py) instead of
+// reading window.__OAUTH_AUTHORIZE__/__OAUTH_ERROR__ — nothing injects those anymore, this API
+// renders no HTML at all now. There's no scope picker here: this app has nothing of its own to
+// authorize per request — the resulting token is simply capped at whatever the signed-in member's
+// own profile already grants, so the only real decision is "let this application act as me, yes
+// or no."
 export function AuthorizePage() {
-  const request = window.__OAUTH_AUTHORIZE__
-  const error = window.__OAUTH_ERROR__
+  const [request, setRequest] = useState<OAuthAuthorizeRequest | null>(null)
+  const [error, setError] = useState<OAuthErrorInfo | null>(null)
+  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchAuthorizeContext(window.location.search.slice(1))
+      .then((context) => {
+        if (cancelled) return
+        if (context.kind === 'redirect') {
+          window.location.href = context.redirect
+          return
+        }
+        if (context.kind === 'error') {
+          setError(context.error)
+        } else {
+          setRequest(context.request)
+        }
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError({ message: 'Something went wrong — please try again.' })
+          setLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleDecision(allow: boolean) {
     if (!request) return
@@ -25,6 +55,8 @@ export function AuthorizePage() {
       setSubmitting(false)
     }
   }
+
+  if (loading) return null
 
   if (error) {
     return (

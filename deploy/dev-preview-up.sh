@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Starts the local dev-preview stack: Postgres/pgvector via docker compose
-# (deploy/docker-compose.dev-preview.yml), the Flask backend and the built frontend running
-# natively (no app Docker image). Conventions match CLAUDE.md's "Local dev preview" table — keep
-# this in sync with dev-preview-down.sh.
+# (deploy/docker-compose.dev-preview.yml), the Flask backend, and webui/'s own Vite dev server —
+# three separate processes/containers, matching this repo's standalone-API architecture (see
+# CLAUDE.md session history item 34: this API renders no HTML/SPA of any kind, so webui/ must run
+# on its own, not built-and-served-by-Flask as it used to be). Conventions match CLAUDE.md's
+# "Local dev preview" table — keep this in sync with dev-preview-down.sh.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE="docker compose -p knowledge-dev-preview -f $REPO_ROOT/deploy/docker-compose.dev-preview.yml"
 PG_PORT=15432
 FLASK_PORT=15100
+VITE_PORT=5173
 SECRET_KEY=dev-preview-secret
 DATABASE_URL="postgresql://rag:rag@127.0.0.1:${PG_PORT}/rag"
-PID_FILE=/tmp/workspace-preview.pid
-LOG_FILE=/tmp/knowledge-dev-preview-flask.log
+FLASK_PID_FILE=/tmp/workspace-preview.pid
+FLASK_LOG_FILE=/tmp/knowledge-dev-preview-flask.log
+VITE_PID_FILE=/tmp/workspace-preview-vite.pid
+VITE_LOG_FILE=/tmp/knowledge-dev-preview-vite.log
 VENV_PY="$REPO_ROOT/api/.venv/bin/python"
 
 echo "==> Postgres (knowledge-dev-preview)"
@@ -47,21 +52,32 @@ if [ ! -d "$REPO_ROOT/webui/node_modules" ]; then
   (cd "$REPO_ROOT/webui" && npm install)
 fi
 
-echo "==> building frontend"
-(cd "$REPO_ROOT/webui" && npm run build)
-
 echo "==> backend"
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "already running (pid $(cat "$PID_FILE"))"
+if [ -f "$FLASK_PID_FILE" ] && kill -0 "$(cat "$FLASK_PID_FILE")" 2>/dev/null; then
+  echo "already running (pid $(cat "$FLASK_PID_FILE"))"
 else
   DATABASE_URL="$DATABASE_URL" SECRET_KEY="$SECRET_KEY" \
     nohup "$VENV_PY" -m flask --app api.wsgi run --port "$FLASK_PORT" \
-    > "$LOG_FILE" 2>&1 &
+    > "$FLASK_LOG_FILE" 2>&1 &
   disown
-  echo $! > "$PID_FILE"
+  echo $! > "$FLASK_PID_FILE"
   sleep 1
-  echo "started (pid $(cat "$PID_FILE")), logging to $LOG_FILE"
+  echo "started (pid $(cat "$FLASK_PID_FILE")), logging to $FLASK_LOG_FILE"
+fi
+
+echo "==> frontend (Vite dev server)"
+if [ -f "$VITE_PID_FILE" ] && kill -0 "$(cat "$VITE_PID_FILE")" 2>/dev/null; then
+  echo "already running (pid $(cat "$VITE_PID_FILE"))"
+else
+  # VITE_API_BASE_URL overrides webui/.env.development's own default (which points at the
+  # verify/"prod" API port, 13102 — see CLAUDE.md session history item 35) to this Flask instance.
+  (cd "$REPO_ROOT/webui" && VITE_API_BASE_URL="http://127.0.0.1:${FLASK_PORT}" \
+    nohup npm run dev > "$VITE_LOG_FILE" 2>&1 &
+   disown
+   echo $! > "$VITE_PID_FILE")
+  sleep 1
+  echo "started (pid $(cat "$VITE_PID_FILE")), logging to $VITE_LOG_FILE"
 fi
 
 echo
-echo "Ready: http://127.0.0.1:${FLASK_PORT}/sign-in"
+echo "Ready: http://127.0.0.1:${VITE_PORT}/sign-in"

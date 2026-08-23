@@ -12,6 +12,7 @@ from api.infrastructure.orm import SessionLocal
 from api.logging_config import configure_logging, reset_request_id, set_request_id
 from api.presentation.error_handlers import register_error_handlers
 from api.presentation.routes import ALL_BLUEPRINTS
+from api.presentation.web.cors import register_cors
 from api.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def create_app(
     for blueprint in ALL_BLUEPRINTS:
         app.register_blueprint(blueprint)
 
+    register_cors(app, config.webui_origins)
     register_error_handlers(app)
     app.teardown_appcontext(teardown_session)
     limiter.init_app(app)
