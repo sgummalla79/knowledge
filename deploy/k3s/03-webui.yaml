@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-webui
+  namespace: knowledge
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: knowledge-webui }
+  template:
+    metadata:
+      labels: { app: knowledge-webui }
+    spec:
+      containers:
+        - name: knowledge-webui
+          # Built locally on this box and loaded straight into containerd via `k3s ctr images
+          # import` (see docs/HOSTINGER_DEPLOY.md) -- never pulled from a registry, so kubelet
+          # must not try. docker.io/library/... is the fully-qualified name `docker save` embeds
+          # for a bare `knowledge-webui:local` tag -- match it exactly here or containerd won't
+          # resolve this to the imported image.
+          image: docker.io/library/knowledge-webui:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knowledge-webui
+  namespace: knowledge
+spec:
+  selector: { app: knowledge-webui }
+  ports:
+    - port: 80
+      targetPort: 80

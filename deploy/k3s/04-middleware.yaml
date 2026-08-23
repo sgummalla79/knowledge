@@ -1,0 +1,14 @@
+# Strips /knowledge before Traefik forwards to knowledge-api -- the app itself has no path-prefix
+# awareness (see this repo's CLAUDE.md session history item 34: deliberately no /api/ prefix,
+# built assuming host-based origin separation). api.sgummallaworks.com hosts multiple APIs, each
+# under its own path -- add a matching Middleware + Ingress pair (deploy/k3s/05-ingress.yaml) for
+# each new one, referencing that API's own prefix; this Middleware only ever strips /knowledge.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-knowledge-prefix
+  namespace: knowledge
+spec:
+  stripPrefix:
+    prefixes:
+      - /knowledge

@@ -1,6 +1,6 @@
 # See deploy/Dockerfile.dockerignore's own header comment for why this file is named/placed this
-# way — same Docker convention, one dockerignore per Dockerfile path. This build only ever needs
-# webui/ and deploy/Caddyfile from the context; everything else is excluded.
+# way -- same Docker convention, one dockerignore per Dockerfile path. This build only ever needs
+# webui/ and deploy/nginx.conf from the context; everything else is excluded.
 .git
 **/.venv
 **/__pycache__
