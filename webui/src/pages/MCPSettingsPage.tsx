@@ -27,15 +27,6 @@ const TIERS: { key: keyof Pick<MCPSettings, 'rag_read_enabled' | 'object_read_en
   },
 ]
 
-// Tool tier name -> the URL segment mcp_server/server.py mounts it at (/mcp/rag, /mcp/read,
-// /mcp/write) — see api/mcp_server/permissions.py's _TIER_SETTINGS_COLUMN for the same mapping
-// server-side.
-const TIER_URL_SEGMENT: Record<(typeof TIERS)[number]['key'], string> = {
-  rag_read_enabled: 'rag',
-  object_read_enabled: 'read',
-  object_write_enabled: 'write',
-}
-
 function CopyableValue({ value }: { value: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -66,7 +57,10 @@ function CopyableValue({ value }: { value: string }) {
 // that bare path outright, and rejects an org-prefixed one whose bearer token belongs to a
 // different org (see api/presentation/web/mcp_org_scoping.py). orgSlug is *this* org's, from
 // useOrgs()'s Org.slug — not derived from the browser's current URL, which this page shouldn't
-// depend on matching (even though App.tsx already self-corrects a mismatched one).
+// depend on matching (even though App.tsx already self-corrects a mismatched one). <tier> itself
+// comes from settings.tier_url_segments (GET /mcp-settings), not a hardcoded frontend mapping —
+// see api.constants.MCP_TIERS, the single source both that response and
+// api/mcp_server/permissions.py derive from.
 function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSettings; canWrite: boolean; orgSlug: string }) {
   const queryClient = useQueryClient()
   const { showToast } = useToast()
@@ -165,7 +159,7 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
                 </span>
               </label>
               <div className="mt-2 pl-6">
-                <CopyableValue value={`${origin}/${orgSlug}/mcp/${TIER_URL_SEGMENT[tier.key]}`} />
+                <CopyableValue value={`${origin}/${orgSlug}/mcp/${settings.tier_url_segments[tier.key]}`} />
               </div>
             </div>
           ))}

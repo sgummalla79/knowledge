@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
-import { useCategories, useCrawlOptions, useIngestionJobs, useShelves, useTags } from '../api/queries'
+import { useCategories, useCrawlOptions, useIngestionJobs, useShelves } from '../api/queries'
 import type { Tag } from '../api/types'
 import { Dropzone } from '../components/Dropzone'
 import { RecentUploadsList } from '../components/RecentUploadsList'
@@ -29,7 +29,6 @@ export function UploadPage() {
   const queryClient = useQueryClient()
   const categories = useCategories()
   const shelves = useShelves()
-  const tags = useTags()
   const recentJobs = useIngestionJobs(10)
   const crawlOptions = useCrawlOptions()
 
@@ -239,7 +238,6 @@ export function UploadPage() {
             <span className="mb-1.5 block text-sm text-foreground">Tags</span>
             <TagPillInput
               tags={pendingTags}
-              existingTags={tags.data ?? []}
               onAdd={(tag) => setPendingTags((current) => [...current, tag])}
               onRemove={(tagId) => setPendingTags((current) => current.filter((tag) => tag.id !== tagId))}
               placeholder="billing, refunds — press Tab or Enter"

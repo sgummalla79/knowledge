@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { ApiError } from '../api/errors'
-import { useDocumentShelves, useDocumentTags, useShelves, useTags } from '../api/queries'
+import { useDocumentShelves, useDocumentTags, useShelves } from '../api/queries'
 import type { Category, Document, Tag } from '../api/types'
 import { DOCUMENT_TYPES } from '../lib/documentTypes'
 import { Select } from './Select'
@@ -23,7 +23,6 @@ export function DocumentOrganizePanel({ document, categories }: Props) {
   const queryClient = useQueryClient()
   const allShelves = useShelves()
   const documentShelves = useDocumentShelves(document.id)
-  const allTags = useTags()
   const documentTags = useDocumentTags(document.id)
 
   async function saveMetadata(next: { category_id: string | null; type: string }) {
@@ -121,7 +120,6 @@ export function DocumentOrganizePanel({ document, categories }: Props) {
           <span className="mb-1.5 block text-sm text-foreground">Tags</span>
           <TagPillInput
             tags={documentTags.data ?? []}
-            existingTags={allTags.data ?? []}
             onAdd={addTag}
             onRemove={removeTag}
             placeholder="e.g. billing, faq — press Tab or Enter"

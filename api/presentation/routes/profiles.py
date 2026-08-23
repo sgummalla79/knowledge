@@ -5,14 +5,23 @@ from flask import Blueprint, g, jsonify, request
 from api.application.profile_service import ProfileService
 from api.container import get_session
 from api.infrastructure.repositories.profile_repository import ProfileRepository
+from api.presentation.permission_catalog import PERMISSION_GROUPS
 from api.presentation.routes.app_auth import require_permission
-from api.presentation.schemas import ProfileCreateRequest, ProfileResponse, ProfileUpdateRequest
+from api.presentation.schemas import PermissionCatalogResponse, ProfileCreateRequest, ProfileResponse, ProfileUpdateRequest
 
 profiles_bp = Blueprint("profiles", __name__, url_prefix="/profiles")
 
 
 def _service() -> ProfileService:
     return ProfileService(ProfileRepository(get_session()))
+
+
+@profiles_bp.get("/permissions")
+@require_permission("profiles:read")
+def list_permission_catalog():
+    # The full labeled permission vocabulary ProfileFormPage renders as its checkbox list — see
+    # permission_catalog.py's docstring for why this replaced a hand-duplicated frontend constant.
+    return jsonify(PermissionCatalogResponse(groups=PERMISSION_GROUPS).model_dump(mode="json"))
 
 
 @profiles_bp.post("")

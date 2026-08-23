@@ -1,12 +1,12 @@
-# Starts the local dev-preview stack: Postgres/pgvector in Docker, the Flask backend and the
-# built frontend running natively (no app Docker image). Conventions mirror dev-preview-up.sh /
-# CLAUDE.md's "Local dev preview" table — keep this in sync with dev-preview-down.ps1.
+# Starts the local dev-preview stack: Postgres/pgvector via docker compose
+# (deploy/docker-compose.dev-preview.yml), the Flask backend and the built frontend running
+# natively (no app Docker image). Conventions mirror dev-preview-up.sh / CLAUDE.md's "Local dev
+# preview" table — keep this in sync with dev-preview-down.ps1.
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$PgContainer = "knowledge-dev-preview"
+$ComposeFile = Join-Path $RepoRoot "deploy\docker-compose.dev-preview.yml"
 $PgPort = 15432
-$PgImage = "pgvector/pgvector:pg16"
 $FlaskPort = 15100
 $SecretKey = "dev-preview-secret"
 $DatabaseUrl = "postgresql://rag:rag@127.0.0.1:$PgPort/rag"
@@ -14,27 +14,13 @@ $PidFile = Join-Path $env:TEMP "workspace-preview.pid"
 $LogFile = Join-Path $env:TEMP "knowledge-dev-preview-flask.log"
 $VenvPy = Join-Path $RepoRoot "api\.venv\Scripts\python.exe"
 
-Write-Host "==> Postgres ($PgContainer)"
-docker inspect $PgContainer *> $null
-if ($LASTEXITCODE -eq 0) {
-    $running = (docker inspect -f '{{.State.Running}}' $PgContainer).Trim()
-    if ($running -ne "true") {
-        docker start $PgContainer | Out-Null
-        Write-Host "started existing container"
-    } else {
-        Write-Host "already running"
-    }
-} else {
-    Write-Host "container not found -- pulling $PgImage and creating it"
-    docker run -d --name $PgContainer -p "${PgPort}:5432" `
-        -e POSTGRES_DB=rag -e POSTGRES_USER=rag -e POSTGRES_PASSWORD=rag `
-        $PgImage | Out-Null
-}
+Write-Host "==> Postgres (knowledge-dev-preview)"
+docker compose -p knowledge-dev-preview -f $ComposeFile up -d
 
 Write-Host "==> waiting for Postgres to accept connections"
 $ready = $false
 for ($i = 1; $i -le 30; $i++) {
-    docker exec $PgContainer pg_isready -U rag *> $null
+    docker compose -p knowledge-dev-preview -f $ComposeFile exec -T knowledge-dev-preview pg_isready -U rag *> $null
     if ($LASTEXITCODE -eq 0) { $ready = $true; break }
     Start-Sleep -Seconds 1
 }
