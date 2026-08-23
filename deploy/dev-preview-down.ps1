@@ -1,8 +1,9 @@
 # Stops what dev-preview-up.ps1 started. The Postgres container is stopped, not removed, so its
-# data survives -- dev-preview-up.ps1 will just docker start it again next time.
+# data survives -- dev-preview-up.ps1 will just `docker compose up -d` it again next time.
 $ErrorActionPreference = "Continue"
 
-$PgContainer = "knowledge-dev-preview"
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$ComposeFile = Join-Path $RepoRoot "deploy\docker-compose.dev-preview.yml"
 $PidFile = Join-Path $env:TEMP "workspace-preview.pid"
 
 Write-Host "==> backend"
@@ -20,11 +21,5 @@ if (Test-Path $PidFile) {
     Write-Host "no PID file, nothing to stop"
 }
 
-Write-Host "==> Postgres ($PgContainer)"
-docker inspect $PgContainer *> $null
-if ($LASTEXITCODE -eq 0) {
-    docker stop $PgContainer | Out-Null
-    Write-Host "stopped (data preserved -- container not removed)"
-} else {
-    Write-Host "container not found"
-}
+Write-Host "==> Postgres (knowledge-dev-preview)"
+docker compose -p knowledge-dev-preview -f $ComposeFile stop

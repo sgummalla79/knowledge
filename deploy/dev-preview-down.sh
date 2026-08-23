@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Stops what dev-preview-up.sh started. The Postgres container is stopped, not removed, so its
-# data survives — dev-preview-up.sh will just docker start it again next time.
+# data survives — dev-preview-up.sh will just `docker compose up -d` it again next time.
 set -uo pipefail
 
-PG_CONTAINER=knowledge-dev-preview
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE="docker compose -p knowledge-dev-preview -f $REPO_ROOT/deploy/docker-compose.dev-preview.yml"
 PID_FILE=/tmp/workspace-preview.pid
 
 echo "==> backend"
@@ -20,10 +21,5 @@ else
   echo "no PID file, nothing to stop"
 fi
 
-echo "==> Postgres (${PG_CONTAINER})"
-if docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
-  docker stop "$PG_CONTAINER" >/dev/null
-  echo "stopped (data preserved — container not removed)"
-else
-  echo "container not found"
-fi
+echo "==> Postgres (knowledge-dev-preview)"
+$COMPOSE stop

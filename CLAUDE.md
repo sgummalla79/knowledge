@@ -1,9 +1,13 @@
 # knowledge Project Instructions
 
-This application is called **knowledge** (container/image name: `knowledge`, prod image
-tag `knowledge:prod`). It only runs locally right now (no real production deployment), but the
-running `api` container is what **knowledge-store** (the desktop app) and any MCP clients are
-actively depending on — call it **prod** to keep it unambiguous from throwaway test containers.
+This application is called **knowledge** (container/image name: `knowledge`, published to Docker
+Hub as `sgummalla/knowledge`). It only runs locally right now (no real production deployment), but
+the running `api` container started from that published image is what **knowledge-store** (the
+desktop app) and any MCP clients are actively depending on — call it **prod** to keep it
+unambiguous from throwaway test/dev-preview containers. There is no repo-local compose file that
+builds and runs this container (see Versioning below) — it's always run from the CI-published
+`sgummalla/knowledge:latest`/`:<version>` image, the same way `docs/DOCKER_HUB.md` documents for
+any other user.
 
 ## What this project is
 
@@ -803,6 +807,43 @@ stack as the rest of the API — see session history item 8.
     `color` now resolves to the real `--primary` oklch value, confirmed via screenshot on Browse
     (active, blue) and Dashboard (active, blue) and via hover-state computed color on Search.
 
+33. **Removed the local-build "prod" compose stack — `deploy/docker-compose.yml` and
+    `deploy/promote-image.sh` are gone.** They rebuilt `knowledge:prod` from local source and
+    restarted it on this machine, duplicating what CI already does: every push to `releases/v4`
+    that changes `VERSION` builds and publishes `sgummalla/knowledge:<version>`/`:latest` to Docker
+    Hub automatically (`.github/workflows/publish-image.yml`, unchanged by this item). Only two
+    local Docker-managed stacks remain, each with its own compose file, ports, and DB, and neither
+    building/running the real app image: `deploy/docker-compose.test.yml` (isolated test stack,
+    unchanged) and the new `deploy/docker-compose.dev-preview.yml` (just the dev-preview Postgres
+    container — `knowledge-dev-preview`, port `15432`, same as before). Going forward, the running
+    "prod" container this file's intro paragraph and `docs/DOCKER_HUB.md` describe is always
+    started from the published Hub image (`docker run`/a compose file kept *outside* this repo, in
+    whatever folder the operator chooses — exactly what `docs/DOCKER_HUB.md`'s Quick Start already
+    walks an external user through) — never built from this repo's source on this machine.
+
+    `deploy/dev-preview-up.sh`/`.ps1` and `deploy/dev-preview-down.sh`/`.ps1` (which predate this
+    file ever documenting them — see the "Local dev preview" section above, now updated to mention
+    them) switched from raw `docker run`/`docker stop`/`docker inspect` calls to
+    `docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml
+    up -d`/`stop`, project-named the same way `test-image.sh` already named its own stack, to keep
+    the two unambiguously separate. One-time migration cost when this landed: the pre-existing
+    `knowledge-dev-preview` container wasn't compose-managed, so it had to be removed and
+    recreated (fresh throwaway DB — this stack has never held anything but disposable preview
+    data, reconfigured each session per the "Local dev preview" section anyway). Neither new
+    compose file includes Ollama — dev-preview's Ollama container is still started manually per
+    the "Local dev preview" section's existing instructions (unchanged by this item); Ollama
+    support is planned for full removal in a later item (see "Not yet done" below), so it
+    deliberately wasn't wired into compose now just to be ripped out again shortly.
+
+    `deploy/test-image.sh` and `.github/workflows/publish-image.yml` had comments referencing the
+    now-deleted prod containers/`promote-image.sh` cleaned up; `deploy/smoke_test.py`'s docstring
+    similarly no longer says "never run against the prod stack" (there isn't one locally to run
+    against) but keeps the underlying warning (don't run it against any shared/long-lived
+    instance, since it changes the admin password). **If this file, comments, or memory ever
+    mention `deploy/docker-compose.yml`, `deploy/promote-image.sh`, `knowledge:prod` as a local
+    image tag, or raw `docker run`/`docker stop` commands for `knowledge-dev-preview`, that
+    reference predates this item and is stale.**
+
 Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
@@ -813,47 +854,47 @@ Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_
   creates a new identity per invite today, with `username` defaulting to the invited email as a
   stopgap — a real design still needs to let the inviter choose the invitee's username directly,
   rather than assuming an email-shaped string is also a good username.
+- Ollama support (embedding provider, dev-preview's throwaway Ollama container/instructions) is
+  planned for full removal in an upcoming task — not started yet; item 33 above deliberately left
+  existing Ollama references alone in anticipation of that.
 
-## Docker testing workflow — never test against the prod container
+## Docker testing workflow
 
-**Rule:** Never run tests, migrations, or manual verification against the `api` / `knowledge-db`
-containers defined in `deploy/docker-compose.yml` (the prod stack). Rebuilding or restarting them
-mid-verification can break a running client or, worse, apply an unverified migration to the real
-database.
+There is no locally-built "prod" container in this repo anymore (see the "No local prod
+compose" note in Versioning below) — the only two local Docker-managed stacks are the isolated
+test stack and the dev-preview database, and they must stay isolated from each other.
 
-All deploy-related files (`Dockerfile`, both compose files, the container entrypoint, and these
-two scripts) live under `deploy/` — everything else in the repo is app code. The Dockerfile's
-build *context* is still the repo root (it COPYs `api/`, `VERSION`, etc.), set via `context: ..`
-in both compose files; only the compose/Dockerfile *files themselves* moved.
+All deploy-related files (`Dockerfile`, both compose files, the container entrypoint, and the
+dev-preview scripts) live under `deploy/` — everything else in the repo is app code. The
+Dockerfile's build *context* is still the repo root (it COPYs `api/`, `VERSION`, etc.), set via
+`context: ..` in `docker-compose.test.yml`; only the compose/Dockerfile *files themselves* moved.
 
-Instead:
+`./deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up their
+own ephemeral Postgres via testcontainers — neither touches any docker-compose container), then
+builds a separate image (`knowledge:testing`) and boots it as `knowledge-test` +
+`knowledge-db-test` (`deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
+throwaway tmpfs database, under its own compose project (`knowledge-test`) so it's never confused
+with the dev-preview stack. Confirms the built image actually boots (migrations run, gunicorn
+serves `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port).
+Tears the isolated stack down automatically on exit, success or failure.
 
-1. `./deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up
-   their own ephemeral Postgres via testcontainers — neither touches any docker-compose container),
-   then builds a separate image (`knowledge:testing`) and boots it as `knowledge-test` +
-   `knowledge-db-test` (`deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
-   throwaway tmpfs database, under its own compose project (`knowledge-test`) so it's never
-   confused with the prod stack. Confirms the built image actually boots (migrations run, gunicorn
-   serves `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port)
-   before it goes anywhere near prod. Tears the isolated stack down automatically on exit, success
-   or failure.
-2. Only once that passes, run `./deploy/promote-image.sh` — this rebuilds and restarts the prod
-   `api` container (`knowledge:prod`, via `docker compose -f deploy/docker-compose.yml up -d
-   --build api`; no `--env-file` flag needed — `.env` lives in `deploy/`, right next to
-   `docker-compose.yml`, which is exactly where compose looks for it by default). This is the only
-   command allowed to touch the prod container.
-
-Do not shortcut this by running that `docker compose ... up -d --build api` command directly as a
-way to "just check if it works" — that mutates the prod container immediately, with no isolated
-verification step first. If you need to iterate quickly during development, iterate against
-`deploy/docker-compose.test.yml` (or plain `pytest`), not the prod stack.
+Once `deploy/test-image.sh` passes and a version-bumped commit lands on `releases/v4`, CI
+(`.github/workflows/publish-image.yml`) builds and publishes the real image to Docker Hub
+automatically — see Versioning below. There is no local command that builds/runs a "prod" image
+on this machine.
 
 ## Local dev preview — for interactively clicking around a change, not for CI-style verification
 
 A third option alongside plain `pytest` and `deploy/test-image.sh`: a persistent local Flask dev
 server + throwaway Postgres/Ollama containers, for manually exercising a change in the browser
-(uploads, search, Settings pages) without touching the prod stack or waiting on a Docker image
-build. Fixed conventions — reuse these exact values every time rather than picking new ones:
+(uploads, search, Settings pages) without waiting on a Docker image build.
+`deploy/dev-preview-up.sh`/`.ps1` and `deploy/dev-preview-down.sh`/`.ps1` automate the Postgres
+(via `deploy/docker-compose.dev-preview.yml`) + migrations + Flask parts of the flow below — run
+those instead of typing the steps out by hand for the common case. They serve a one-time `npm run
+build` bundle through Flask rather than the Vite/HMR setup steps 4-5 below describe; use the
+manual commands below instead of the scripts when you specifically want Vite's hot-reload while
+iterating on `webui/`. Fixed conventions — reuse these exact values every time rather than picking
+new ones:
 
 | What | Value |
 |---|---|
@@ -884,10 +925,10 @@ console script directly.
 
 **First-time setup / after an `api/.venv` rebuild:**
 ```bash
-# 1. Throwaway Postgres — pgvector/pgvector image is required (plain postgres lacks the extension)
-docker run -d --name knowledge-dev-preview -p 15432:5432 \
-  -e POSTGRES_DB=rag -e POSTGRES_USER=rag -e POSTGRES_PASSWORD=rag \
-  pgvector/pgvector:pg16
+# 1. Throwaway Postgres — via deploy/docker-compose.dev-preview.yml (pgvector/pgvector image is
+# required, plain postgres lacks the extension). `dev-preview-up.sh`/`.ps1` run this same command
+# for you along with the rest of the steps below.
+docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml up -d
 
 # 2. Throwaway Ollama
 docker run -d --name knowledge-dev-preview-ollama -p 11500:11434 \
@@ -939,7 +980,8 @@ dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
 ```bash
 kill $(cat /tmp/workspace-preview.pid) 2>/dev/null
 kill $(cat /tmp/workspace-preview-vite.pid) 2>/dev/null
-docker rm -f knowledge-dev-preview knowledge-dev-preview-ollama
+docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml down
+docker rm -f knowledge-dev-preview-ollama
 docker volume rm knowledge-dev-preview-ollama-data
 ```
 
@@ -982,8 +1024,11 @@ merged back via the workflow below. `master` only ever receives commits via cher
 3. Before committing, bump the appropriate number in `VERSION` (`PATCH` for bug fixes, `MINOR` for
    backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `4.0.0` → `4.0.1`)
    and include that bump in the same commit as the change.
-4. Push the branch, verify it (see the Docker testing workflow above — never test against the
-   prod container), then merge into `releases/v4`.
+4. Push the branch, verify it (see the Docker testing workflow above), then merge into
+   `releases/v4`. That push (with the changed `VERSION`) triggers CI
+   (`.github/workflows/publish-image.yml`) to build and publish
+   `docker.io/sgummalla/knowledge:<version>` + `:latest` automatically — there is no local
+   "promote" step.
 5. Tag the merge commit on `releases/v4` with `v<version>` (e.g. `v4.0.1`) and push the tag.
 6. Cherry-pick the fix/feature commit onto `master` — squashed into one commit if the branch
    accumulated more than one (as `releases/v3-multi-tenant-data-model` did: 22 commits, squashed

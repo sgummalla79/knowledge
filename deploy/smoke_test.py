@@ -13,7 +13,7 @@ cover that too, the same way api/tests/integration/test_ingestion_service.py and
 test_retrieval_service.py cover ingest/query once an embedding provider is configured.
 
 Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
-against the prod stack.
+against a shared or long-lived instance — it changes the admin password.
 """
 import sys
 
