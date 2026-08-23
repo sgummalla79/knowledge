@@ -55,7 +55,7 @@ def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_fa
     )
     db_session.commit()
 
-    job_id = JobStore.create()
+    job_id = JobStore.create(org_id)
     ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
     db_session.commit()
 
@@ -89,7 +89,7 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
     )
     db_session.commit()
 
-    job_id = JobStore.create()
+    job_id = JobStore.create(org_id)
     ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
     db_session.commit()
     fake_provider = _fake_provider()
@@ -259,7 +259,7 @@ def test_retry_job_success_logs_and_completes(db_session, session_factory, caplo
 
     failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
 
-    job_id = JobStore.create()
+    job_id = JobStore.create(org_id)
     ingestion_job_id = (
         IngestionJobRepository(db_session)
         .create(org_id, type="reindex", document_id=failed_document.id, triggered_by=owner.id)
@@ -426,7 +426,7 @@ def test_cancel_job_missing_job_raises_job_not_found(db_session):
     chunk_repo = ChunkRepository(db_session)
 
     with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, chunk_repo).cancel_job("does-not-exist")
+        DocumentService(document_repo, chunk_repo).cancel_job(uuid4(), "does-not-exist")
     assert exc_info.value.code == error_codes.JOB_NOT_FOUND
 
 
@@ -474,7 +474,7 @@ def test_ingestion_job_cancelled_before_start_marks_job_and_document_failed(
     )
     db_session.commit()
 
-    job_id = JobStore.create()
+    job_id = JobStore.create(org_id)
     JobStore.request_cancellation(job_id)
     ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
     db_session.commit()

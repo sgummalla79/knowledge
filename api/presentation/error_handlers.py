@@ -26,7 +26,12 @@ def _envelope(code: str, message: str, field: str | None, status: int):
 def register_error_handlers(app):
     @app.errorhandler(DomainError)
     def handle_domain_error(error: DomainError):
-        logger.debug("Domain error: %s (%s)", error.message, error.code)
+        # error.code only, never error.message — a DomainError's message can echo caller-supplied
+        # data back (e.g. IDENTITY_USERNAME_TAKEN embeds the attempted username, which is PII by
+        # this app's own design — usernames must be email-shaped). The response body below still
+        # includes the real message (the caller already knows what they just typed); only the log
+        # is the PII concern (found in a security review this session).
+        logger.debug("Domain error: %s", error.code)
         return _envelope(error.code, error.message, error.field, error.http_status)
 
     @app.errorhandler(PydanticValidationError)

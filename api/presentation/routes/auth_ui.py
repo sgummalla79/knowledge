@@ -1,12 +1,13 @@
 from functools import wraps
 from uuid import UUID
 
-from flask import Blueprint, g, jsonify, redirect, request, session, url_for
+from flask import Blueprint, g, jsonify, request, session
 
 from api.application.auth_service import AuthService
 from api.application.org_membership_service import OrgMembershipService
 from api.application.org_name_validation import validate_org_slug
 from api.application.signup_service import SignupService
+from api.constants import LOGIN_RATE_LIMIT
 from api.container import get_session, set_rls_session_vars
 from api.domain import error_codes
 from api.domain.errors import AuthenticationError, ValidationError
@@ -15,8 +16,9 @@ from api.infrastructure.repositories.identity_repository import IdentityReposito
 from api.infrastructure.repositories.org_member_repository import OrgMemberRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.infrastructure.repositories.profile_repository import ProfileRepository
-from api.presentation.web.csrf import validate_csrf
-from api.presentation.web.spa import serve_spa_shell
+from api.presentation.web.csrf import csrf_token, validate_csrf
+from api.presentation.web.session_guard import resolve_cookie_session
+from api.rate_limit import _login_rate_limit_key, limiter
 
 auth_ui_bp = Blueprint("auth_ui", __name__)
 
@@ -49,50 +51,20 @@ def _signup_service() -> SignupService:
     return SignupService(_identities(), _org_membership_service())
 
 
-def login_required(view):
-    """Browser-facing gate for the SPA shell pages (/workspace, /settings) — redirects to /login
-    rather than the 401 JSON require_org_session below returns for the JSON API, since a browser
-    navigation following a redirect makes sense but a fetch() call following one silently would
-    just get back an HTML login page instead of the JSON it expected."""
-
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        raw_identity_id = session.get("identity_id")
-        if not raw_identity_id:
-            # Only GET requests get a `next` — redirecting a blocked POST back to itself would
-            # just re-GET that URL after login, not resubmit the form.
-            next_url = request.full_path if request.method == "GET" else None
-            return redirect(url_for("auth_ui.sign_in", next=next_url))
-        # identity_id/active_org_id/active_role are cached in the session at login time (see
-        # _establish_session) rather than re-fetched from the DB on every gated request —
-        # keeps this decorator a pure session-dict read so route tests can fake a session without
-        # seeding a real identity row (see tests/unit/test_workspace_routes.py). A view that needs
-        # the freshest possible state (e.g. must_change_password right after it's cleared) fetches
-        # it itself — see workspace._serve_spa_page.
-        g.user_id = UUID(raw_identity_id)
-        g.org_id = UUID(session["active_org_id"]) if session.get("active_org_id") else None
-        if g.org_id is not None:
-            set_rls_session_vars(g.org_id, g.user_id)
-        return view(*args, **kwargs)
-
-    return wrapped
-
-
 def require_org_session(view):
     """JSON API gate — every resource route (categories/documents/query/...) needs both an
     authenticated identity and an active org membership. Raises AuthenticationError (401 JSON)
     rather than redirecting, since these are fetch()-called from within the already-gated SPA.
     Does not check any specific permission itself (see require_permission in app_auth.py, which
-    wraps this for routes that need one) — only identity/org-membership."""
+    wraps this for routes that need one) — only identity/org-membership (and, via
+    resolve_cookie_session, the org's configured session-inactivity timeout)."""
 
     @wraps(view)
     def wrapped(*args, **kwargs):
-        raw_identity_id = session.get("identity_id")
-        raw_org_id = session.get("active_org_id")
-        if not raw_identity_id or not raw_org_id:
+        resolved = resolve_cookie_session()
+        if resolved is None:
             raise AuthenticationError("Not authenticated.")
-        g.user_id = UUID(raw_identity_id)
-        g.org_id = UUID(raw_org_id)
+        g.user_id, g.org_id = resolved
         set_rls_session_vars(g.org_id, g.user_id)
         return view(*args, **kwargs)
 
@@ -110,6 +82,10 @@ def _consume_post_login_redirect() -> str:
     # explicit `next`) — the rest of the app is still fully reachable via the nav bar. Falls back
     # to bare "/" only for the sliver of a window where a membership doesn't exist yet (mid-signup
     # failure — see _establish_session) and there's no org to land on at all.
+    #
+    # Plain string paths, not url_for() — this API no longer serves any HTML shell itself (see
+    # deleted app_shell.py); these are just redirect-target data handed to whatever frontend is
+    # calling, which owns interpreting/routing them.
     next_url = session.pop("post_login_redirect", None)
     if next_url and _is_safe_redirect(next_url):
         return next_url
@@ -117,8 +93,8 @@ def _consume_post_login_redirect() -> str:
     if org_id:
         organization = OrganizationRepository(get_session()).get(UUID(org_id))
         if organization is not None:
-            return url_for("app_shell.app_shell", subpath=organization.slug)
-    return url_for("app_shell.app_shell")
+            return f"/{organization.slug}"
+    return "/"
 
 
 def _establish_session(identity_id: UUID) -> None:
@@ -132,36 +108,24 @@ def _establish_session(identity_id: UUID) -> None:
         session["active_org_id"] = str(memberships[0])
 
 
-@auth_ui_bp.get("/sign-in")
-def sign_in():
-    next_url = request.args.get("next")
-    if next_url and _is_safe_redirect(next_url):
-        session["post_login_redirect"] = next_url
-    if session.get("identity_id"):
-        return redirect(_consume_post_login_redirect())
-    return serve_spa_shell()
-
-
 @auth_ui_bp.post("/sign-in")
+@limiter.limit(LOGIN_RATE_LIMIT, key_func=_login_rate_limit_key)
 def sign_in_submit():
     # Served to the React sign-in page via fetch — JSON in/out, CSRF via header rather than a
-    # form field.
+    # form field. `next` (e.g. "come back to the OAuth consent screen after signing in") now
+    # arrives as a body field rather than a GET ?next= query param — this API no longer has a GET
+    # /sign-in route to read one from (see deleted app_shell.py); the frontend reads its own
+    # client-side route's ?next= and passes it along here instead.
     if not validate_csrf(request.headers.get("X-CSRF-Token")):
         raise AuthenticationError("Session expired — please reload the page.")
     body = request.get_json(silent=True) or {}
     identity = _auth_service().login(body.get("username", ""), body.get("password", ""))
+    next_url = body.get("next")
+    if next_url and _is_safe_redirect(next_url):
+        session["post_login_redirect"] = next_url
     _establish_session(identity.id)
-    redirect_url = (
-        url_for("auth_ui.change_password") if identity.must_change_password else _consume_post_login_redirect()
-    )
+    redirect_url = "/change-password" if identity.must_change_password else _consume_post_login_redirect()
     return jsonify({"redirect": redirect_url})
-
-
-@auth_ui_bp.get("/sign-up")
-def sign_up():
-    if session.get("identity_id"):
-        return redirect(_consume_post_login_redirect())
-    return serve_spa_shell()
 
 
 @auth_ui_bp.post("/sign-up")
@@ -194,15 +158,14 @@ def check_org_name():
     return jsonify({"available": True, "message": None})
 
 
-@auth_ui_bp.get("/change-password")
-@login_required
-def change_password():
-    return serve_spa_shell()
-
-
 @auth_ui_bp.post("/change-password")
-@login_required
 def change_password_submit():
+    # Not @require_org_session: this must also work for the rare mid-signup identity that has no
+    # org yet (see _establish_session) — only an authenticated identity is required, same
+    # inline-check pattern oauth.py's authorize_submit() already uses for the same reason.
+    raw_identity_id = session.get("identity_id")
+    if not raw_identity_id:
+        raise AuthenticationError("Not authenticated.")
     if not validate_csrf(request.headers.get("X-CSRF-Token")):
         raise AuthenticationError("Session expired — please reload the page.")
     body = request.get_json(silent=True) or {}
@@ -214,11 +177,42 @@ def change_password_submit():
         )
     if new_password != confirm_password:
         raise ValidationError(error_codes.VALIDATION_ERROR, "Passwords do not match.", field="confirm_password")
-    _auth_service().change_password(UUID(session["identity_id"]), new_password)
+    _auth_service().change_password(UUID(raw_identity_id), new_password)
     return jsonify({"redirect": _consume_post_login_redirect()})
 
 
 @auth_ui_bp.post("/logout")
 def logout():
+    # JSON, not a redirect — this API serves no HTML page to redirect to (see deleted
+    # app_shell.py); the caller (a browser frontend) navigates itself after this succeeds.
     session.clear()
-    return redirect(url_for("auth_ui.sign_in"))
+    return jsonify({"success": True})
+
+
+@auth_ui_bp.get("/csrf-token")
+def get_csrf_token():
+    """Bootstrap endpoint for any browser-based frontend: fetch a token once at load, before any
+    session even exists yet (sign-in itself needs one). Calling csrf_token() both returns the
+    token and — via Flask writing session["csrf_token"] — sets the session cookie on this
+    response, exactly as the old serve_spa_shell()-embedded flow did (see api/presentation/web/
+    csrf.py; Flask sets the session cookie on any response that writes to the session dict, not
+    specifically an HTML one)."""
+    return jsonify({"csrf_token": csrf_token()})
+
+
+@auth_ui_bp.get("/session")
+@require_org_session
+def get_session_info():
+    """Bootstrap endpoint replacing the data the deleted app_shell.py catch-all used to embed
+    directly into the served HTML (USERNAME/ORG_ID/ORG_SLUG globals) — a browser frontend now
+    fetches this once instead. 401 (via require_org_session) if not logged in, deliberately no
+    redirect — that's a frontend concern now, not this API's."""
+    identity = IdentityRepository(get_session()).get_by_id(g.user_id)
+    organization = OrganizationRepository(get_session()).get(g.org_id)
+    return jsonify(
+        {
+            "username": identity.username if identity is not None else "",
+            "org_id": str(g.org_id),
+            "org_slug": organization.slug if organization is not None else None,
+        }
+    )

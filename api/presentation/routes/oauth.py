@@ -1,7 +1,7 @@
 from urllib.parse import urlencode
 from uuid import UUID
 
-from flask import Blueprint, jsonify, redirect, request, session, url_for
+from flask import Blueprint, jsonify, request, session
 
 from api.application.oauth_authorization_service import OAuthAuthorizationService
 from api.constants import ACCESS_TOKEN_TTL_MINUTES
@@ -15,7 +15,6 @@ from api.infrastructure.repositories.org_member_repository import OrgMemberRepos
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.infrastructure.repositories.refresh_token_repository import RefreshTokenRepository
 from api.presentation.web.csrf import validate_csrf
-from api.presentation.web.spa import serve_spa_shell
 
 # POST /oauth/token speaks standard OAuth 2.0 (RFC 6749), deliberately not this app's usual JSON
 # error envelope ({"error": {"code","message","field"}}) — real OAuth2 client libraries, which is
@@ -25,13 +24,15 @@ from api.presentation.web.spa import serve_spa_shell
 # machine-to-machine, credential-in-body endpoint with no cookie in play, so CSRF (which protects
 # cookie-authenticated browser requests) doesn't apply.
 #
-# GET/POST /oauth/authorize is the one genuinely browser-facing, session-authenticated piece —
-# server-side validation of client_id/redirect_uri/PKCE params happens independently on *both* the
-# GET (render) and POST (decision) legs, since POST never trusts client-echoed data for the
-# security decision. If client_id or redirect_uri itself can't be validated, GET renders an error
-# page directly rather than redirecting anywhere — redirect_uri isn't trusted yet at that point,
-# and redirecting to an unproven URL would be an open-redirect risk. Once both check out, any
-# further problem redirects to that now-trusted redirect_uri with ?error=..., per spec.
+# GET /oauth/authorize-context + POST /oauth/authorize is the one genuinely browser-facing,
+# session-authenticated piece — server-side validation of client_id/redirect_uri/PKCE params
+# happens independently on *both* legs, since POST never trusts client-echoed data for the
+# security decision. If client_id or redirect_uri itself can't be validated, GET returns an error
+# for the frontend to render directly rather than a redirect anywhere — redirect_uri isn't trusted
+# yet at that point, and redirecting to an unproven URL would be an open-redirect risk. Once both
+# check out, any further problem is returned as a redirect to that now-trusted redirect_uri with
+# ?error=..., per spec (as data, `{"redirect": "..."}`, for the frontend to follow — this API
+# renders no HTML itself, see this repo's Phase A history).
 oauth_bp = Blueprint("oauth", __name__, url_prefix="/oauth")
 
 # RFC 8414 requires this at the domain root, not under /oauth — a separate, unprefixed blueprint.
@@ -139,12 +140,23 @@ def _authorize_context(client_id_raw: str, redirect_uri: str):
     return client_id, application
 
 
-@oauth_bp.get("/authorize")
-def authorize():
+@oauth_bp.get("/authorize-context")
+def authorize_context():
+    """JSON replacement for the deleted GET /oauth/authorize HTML-rendering route (see removed
+    app_shell.py/serve_spa_shell()) — same validation, same order, same three outcomes, just
+    returned as data for a frontend to render instead of pre-rendered HTML:
+      - {"error": {"message": ...}} — client_id/redirect_uri itself couldn't be validated
+        (never a redirect: redirect_uri isn't trusted yet at that point — see module docstring's
+        open-redirect note).
+      - {"redirect": "..."} — either a real external redirect back to the OAuth client's own
+        (now-trusted) redirect_uri with ?error=... (spec-required), or an internal /sign-in?next=...
+        for a not-yet-authenticated caller.
+      - {"authorize": {...}} — success; the consent screen's data.
+    """
     try:
         client_id, application = _authorize_context(request.args.get("client_id", ""), request.args.get("redirect_uri", ""))
     except (ValueError, AuthenticationError):
-        return serve_spa_shell(extra_globals={"OAUTH_ERROR": {"message": _GENERIC_INVALID_REQUEST_MESSAGE}})
+        return jsonify({"error": {"message": _GENERIC_INVALID_REQUEST_MESSAGE}})
 
     redirect_uri = request.args.get("redirect_uri", "")
     state = request.args.get("state", "")
@@ -152,24 +164,26 @@ def authorize():
         request.args.get("response_type"), request.args.get("code_challenge"), request.args.get("code_challenge_method")
     )
     if invalid_reason:
-        return redirect(
-            _append_redirect_params(redirect_uri, {"error": "invalid_request", "error_description": invalid_reason, **({"state": state} if state else {})})
+        return jsonify(
+            {
+                "redirect": _append_redirect_params(
+                    redirect_uri, {"error": "invalid_request", "error_description": invalid_reason, **({"state": state} if state else {})}
+                )
+            }
         )
 
     raw_identity_id = session.get("identity_id")
     if not raw_identity_id:
-        return redirect(url_for("auth_ui.sign_in", next=request.full_path))
+        return jsonify({"redirect": f"/sign-in?{urlencode({'next': request.full_path})}"})
 
     member = OrgMemberRepository(get_session()).get(application.org_id, UUID(raw_identity_id))
     if member is None:
-        return serve_spa_shell(
-            extra_globals={"OAUTH_ERROR": {"message": "You're not a member of the organization this application connects to."}}
-        )
+        return jsonify({"error": {"message": "You're not a member of the organization this application connects to."}})
 
     organization = OrganizationRepository(get_session()).get(application.org_id)
-    return serve_spa_shell(
-        extra_globals={
-            "OAUTH_AUTHORIZE": {
+    return jsonify(
+        {
+            "authorize": {
                 "application_name": application.name,
                 "org_name": organization.name if organization is not None else "",
                 "client_id": str(client_id),

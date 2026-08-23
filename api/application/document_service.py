@@ -129,17 +129,25 @@ class DocumentService:
                 raise NotFoundError(error_codes.CATEGORY_NOT_FOUND, "Category not found.")
         return self._documents.update_metadata(document_id, category_id, document_type)
 
-    def get_job_status(self, job_id: str) -> dict:
+    def get_job_status(self, org_id: UUID, job_id: str) -> dict:
         try:
-            return JobStore.get(job_id)
+            status = JobStore.get(job_id)
         except JobNotFoundError as error:
             raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.") from error
+        # 404, not 403 — same as DocumentRepository's org-isolation pattern elsewhere in this
+        # service: doesn't confirm to an unauthorized caller that the job exists at all.
+        if status["org_id"] != str(org_id):
+            raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.")
+        return status
 
-    def cancel_job(self, job_id: str) -> None:
+    def cancel_job(self, org_id: UUID, job_id: str) -> None:
         try:
-            JobStore.request_cancellation(job_id)
+            status = JobStore.get(job_id)
         except JobNotFoundError as error:
             raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.") from error
+        if status["org_id"] != str(org_id):
+            raise NotFoundError(error_codes.JOB_NOT_FOUND, "Job not found.")
+        JobStore.request_cancellation(job_id)
 
     def start_ingestion(
         self,
@@ -149,7 +157,7 @@ class DocumentService:
         file_bytes: bytes,
         category_id: UUID | None = None,
     ) -> str:
-        job_id = JobStore.create()
+        job_id = JobStore.create(org_id)
         ingestion_job_id = self._ingestion_jobs.create(org_id, type="upload", triggered_by=owner_id).id
         # Logged on the *request* thread, so this line also carries request_id from the context
         # filter — the bridge that lets you grep by request_id to find when a job was created,
@@ -177,7 +185,7 @@ class DocumentService:
                 field="document_id",
             )
 
-        job_id = JobStore.create()
+        job_id = JobStore.create(org_id)
         ingestion_job_id = self._ingestion_jobs.create(
             org_id, type="reindex", document_id=document_id, triggered_by=owner_id
         ).id
@@ -202,7 +210,7 @@ class DocumentService:
         scope_prefix: str | None,
         category_id: UUID | None = None,
     ) -> str:
-        job_id = CrawlJobStore.create(url)
+        job_id = CrawlJobStore.create(org_id, url)
         ingestion_job_id = self._ingestion_jobs.create(org_id, type="crawl", triggered_by=owner_id).id
         logger.info(
             "Crawl job created",
@@ -216,11 +224,14 @@ class DocumentService:
         thread.start()
         return job_id
 
-    def get_crawl_job_status(self, job_id: str) -> dict:
+    def get_crawl_job_status(self, org_id: UUID, job_id: str) -> dict:
         try:
-            return CrawlJobStore.get(job_id)
+            status = CrawlJobStore.get(job_id)
         except CrawlJobNotFoundError as error:
             raise NotFoundError(error_codes.CRAWL_JOB_NOT_FOUND, "Crawl job not found.") from error
+        if status["org_id"] != str(org_id):
+            raise NotFoundError(error_codes.CRAWL_JOB_NOT_FOUND, "Crawl job not found.")
+        return status
 
 
 def _run_ingestion_job(

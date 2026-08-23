@@ -5,13 +5,14 @@ from uuid import uuid4
 import pytest
 
 from api import create_app
+from api.domain import error_codes
 from api.domain.entities import Identity, Organization
-from api.domain.errors import AuthenticationError
+from api.domain.errors import AuthenticationError, ConflictError
 
 # HTTP-layer only — AuthService is mocked. Real password-hash/DB behavior is covered by
-# tests/integration/test_auth_service.py. /sign-in, /sign-up and /change-password serve the React
-# SPA shell on GET and a JSON API on POST — CSRF travels via the X-CSRF-Token header, not a form
-# field.
+# tests/integration/test_auth_service.py. /sign-in, /sign-up, /change-password are JSON-only POST
+# actions now (see this repo's Phase A history — the GET-HTML-shell siblings are gone, this API
+# renders no HTML) — CSRF travels via the X-CSRF-Token header, not a form field.
 
 
 @pytest.fixture()
@@ -57,33 +58,6 @@ def _with_csrf(client):
     with client.session_transaction() as sess:
         sess["csrf_token"] = "test-csrf-token"
     return "test-csrf-token"
-
-
-def test_sign_in_page_renders(client, tmp_path):
-    # serve_spa_shell() reads the built webui/ output from static_folder — api/static/workspace/
-    # is a gitignored build artifact, not guaranteed to exist on a fresh checkout/CI runner, so
-    # this points static_folder at a stand-in index.html rather than depending on a local build.
-    workspace_dir = tmp_path / "workspace"
-    workspace_dir.mkdir()
-    (workspace_dir / "index.html").write_text("<html><head><title>Knowledge</title></head><body></body></html>")
-    with client.application.app_context():
-        client.application.static_folder = str(tmp_path)
-
-    response = client.get("/sign-in")
-    assert response.status_code == 200
-    assert b"__CSRF_TOKEN__" in response.data
-
-
-def test_sign_up_page_renders(client, tmp_path):
-    workspace_dir = tmp_path / "workspace"
-    workspace_dir.mkdir()
-    (workspace_dir / "index.html").write_text("<html><head><title>Knowledge</title></head><body></body></html>")
-    with client.application.app_context():
-        client.application.static_folder = str(tmp_path)
-
-    response = client.get("/sign-up")
-    assert response.status_code == 200
-    assert b"__CSRF_TOKEN__" in response.data
 
 
 def test_sign_in_success_redirects_to_change_password_when_required(client):
@@ -260,9 +234,10 @@ def test_check_org_name_reserved(client):
 
 
 def test_change_password_requires_login(client):
-    response = client.get("/change-password")
-    assert response.status_code == 302
-    assert response.headers["Location"].startswith("/sign-in")
+    # POST-only now (see this repo's Phase A history) — a JSON 401, not a browser redirect; this
+    # API renders no sign-in page to redirect to.
+    response = client.post("/change-password", json={"new_password": "x", "confirm_password": "x"})
+    assert response.status_code == 401
 
 
 def _logged_in(client):
@@ -305,3 +280,75 @@ def test_change_password_success_redirects_home(client):
     assert response.status_code == 200
     assert response.get_json()["redirect"] == "/"
     change_password.assert_called_once()
+
+
+# ── GET /csrf-token, GET /session (replace what serve_spa_shell used to embed — see Phase A) ────
+
+
+def test_get_csrf_token_returns_token_and_sets_cookie(client):
+    response = client.get("/csrf-token")
+    assert response.status_code == 200
+    token = response.get_json()["csrf_token"]
+    assert token
+    # Same token handed back on a second call within the same session — it's stored, not
+    # regenerated per request.
+    response2 = client.get("/csrf-token")
+    assert response2.get_json()["csrf_token"] == token
+
+
+def test_get_session_requires_login(client):
+    response = client.get("/session")
+    assert response.status_code == 401
+
+
+def test_get_session_returns_identity_and_org(client):
+    identity = _identity(must_change_password=False)
+    org = _org()
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(identity.id)
+        sess["active_org_id"] = str(org.id)
+    with (
+        patch("api.presentation.routes.auth_ui.IdentityRepository.get_by_id", return_value=identity),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
+    ):
+        response = client.get("/session")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["username"] == identity.username
+    assert body["org_id"] == str(org.id)
+    assert body["org_slug"] == org.slug
+
+
+# ── PII exclusion from logs (security review, see this repo's Phase A history) ──────────────────
+
+
+def test_duplicate_username_signup_error_message_is_not_logged(client, caplog):
+    # IDENTITY_USERNAME_TAKEN's message embeds the attempted username (email-shaped, i.e. PII) —
+    # error_handlers.py's DomainError handler must log only error.code, never error.message, so
+    # this never reaches the logs even though the HTTP response body still legitimately includes
+    # it (the caller already knows what they just typed).
+    csrf = _with_csrf(client)
+    taken_username = "someone-secret@example.com"
+    with (
+        patch(
+            "api.presentation.routes.auth_ui.SignupService.signup",
+            side_effect=ConflictError(
+                error_codes.IDENTITY_USERNAME_TAKEN,
+                f"An account with username '{taken_username}' already exists.",
+                field="username",
+            ),
+        ),
+        caplog.at_level("DEBUG"),
+    ):
+        response = client.post(
+            "/sign-up",
+            json={"username": taken_username, "password": "a-strong-password", "name": "Ada", "org_name": "ada-labs"},
+            headers={"X-CSRF-Token": csrf},
+        )
+
+    assert response.status_code == 409
+    # The response body legitimately still contains it — this is not the leak being guarded against.
+    assert taken_username in response.get_json()["error"]["message"]
+    # But no log record anywhere should contain it.
+    for record in caplog.records:
+        assert taken_username not in record.getMessage()

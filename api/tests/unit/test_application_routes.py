@@ -21,6 +21,8 @@ def client():
     with test_client.session_transaction() as sess:
         sess["identity_id"] = str(uuid4())
         sess["active_org_id"] = str(uuid4())
+        sess["csrf_token"] = "test-csrf-token"
+    test_client.environ_base["HTTP_X_CSRF_TOKEN"] = "test-csrf-token"
     return test_client
 
 

@@ -9,7 +9,7 @@ from api import create_app
 from api.application.app_auth_service import AppAuthService
 from api.config import config
 from api.constants import JWT_ALGORITHM
-from api.domain.entities import Application, PersonalAccessToken, ResolvedCaller
+from api.domain.entities import Application, Category, PersonalAccessToken, ResolvedCaller, SessionSettings
 from api.infrastructure.auth.jwt_tokens import encode_access_token
 from api.infrastructure.auth.token_hashing import hash_token
 
@@ -263,5 +263,144 @@ def test_invalid_bearer_token_returns_structured_401(client):
 
 def test_no_credentials_returns_structured_401(client):
     response = client.get("/categories")
+
+    assert response.status_code == 401
+
+
+def _category(**overrides):
+    now = datetime.now(timezone.utc)
+    fields = dict(
+        id=uuid4(),
+        org_id=uuid4(),
+        parent_id=None,
+        name="test-category",
+        slug="test-category",
+        description=None,
+        created_by=None,
+        last_modified_by=None,
+        created_at=now,
+        last_modified_at=now,
+    )
+    fields.update(overrides)
+    return Category(**fields)
+
+
+# ── Dual-client-type: session cookie and bearer token both reach the same gate ──────────────────
+#
+# The core "properly independent, client-agnostic API" design claim from this repo's Phase A
+# history, proven directly against a single route (categories.py): the exact same
+# permission-gated route succeeds for a browser (session cookie) and for a Postman-style API
+# client (bearer token) — both resolve through require_permission's two branches into the same
+# PermissionService.resolve_permissions() check. The bearer-token half is already covered above
+# (test_bearer_token_with_scope_is_accepted); this is the cookie half.
+
+
+def test_session_cookie_reaches_the_same_permission_gated_route(client):
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(uuid4())
+        sess["active_org_id"] = str(uuid4())
+
+    with (
+        patch(
+            "api.presentation.routes.app_auth.PermissionService.resolve_permissions",
+            return_value=frozenset({"categories:read"}),
+        ),
+        patch("api.presentation.routes.categories.CategoryService.list_categories", return_value=[]),
+    ):
+        response = client.get("/categories")
+
+    assert response.status_code == 200
+
+
+# ── CSRF: required for cookie-authenticated mutations, exempt for bearer-token ones ─────────────
+#
+# The security-review fix from this repo's Phase A history: require_permission's session-cookie
+# branch now validates X-CSRF-Token on mutating methods (a cookie rides along automatically on any
+# cross-site request — exactly what CSRF protects against); a bearer token never does, so
+# token-authenticated callers are exempt.
+
+
+def test_cookie_authenticated_mutation_without_csrf_is_rejected(client):
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(uuid4())
+        sess["active_org_id"] = str(uuid4())
+        sess["csrf_token"] = "the-real-token"
+
+    with patch(
+        "api.presentation.routes.app_auth.PermissionService.resolve_permissions",
+        return_value=frozenset({"categories:write"}),
+    ):
+        response = client.post("/categories", json={"name": "test"})  # no X-CSRF-Token header
+
+    assert response.status_code == 401
+
+
+def test_cookie_authenticated_mutation_with_correct_csrf_is_accepted(client):
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(uuid4())
+        sess["active_org_id"] = str(uuid4())
+        sess["csrf_token"] = "the-real-token"
+
+    with (
+        patch(
+            "api.presentation.routes.app_auth.PermissionService.resolve_permissions",
+            return_value=frozenset({"categories:write"}),
+        ),
+        patch("api.presentation.routes.categories.CategoryService.create_category", return_value=_category()),
+    ):
+        response = client.post("/categories", json={"name": "test"}, headers={"X-CSRF-Token": "the-real-token"})
+
+    assert response.status_code == 201
+
+
+def test_bearer_token_mutation_needs_no_csrf(client):
+    caller = ResolvedCaller(
+        org_id=uuid4(),
+        identity_id=uuid4(),
+        application_id=None,
+        scopes=frozenset({"categories:write"}),
+        auth_method="personal_access_token",
+        mcp_access=False,
+        api_access=True,
+    )
+    with (
+        patch("api.presentation.routes.app_auth.AppAuthService.authenticate_bearer_token", return_value=caller),
+        patch("api.presentation.routes.categories.CategoryService.create_category", return_value=_category()),
+    ):
+        # No cookie, no X-CSRF-Token — only a bearer token.
+        response = client.post("/categories", json={"name": "test"}, headers={"Authorization": "Bearer whatever"})
+
+    assert response.status_code == 201
+
+
+# ── Session inactivity timeout, end-to-end through a real route ─────────────────────────────────
+#
+# The org-configurable session-inactivity feature (session_guard.resolve_cookie_session,
+# session_settings) — unit-tested directly in test_session_guard.py; this is the one route-level
+# regression proving it's actually wired into require_permission, not just the helper itself.
+
+
+def test_stale_cookie_session_is_rejected_on_a_real_permission_gated_route(client):
+    with client.session_transaction() as sess:
+        sess["identity_id"] = str(uuid4())
+        sess["active_org_id"] = str(uuid4())
+
+    stale_settings = SessionSettings(
+        org_id=uuid4(),
+        inactivity_timeout_minutes=120,
+        last_modified_by=None,
+        last_modified_at=datetime.now(timezone.utc),
+    )
+    with (
+        patch(
+            "api.infrastructure.repositories.identity_repository.IdentityRepository.get_last_active_at",
+            return_value=datetime.now(timezone.utc) - timedelta(hours=3),
+        ),
+        patch(
+            "api.application.session_settings_service.SessionSettingsService.get", return_value=stale_settings
+        ),
+    ):
+        # Rejected at the staleness check, before permission resolution is even reached.
+        response = client.get("/categories")
 
     assert response.status_code == 401

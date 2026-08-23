@@ -8,6 +8,8 @@ from api.constants import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TOP_K,
+    SESSION_TIMEOUT_MAX_MINUTES,
+    SESSION_TIMEOUT_MIN_MINUTES,
     WEB_CRAWL_MAX_PAGES_LIMIT,
 )
 from api.application.embedding_provider_settings_service import EmbeddingProviderConfigStatus
@@ -26,6 +28,7 @@ from api.domain.entities import (
     Query,
     RoutedScoredChunk,
     ScoredChunk,
+    SessionSettings,
     Shelf,
     Tag,
 )
@@ -759,6 +762,26 @@ class MCPSettingsResponse(BaseModel):
             rag_read_enabled=settings.rag_read_enabled,
             object_read_enabled=settings.object_read_enabled,
             object_write_enabled=settings.object_write_enabled,
+            last_modified_at=settings.last_modified_at,
+        )
+
+
+class SessionSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inactivity_timeout_minutes: int = Field(ge=SESSION_TIMEOUT_MIN_MINUTES, le=SESSION_TIMEOUT_MAX_MINUTES)
+
+
+class SessionSettingsResponse(BaseModel):
+    org_id: UUID
+    inactivity_timeout_minutes: int
+    last_modified_at: datetime
+
+    @classmethod
+    def from_entity(cls, settings: SessionSettings) -> "SessionSettingsResponse":
+        return cls(
+            org_id=settings.org_id,
+            inactivity_timeout_minutes=settings.inactivity_timeout_minutes,
             last_modified_at=settings.last_modified_at,
         )
 

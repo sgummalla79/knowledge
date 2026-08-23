@@ -18,11 +18,15 @@ class JobStore:
     """
 
     @staticmethod
-    def create() -> str:
+    def create(org_id) -> str:
         job_id = str(uuid.uuid4())
         with _lock:
             _jobs[job_id] = {
                 "status": "pending",
+                # Not part of JobStatusResponse — checked by document_service's org-scoping methods
+                # (get_job_status/cancel_job) before a caller ever sees this job, same isolation
+                # pattern DocumentRepository.get()'s callers already use.
+                "org_id": str(org_id),
                 "error": None,
                 "document_id": None,
                 "cancel_requested": False,

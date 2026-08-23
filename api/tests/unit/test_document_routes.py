@@ -24,6 +24,8 @@ def client():
         sess["identity_id"] = str(uuid4())
         sess["active_org_id"] = str(uuid4())
         sess["active_role"] = "admin"
+        sess["csrf_token"] = "test-csrf-token"
+    test_client.environ_base["HTTP_X_CSRF_TOKEN"] = "test-csrf-token"
     return test_client
 
 
@@ -455,7 +457,8 @@ def test_cancel_job_returns_202(client):
         response = client.post("/jobs/job-123/cancel")
 
     assert response.status_code == 202
-    mock_cancel.assert_called_once_with("job-123")
+    mock_cancel.assert_called_once()
+    assert mock_cancel.call_args[0][1] == "job-123"
 
 
 def test_cancel_job_missing_job_returns_structured_404(client):

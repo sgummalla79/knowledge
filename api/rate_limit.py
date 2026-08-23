@@ -6,6 +6,15 @@ def _rate_limit_key() -> str:
     return request.headers.get("Authorization") or request.remote_addr or "anonymous"
 
 
+def _login_rate_limit_key() -> str:
+    # IP alone would let an attacker who controls many IPs still hammer one account unbounded;
+    # username alone would let one IP exhaust the limit for every other user sharing that IP
+    # (e.g. behind NAT/a corporate proxy). Combining both bounds each independently.
+    body = request.get_json(silent=True) or {}
+    username = body.get("username", "")
+    return f"{request.remote_addr or 'anonymous'}:{username}"
+
+
 # default_limits is deliberately not set here — Flask-Limiter reads app.config["RATELIMIT_DEFAULT"]
 # at init_app() time instead, so each create_app() call (including tests) controls its own limit.
 #

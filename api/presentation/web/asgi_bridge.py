@@ -24,9 +24,7 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
     merged directly into this app's own top-level route list rather than nested under an extra
     Mount(), since nesting would double the path prefix and break the well-known route's path-
     insertion (which is computed relative to that sub-app's own root). Flask's catch-all is listed
-    last for readability — a route with a real path always wins over it regardless of order, same
-    precedence rule api/presentation/routes/app_shell.py's favicon-before-catch-all comment
-    documents.
+    last for readability — a route with a real path always wins over it regardless of order.
 
     Each FastMCP server's own internal lifespan (which enters its session_manager.run() — see the
     installed SDK's FastMCP.streamable_http_app) is never triggered just by merging its routes in:

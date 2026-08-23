@@ -14,10 +14,10 @@ class Config:
         self.port = int(os.environ.get("PORT", "13102"))
         self.log_level = self._validated_log_level(os.environ.get("LOG_LEVEL", "INFO"))
         self.version = self._read_version()
-        # Set only for local `npm run dev` (webui/) iteration — when present, serve_spa_shell()
-        # points the SPA shell at this Vite dev server (HMR) instead of the built webui/ bundle.
-        # Unset in every real deployment, which always serves the built bundle.
-        self.webui_dev_server = os.environ.get("WEBUI_DEV_SERVER")
+        # False by default so local/plain-HTTP deployments (docker-compose testing, dev preview)
+        # keep working — a Secure cookie is silently dropped by the browser over plain HTTP. Set
+        # true only behind real TLS (the Hostinger deployment's Traefik/cert-manager termination).
+        self.session_cookie_secure = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
 
     @staticmethod
     def _require(name):

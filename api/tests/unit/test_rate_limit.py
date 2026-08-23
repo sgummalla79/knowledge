@@ -1,6 +1,10 @@
+from unittest.mock import patch
+
 import pytest
 
 from api import create_app
+from api.constants import LOGIN_RATE_LIMIT
+from api.domain.errors import AuthenticationError
 
 
 @pytest.fixture()
@@ -28,3 +32,28 @@ def test_exceeding_rate_limit_returns_structured_429(client):
     assert response.status_code == 429
     body = response.get_json()
     assert body["error"]["code"] == "rate_limited"
+
+
+@pytest.fixture()
+def login_client():
+    # POST /sign-in carries its own dedicated LOGIN_RATE_LIMIT (see api/constants.py and this
+    # repo's Phase A security review) rather than inheriting rate_limit_default — no override
+    # needed here, the route's own decorator already applies a tight limit.
+    app = create_app(testing=False, bootstrap_admin=False)
+    return app.test_client()
+
+
+def test_login_rate_limit_returns_structured_429_before_the_limit(login_client):
+    attempts = int(LOGIN_RATE_LIMIT.split(" ")[0])
+    with patch(
+        "api.presentation.routes.auth_ui.AuthService.login",
+        side_effect=AuthenticationError("Invalid username or password."),
+    ):
+        for _ in range(attempts):
+            response = login_client.post("/sign-in", json={"username": "attacker@example.com", "password": "wrong"})
+            assert response.status_code != 429
+
+        response = login_client.post("/sign-in", json={"username": "attacker@example.com", "password": "wrong"})
+
+    assert response.status_code == 429
+    assert response.get_json()["error"]["code"] == "rate_limited"
