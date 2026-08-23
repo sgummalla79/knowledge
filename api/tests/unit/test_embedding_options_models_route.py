@@ -34,12 +34,12 @@ def test_list_models_returns_models(client):
     ) as mock_list_models:
         response = client.post(
             "/embedding-options/models",
-            json={"provider": "ollama", "base_url": "http://ollama:11434"}
+            json={"provider": "openai_compatible", "base_url": "https://api.example.com/v1"}
         )
 
     assert response.status_code == 200
     assert response.get_json() == {"models": ["nomic-embed-text", "mxbai-embed-large"]}
-    mock_list_models.assert_called_once_with("ollama", None, "http://ollama:11434")
+    mock_list_models.assert_called_once_with("openai_compatible", None, "https://api.example.com/v1")
 
 
 def test_list_models_propagates_validation_error(client):

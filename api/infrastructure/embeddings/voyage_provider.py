@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 # Voyage's own hard per-request limit (their SDK's own batching helpers in embeddings_utils.py
 # enforce the same number) — not a tunable of ours. Imported rather than hardcoded so it can never
 # drift out of sync with whatever the installed voyageai version actually enforces. Mirrors
-# OllamaEmbeddingProvider/OpenAICompatibleEmbeddingProvider's batching rationale: a single
-# document's full chunk set previously went out in one request, which both violates this
-# server-enforced cap for anything over 128 chunks and made a transient failure lose the whole
-# document's progress instead of just one batch's.
+# OpenAICompatibleEmbeddingProvider's batching rationale: a single document's full chunk set
+# previously went out in one request, which both violates this server-enforced cap for anything
+# over 128 chunks and made a transient failure lose the whole document's progress instead of just
+# one batch's.
 _DOCUMENT_BATCH_SIZE = voyageai.VOYAGE_EMBED_BATCH_SIZE
 
 

@@ -30,7 +30,7 @@ def client():
     return test_client
 
 
-def _status(provider="ollama", enabled=False, configured=False, locked=False, chunk_count=0, **overrides):
+def _status(provider="openai_compatible", enabled=False, configured=False, locked=False, chunk_count=0, **overrides):
     defaults = dict(
         provider=provider,
         enabled=enabled,
@@ -38,8 +38,8 @@ def _status(provider="ollama", enabled=False, configured=False, locked=False, ch
         locked=locked,
         locked_by_other=False,
         chunk_count=chunk_count,
-        model="nomic-embed-text" if configured else None,
-        base_url="http://ollama:11434" if configured else None,
+        model="text-embedding-3-small" if configured else None,
+        base_url="https://api.example.com/v1" if configured else None,
         dimensions=768 if configured else None,
         chunk_size=800,
         chunk_overlap=100,
@@ -51,7 +51,7 @@ def _status(provider="ollama", enabled=False, configured=False, locked=False, ch
 
 
 def test_list_returns_all_providers(client):
-    statuses = [_status("ollama", enabled=True, configured=True), _status("voyage"), _status("openai_compatible")]
+    statuses = [_status("openai_compatible", enabled=True, configured=True), _status("voyage")]
     with patch(
         "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.list_status",
         return_value=statuses
@@ -61,9 +61,8 @@ def test_list_returns_all_providers(client):
     assert response.status_code == 200
     body = response.get_json()
     assert {item["provider"]: item["enabled"] for item in body} == {
-        "ollama": True,
+        "openai_compatible": True,
         "voyage": False,
-        "openai_compatible": False,
     }
 
 
@@ -85,15 +84,15 @@ def test_get_status_not_configured(client):
 def test_get_status_configured_and_enabled(client):
     with patch(
         "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.get_status",
-        return_value=_status("ollama", enabled=True, configured=True)
+        return_value=_status("openai_compatible", enabled=True, configured=True)
     ):
-        response = client.get("/embedding-settings/ollama")
+        response = client.get("/embedding-settings/openai_compatible")
 
     body = response.get_json()
     assert body["configured"] is True
     assert body["enabled"] is True
-    assert body["model"] == "nomic-embed-text"
-    assert body["base_url"] == "http://ollama:11434"
+    assert body["model"] == "text-embedding-3-small"
+    assert body["base_url"] == "https://api.example.com/v1"
     assert body["dimensions"] == 768
     assert "api_key" not in body
 
@@ -101,8 +100,8 @@ def test_get_status_configured_and_enabled(client):
 def test_update_missing_dimensions_rejected_by_schema(client):
     # dimensions is a required field — no static map to infer it from.
     response = client.put(
-        "/embedding-settings/ollama",
-        json={"model": "nomic-embed-text"}
+        "/embedding-settings/openai_compatible",
+        json={"model": "text-embedding-3-small"}
     )
 
     assert response.status_code == 400
@@ -134,30 +133,6 @@ def test_update_voyage_without_api_key_returns_structured_400(client):
 
     assert response.status_code == 400
     assert response.get_json()["error"]["field"] == "api_key"
-
-
-def test_update_ollama_without_api_key_accepted_by_schema(client):
-    # Ollama is self-hosted/keyless — proves api_key is genuinely optional end-to-end at the HTTP
-    # layer, not just required-with-empty-string.
-    with (
-        patch(
-            "api.presentation.routes.embedding_settings.EmbeddingProviderSettingsRepository.get",
-            return_value=None
-        ),
-        patch(
-            "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-            return_value=_status("ollama", configured=True)
-        )
-    ):
-        response = client.put(
-            "/embedding-settings/ollama",
-            json={"model": "nomic-embed-text", "dimensions": 768}
-        )
-
-    assert response.status_code == 200
-    body = response.get_json()
-    assert body["configured"] is True
-    assert body["base_url"] == "http://ollama:11434"
 
 
 def test_update_model_locked_returns_structured_400(client):
@@ -225,11 +200,11 @@ def test_update_success_returns_configured_true(client):
         ),
         patch(
             "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.update_config",
-            return_value=_status("ollama", configured=True)
+            return_value=_status("openai_compatible", configured=True)
         )
     ):
         response = client.put(
-            "/embedding-settings/ollama",
+            "/embedding-settings/openai_compatible",
             json={"model": "nomic-embed-text", "dimensions": 768}
         )
 
@@ -240,15 +215,15 @@ def test_update_success_returns_configured_true(client):
 def test_enable_returns_updated_status(client):
     with patch(
         "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.enable",
-        return_value=_status("ollama", enabled=True, configured=True)
+        return_value=_status("openai_compatible", enabled=True, configured=True)
     ) as mock_enable:
         response = client.post(
-            "/embedding-settings/ollama/enable"
+            "/embedding-settings/openai_compatible/enable"
         )
 
     assert response.status_code == 200
     assert response.get_json()["enabled"] is True
-    mock_enable.assert_called_once_with(ANY, "ollama")
+    mock_enable.assert_called_once_with(ANY, "openai_compatible")
 
 
 def test_enable_not_configured_returns_structured_400(client):
@@ -280,15 +255,15 @@ def test_enable_locked_returns_structured_400(client):
 def test_disable_returns_updated_status(client):
     with patch(
         "api.presentation.routes.embedding_settings.EmbeddingProviderConfigService.disable",
-        return_value=_status("ollama", configured=True)
+        return_value=_status("openai_compatible", configured=True)
     ) as mock_disable:
         response = client.post(
-            "/embedding-settings/ollama/disable"
+            "/embedding-settings/openai_compatible/disable"
         )
 
     assert response.status_code == 200
     assert response.get_json()["enabled"] is False
-    mock_disable.assert_called_once_with(ANY, "ollama")
+    mock_disable.assert_called_once_with(ANY, "openai_compatible")
 
 
 def test_disable_locked_returns_structured_400(client):
@@ -297,7 +272,7 @@ def test_disable_locked_returns_structured_400(client):
         side_effect=ValidationError("embedding_model_locked", "documents exist", field="provider")
     ):
         response = client.post(
-            "/embedding-settings/ollama/disable"
+            "/embedding-settings/openai_compatible/disable"
         )
 
     assert response.status_code == 400

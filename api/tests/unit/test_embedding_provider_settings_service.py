@@ -12,14 +12,14 @@ from api.domain.errors import ValidationError
 _ORG_ID = uuid4()
 
 
-def _config(provider="ollama", enabled=False, **overrides):
+def _config(provider="openai_compatible", enabled=False, **overrides):
     defaults = dict(
         id=uuid4(),
         provider=provider,
         enabled=enabled,
-        model="nomic-embed-text",
+        model="text-embedding-3-small",
         api_key=None,
-        base_url="http://ollama:11434",
+        base_url="https://api.example.com/v1",
         dimensions=768,
         chunk_size=800,
         chunk_overlap=100,
@@ -38,7 +38,7 @@ def _mock_provider(vector):
 
 def test_list_status_covers_every_known_provider_even_when_unconfigured():
     repository = MagicMock()
-    repository.list.return_value = [_config("ollama", enabled=True)]
+    repository.list.return_value = [_config("openai_compatible", enabled=True)]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     category_repo = MagicMock()
@@ -47,16 +47,16 @@ def test_list_status_covers_every_known_provider_even_when_unconfigured():
 
     statuses = {status.provider: status for status in service.list_status(_ORG_ID)}
 
-    assert set(statuses) == {"voyage", "ollama", "openai_compatible"}
-    assert statuses["ollama"].configured is True
-    assert statuses["ollama"].enabled is True
+    assert set(statuses) == {"voyage", "openai_compatible"}
+    assert statuses["openai_compatible"].configured is True
+    assert statuses["openai_compatible"].enabled is True
     assert statuses["voyage"].configured is False
     assert statuses["voyage"].enabled is False
 
 
 def test_list_status_marks_non_active_providers_as_locked_by_other():
     repository = MagicMock()
-    repository.list.return_value = [_config("ollama", enabled=True)]
+    repository.list.return_value = [_config("openai_compatible", enabled=True)]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     category_repo = MagicMock()
@@ -65,11 +65,10 @@ def test_list_status_marks_non_active_providers_as_locked_by_other():
 
     statuses = {status.provider: status for status in service.list_status(_ORG_ID)}
 
-    assert statuses["ollama"].locked_by_other is False
-    assert statuses["ollama"].active_provider == "ollama"
+    assert statuses["openai_compatible"].locked_by_other is False
+    assert statuses["openai_compatible"].active_provider == "openai_compatible"
     assert statuses["voyage"].locked_by_other is True
-    assert statuses["voyage"].active_provider == "ollama"
-    assert statuses["openai_compatible"].locked_by_other is True
+    assert statuses["voyage"].active_provider == "openai_compatible"
 
 
 def test_list_status_nothing_locked_when_no_provider_is_active():
@@ -108,17 +107,17 @@ def test_update_config_first_time_verifies_and_persists():
         "api.application.embedding_provider_settings_service.EmbeddingProviderRegistry.resolve",
         return_value=_mock_provider([0.1] * 768),
     ):
-        status = service.update_config(_ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100)
+        status = service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 800, 100)
 
     repository.upsert_config.assert_called_once_with(
-        _ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100
+        _ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 800, 100
     )
     assert status.configured is True
 
 
 def test_update_config_blocked_when_a_different_provider_is_active():
     repository = MagicMock()
-    repository.list.return_value = [_config("ollama", enabled=True)]
+    repository.list.return_value = [_config("openai_compatible", enabled=True)]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     category_repo = MagicMock()
@@ -135,7 +134,7 @@ def test_update_config_blocked_when_a_different_provider_is_active():
 
 def test_update_config_locked_when_provider_is_active_and_chunks_exist():
     repository = MagicMock()
-    repository.list.return_value = [_config("ollama", enabled=True, model="nomic-embed-text", dimensions=768)]
+    repository.list.return_value = [_config("openai_compatible", enabled=True, model="text-embedding-3-small", dimensions=768)]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
     category_repo = MagicMock()
@@ -143,7 +142,7 @@ def test_update_config_locked_when_provider_is_active_and_chunks_exist():
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
     with pytest.raises(ValidationError) as exc_info:
-        service.update_config(_ORG_ID, "ollama", "different-model", None, "http://ollama:11434", 768, 800, 100)
+        service.update_config(_ORG_ID, "openai_compatible", "different-model", None, "https://api.example.com/v1", 768, 800, 100)
 
     assert exc_info.value.code == error_codes.EMBEDDING_MODEL_LOCKED
     repository.upsert_config.assert_not_called()
@@ -184,7 +183,7 @@ def test_update_config_api_key_only_change_skips_reverify():
     with patch(
         "api.application.embedding_provider_settings_service.EmbeddingProviderRegistry.resolve"
     ) as mock_resolve:
-        service.update_config(_ORG_ID, "ollama", "nomic-embed-text", "new-key", "http://ollama:11434", 768, 800, 100)
+        service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", "new-key", "https://api.example.com/v1", 768, 800, 100)
         mock_resolve.assert_not_called()
 
     repository.upsert_config.assert_called_once()
@@ -203,7 +202,7 @@ def test_update_config_chunk_size_only_change_does_not_reverify():
     with patch(
         "api.application.embedding_provider_settings_service.EmbeddingProviderRegistry.resolve"
     ) as mock_resolve:
-        service.update_config(_ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 500, 50)
+        service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 500, 50)
         mock_resolve.assert_not_called()
 
 
@@ -223,7 +222,7 @@ def test_update_config_live_verification_failure_raises():
         return_value=provider,
     ):
         with pytest.raises(ValidationError) as exc_info:
-            service.update_config(_ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100)
+            service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 800, 100)
 
     assert exc_info.value.code == error_codes.VALIDATION_ERROR
     repository.upsert_config.assert_not_called()
@@ -243,7 +242,7 @@ def test_update_config_declared_dimensions_mismatching_actual_vector_length_rais
         return_value=_mock_provider([0.1] * 512),
     ):
         with pytest.raises(ValidationError) as exc_info:
-            service.update_config(_ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 800, 100)
+            service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 800, 100)
 
     assert exc_info.value.code == error_codes.EMBEDDING_DIMENSION_MISMATCH
     repository.upsert_config.assert_not_called()
@@ -259,7 +258,7 @@ def test_update_config_chunk_overlap_must_be_smaller_than_chunk_size():
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
     with pytest.raises(ValidationError) as exc_info:
-        service.update_config(_ORG_ID, "ollama", "nomic-embed-text", None, "http://ollama:11434", 768, 100, 100)
+        service.update_config(_ORG_ID, "openai_compatible", "text-embedding-3-small", None, "https://api.example.com/v1", 768, 100, 100)
     assert exc_info.value.field == "chunk_overlap"
 
 
@@ -280,14 +279,14 @@ def test_enable_requires_configured_provider():
 
 def test_enable_already_enabled_is_a_noop():
     repository = MagicMock()
-    repository.get.return_value = _config("ollama", enabled=True)
+    repository.get.return_value = _config("openai_compatible", enabled=True)
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 3
     category_repo = MagicMock()
     category_repo.list_all_with_description.return_value = []
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
-    status = service.enable(_ORG_ID, "ollama")
+    status = service.enable(_ORG_ID, "openai_compatible")
 
     assert status.enabled is True
     repository.set_enabled.assert_not_called()
@@ -297,9 +296,9 @@ def test_enable_already_enabled_is_a_noop():
 def test_enable_switches_active_provider_when_previous_has_no_chunks():
     repository = MagicMock()
     voyage_config = _config("voyage", enabled=False, model="voyage-3", dimensions=1024)
-    ollama_config = _config("ollama", enabled=True)
+    openai_config = _config("openai_compatible", enabled=True)
     repository.get.return_value = voyage_config
-    repository.list.return_value = [ollama_config, voyage_config]
+    repository.list.return_value = [openai_config, voyage_config]
     repository.set_enabled.return_value = _config("voyage", enabled=True, dimensions=1024)
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
@@ -313,7 +312,7 @@ def test_enable_switches_active_provider_when_previous_has_no_chunks():
     ):
         status = service.enable(_ORG_ID, "voyage")
 
-    repository.set_enabled.assert_any_call(_ORG_ID, "ollama", False)
+    repository.set_enabled.assert_any_call(_ORG_ID, "openai_compatible", False)
     repository.set_enabled.assert_any_call(_ORG_ID, "voyage", True)
     chunk_repo.resize_embedding_column.assert_called_once_with(1024)
     category_repo.list_all_with_description.assert_called_once()
@@ -325,9 +324,9 @@ def test_enable_switches_active_provider_when_previous_has_no_chunks():
 def test_enable_blocked_when_other_active_provider_has_chunks():
     repository = MagicMock()
     voyage_config = _config("voyage", enabled=False, model="voyage-3", dimensions=1024)
-    ollama_config = _config("ollama", enabled=True)
+    openai_config = _config("openai_compatible", enabled=True)
     repository.get.return_value = voyage_config
-    repository.list.return_value = [ollama_config, voyage_config]
+    repository.list.return_value = [openai_config, voyage_config]
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 5
     category_repo = MagicMock()
@@ -344,21 +343,21 @@ def test_enable_blocked_when_other_active_provider_has_chunks():
 
 def test_disable_not_enabled_is_a_noop():
     repository = MagicMock()
-    repository.get.return_value = _config("ollama", enabled=False)
-    repository.list.return_value = [_config("ollama", enabled=False)]
+    repository.get.return_value = _config("openai_compatible", enabled=False)
+    repository.list.return_value = [_config("openai_compatible", enabled=False)]
     chunk_repo = MagicMock()
     category_repo = MagicMock()
     category_repo.list_all_with_description.return_value = []
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
-    service.disable(_ORG_ID, "ollama")
+    service.disable(_ORG_ID, "openai_compatible")
 
     repository.set_enabled.assert_not_called()
 
 
 def test_disable_blocked_when_chunks_exist():
     repository = MagicMock()
-    repository.get.return_value = _config("ollama", enabled=True)
+    repository.get.return_value = _config("openai_compatible", enabled=True)
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 1
     category_repo = MagicMock()
@@ -366,7 +365,7 @@ def test_disable_blocked_when_chunks_exist():
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
     with pytest.raises(ValidationError) as exc_info:
-        service.disable(_ORG_ID, "ollama")
+        service.disable(_ORG_ID, "openai_compatible")
 
     assert exc_info.value.code == error_codes.EMBEDDING_MODEL_LOCKED
     repository.set_enabled.assert_not_called()
@@ -374,16 +373,16 @@ def test_disable_blocked_when_chunks_exist():
 
 def test_disable_succeeds_when_no_chunks_exist():
     repository = MagicMock()
-    repository.get.return_value = _config("ollama", enabled=True)
-    repository.set_enabled.return_value = _config("ollama", enabled=False)
+    repository.get.return_value = _config("openai_compatible", enabled=True)
+    repository.set_enabled.return_value = _config("openai_compatible", enabled=False)
     chunk_repo = MagicMock()
     chunk_repo.count_all.return_value = 0
     category_repo = MagicMock()
     category_repo.list_all_with_description.return_value = []
     service = EmbeddingProviderConfigService(repository, chunk_repo, category_repo)
 
-    status = service.disable(_ORG_ID, "ollama")
+    status = service.disable(_ORG_ID, "openai_compatible")
 
-    repository.set_enabled.assert_called_once_with(_ORG_ID, "ollama", False)
+    repository.set_enabled.assert_called_once_with(_ORG_ID, "openai_compatible", False)
     assert status.enabled is False
     assert status.active_provider is None

@@ -50,7 +50,7 @@ def test_without_pre_supplied_embedding_falls_back_to_provider():
     org_id = uuid4()
 
     embedding_settings = MagicMock(
-        provider="ollama", model="nomic-embed-text", api_key=None, base_url="http://ollama:11434"
+        provider="openai_compatible", model="text-embedding-3-small", api_key=None, base_url="https://api.example.com/v1"
     )
     embedding_settings_repo.get.return_value = embedding_settings
 

@@ -328,108 +328,23 @@ dimensions become **locked** — you can still edit chunk size, chunk overlap, a
 changing the model/dimensions or disabling it requires deleting every document first, since
 embeddings from different models aren't comparable.
 
-Three providers are supported: **Ollama** (local, no API key), **Voyage** (hosted, needs an API
-key), and an **OpenAI-compatible** endpoint (hosted or self-hosted, needs a base URL). All three
-are configured the same way, from **Settings → Providers** (`/settings`) — click a provider's
-tile to open its settings modal:
+Two providers are supported: **Voyage** (hosted, needs an API key) and an **OpenAI-compatible**
+endpoint (hosted or self-hosted, needs a base URL). Both are configured the same way, from
+**Settings → Providers** (`/settings`) — click a provider's tile to open its settings modal:
 
-| Field | Ollama | Voyage | OpenAI-compatible |
-|---|---|---|---|
-| API Key | not used | **required** | optional (only if your endpoint enforces one) |
-| Base URL | optional — defaults to `http://ollama:11434` | not shown (Voyage's SDK talks to Voyage directly) | **required** |
-| Model | e.g. `nomic-embed-text` | e.g. `voyage-3` | e.g. `text-embedding-3-small` |
-| Dimensions | e.g. `768` | e.g. `1024` | e.g. `1536` |
-| Chunk Size / Overlap | defaults `800` / `100`, editable anytime | same | same |
+| Field | Voyage | OpenAI-compatible |
+|---|---|---|
+| API Key | **required** | optional (only if your endpoint enforces one) |
+| Base URL | not shown (Voyage's SDK talks to Voyage directly) | **required** |
+| Model | e.g. `voyage-3` | e.g. `text-embedding-3-small` |
+| Dimensions | e.g. `1024` | e.g. `1536` |
+| Chunk Size / Overlap | defaults `800` / `100`, editable anytime | same |
 
 Fill in the fields, hit **Save**, then flip the toggle on the provider's tile to enable it. The
 same operations are plain JSON underneath (`PUT /embedding-settings/<provider>` then
 `POST /embedding-settings/<provider>/enable`, both needing `embedding_settings:write`) if you'd
-rather script it than click through the UI — see the curl form under Ollama below as a template
-for any of the three.
-
-### Ollama (local, no API key)
-
-Ollama runs entirely on your own machine, so it's the option that needs no external account or
-API key — good for trying the app out or keeping data fully offline.
-
-1. **Run Ollama as its own container on the same Docker network as this image**, named `ollama`
-   (matches the default `base_url`, `http://ollama:11434`, so no override needed). Don't hand-edit
-   your existing `docker-compose.yml` — YAML is indentation-sensitive and easy to break by hand.
-   Replace it entirely with this version instead (same file as Quick Start Step 2, with `ollama`
-   added):
-   ```yaml
-   services:
-     knowledge-db:
-       image: pgvector/pgvector:pg16
-       environment:
-         POSTGRES_DB: rag
-         POSTGRES_USER: rag
-         POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-       volumes:
-         - knowledge-db-data:/var/lib/postgresql/data
-       healthcheck:
-         test: ["CMD-SHELL", "pg_isready -U rag"]
-         interval: 5s
-         timeout: 5s
-         retries: 10
-
-     api:
-       image: sgummalla/knowledge:latest
-       depends_on:
-         knowledge-db:
-           condition: service_healthy
-       environment:
-         DATABASE_URL: postgresql://rag:${POSTGRES_PASSWORD}@knowledge-db:5432/rag
-         SECRET_KEY: ${SECRET_KEY}
-       ports:
-         - "13102:13102"
-         - "127.0.0.1:13103:13103"
-
-     ollama:
-       image: ollama/ollama
-       volumes:
-         - ollama-data:/root/.ollama
-
-   volumes:
-     knowledge-db-data:
-     ollama-data:
-   ```
-   Same paste method as Quick Start Step 2, same folder: on **macOS**, type `cat > docker-compose.yml <<'EOF'`,
-   press Enter, paste the YAML above, then a line with just `EOF`. On **Windows**, type `@'`, press
-   Enter, paste the YAML above, then a line with `'@ | Out-File -Encoding utf8 docker-compose.yml`.
-
-   **Rewriting the file doesn't restart anything by itself** — apply it the same way as Quick Start
-   Step 4:
-   ```bash
-   docker compose up -d
-   ```
-   This is the step that actually creates and starts the new `ollama` container — skipping it is
-   why you'd see `service "ollama" is not running` if you try the next command too soon. Confirm
-   with `docker compose ps` (a third row, `ollama`, `running`), then pull the model:
-   ```bash
-   docker compose exec ollama ollama pull nomic-embed-text
-   ```
-   This downloads the actual model weights (a few hundred MB), so it takes a minute. Still failing?
-   Check `docker compose logs ollama`, and confirm you're in the same folder as your
-   `docker-compose.yml`.
-
-   Running Ollama on the host instead of in a container also works — set **Base URL** to
-   `http://host.docker.internal:11434` instead of relying on the default.
-
-2. In **Settings → Providers**, open the Ollama tile, set **Model** to `nomic-embed-text` and
-   **Dimensions** to `768` (that model's output size — a different model needs its own dimension
-   count), leave **Base URL** blank unless overriding, and **Save**. Or via curl:
-   ```bash
-   curl -X PUT http://localhost:13102/embedding-settings/ollama \
-     -H "Authorization: Bearer <token>" \
-     -H "Content-Type: application/json" \
-     -d '{"model":"nomic-embed-text","dimensions":768}'
-   ```
-3. Flip the toggle on the Ollama tile to enable it, or:
-   ```bash
-   curl -X POST http://localhost:13102/embedding-settings/ollama/enable \
-     -H "Authorization: Bearer <token>"
-   ```
+rather script it than click through the UI — see the curl form under Voyage below as a template
+for either.
 
 ### Voyage (hosted, API key required)
 

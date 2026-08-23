@@ -1,6 +1,4 @@
-from api.constants import DEFAULT_OLLAMA_BASE_URL
 from api.infrastructure.embeddings.base import SupportsModelListing
-from api.infrastructure.embeddings.ollama_provider import OllamaEmbeddingProvider
 from api.infrastructure.embeddings.openai_compatible_provider import OpenAICompatibleEmbeddingProvider
 from api.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvider
 
@@ -9,15 +7,11 @@ from api.infrastructure.embeddings.voyage_provider import VoyageEmbeddingProvide
 # versa).
 _PROVIDER_CLASSES: dict[str, type] = {
     "voyage": VoyageEmbeddingProvider,
-    "ollama": OllamaEmbeddingProvider,
     "openai_compatible": OpenAICompatibleEmbeddingProvider,
 }
 
 _PROVIDER_FACTORIES = {
     "voyage": lambda model, api_key, base_url: VoyageEmbeddingProvider(api_key=api_key, model=model),
-    "ollama": lambda model, api_key, base_url: OllamaEmbeddingProvider(
-        base_url=base_url or DEFAULT_OLLAMA_BASE_URL, model=model
-    ),
     "openai_compatible": lambda model, api_key, base_url: OpenAICompatibleEmbeddingProvider(
         base_url=base_url, api_key=api_key, model=model
     ),
