@@ -316,7 +316,7 @@ class MCPSettingsRepositoryPort(Protocol):
     def upsert(
         self,
         org_id: UUID,
-        rag_read_enabled: bool,
+        search_read_enabled: bool,
         object_read_enabled: bool,
         object_write_enabled: bool,
         modified_by: UUID | None,

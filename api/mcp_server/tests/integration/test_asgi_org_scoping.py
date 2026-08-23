@@ -62,34 +62,34 @@ def test_non_mcp_path_passes_through_untouched(client):
 
 
 def test_bare_mcp_path_is_rejected(client):
-    response = client.get("/mcp/rag")
+    response = client.get("/mcp/search")
     assert response.status_code == 404
 
 
 def test_missing_bearer_token_is_rejected(db_session, client):
     org, _token = _org_with_token(db_session)
-    response = client.get(f"/{org.slug}/mcp/rag")
+    response = client.get(f"/{org.slug}/mcp/search")
     assert response.status_code == 401
 
 
 def test_unknown_org_slug_is_rejected(db_session, client):
     _org, token = _org_with_token(db_session)
-    response = client.get("/no-such-org/mcp/rag", headers={"Authorization": f"Bearer {token}"})
+    response = client.get("/no-such-org/mcp/search", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 404
 
 
 def test_token_for_a_different_org_is_rejected(db_session, client):
     org_a, _token_a = _org_with_token(db_session, slug="org-a")
     _org_b, token_b = _org_with_token(db_session, slug="org-b")
-    response = client.get(f"/{org_a.slug}/mcp/rag", headers={"Authorization": f"Bearer {token_b}"})
+    response = client.get(f"/{org_a.slug}/mcp/search", headers={"Authorization": f"Bearer {token_b}"})
     assert response.status_code == 403
 
 
 def test_matching_org_and_token_forwards_with_rewritten_path(db_session, client):
     org, token = _org_with_token(db_session)
-    response = client.get(f"/{org.slug}/mcp/rag", headers={"Authorization": f"Bearer {token}"})
+    response = client.get(f"/{org.slug}/mcp/search", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
-    assert response.text == "/mcp/rag"
+    assert response.text == "/mcp/search"
 
 
 def test_matching_org_and_token_forwards_a_sub_path(db_session, client):

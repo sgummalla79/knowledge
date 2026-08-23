@@ -24,8 +24,8 @@ from api.mcp_server.db import session_scope
 # FastMCP, then rewrite the path down to the bare /mcp/<tier> FastMCP actually matches and forward.
 # The bare path is rejected outright when hit directly — there must be exactly one valid URL per
 # tier per org, not a second one that skips the org check.
-_ORG_SCOPED_PATH = re.compile(r"^/(?P<org_slug>[^/]+)/mcp/(?P<tier>rag|read|write)(?P<rest>/.*)?$")
-_BARE_MCP_PATH = re.compile(r"^/mcp/(rag|read|write)(/.*)?$")
+_ORG_SCOPED_PATH = re.compile(r"^/(?P<org_slug>[^/]+)/mcp/(?P<tier>search|read|write)(?P<rest>/.*)?$")
+_BARE_MCP_PATH = re.compile(r"^/mcp/(search|read|write)(/.*)?$")
 
 
 def _bearer_token(scope: Scope) -> str | None:

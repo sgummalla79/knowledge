@@ -758,18 +758,18 @@ class PersonalAccessTokenSecretResponse(PersonalAccessTokenResponse):
 class MCPSettingsUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    rag_read_enabled: bool
+    search_read_enabled: bool
     object_read_enabled: bool
     object_write_enabled: bool
 
 
 class MCPSettingsResponse(BaseModel):
     org_id: UUID
-    rag_read_enabled: bool
+    search_read_enabled: bool
     object_read_enabled: bool
     object_write_enabled: bool
     last_modified_at: datetime
-    # column -> URL segment (e.g. "rag_read_enabled" -> "rag") for webui to build each tier's
+    # column -> URL segment (e.g. "search_read_enabled" -> "search") for webui to build each tier's
     # connection URL (/<org-slug>/mcp/<segment>) from, without its own hardcoded copy of this
     # mapping — see api.constants.MCP_TIERS, the single source both this and
     # api/mcp_server/permissions.py derive from.
@@ -779,7 +779,7 @@ class MCPSettingsResponse(BaseModel):
     def from_entity(cls, settings: MCPSettings) -> "MCPSettingsResponse":
         return cls(
             org_id=settings.org_id,
-            rag_read_enabled=settings.rag_read_enabled,
+            search_read_enabled=settings.search_read_enabled,
             object_read_enabled=settings.object_read_enabled,
             object_write_enabled=settings.object_write_enabled,
             last_modified_at=settings.last_modified_at,

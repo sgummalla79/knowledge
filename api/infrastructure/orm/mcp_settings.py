@@ -8,7 +8,7 @@ class MCPSettings(Base):
     __tablename__ = "mcp_settings"
 
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
-    rag_read_enabled = Column(Boolean, nullable=False, default=False)
+    search_read_enabled = Column(Boolean, nullable=False, default=False)
     object_read_enabled = Column(Boolean, nullable=False, default=False)
     object_write_enabled = Column(Boolean, nullable=False, default=False)
     last_modified_by = Column(UUID(as_uuid=True), ForeignKey("identities.id"), nullable=True)

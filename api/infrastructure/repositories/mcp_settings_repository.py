@@ -7,7 +7,7 @@ from api.infrastructure.orm import MCPSettings as MCPSettingsModel
 def _to_entity(model: MCPSettingsModel) -> MCPSettingsEntity:
     return MCPSettingsEntity(
         org_id=model.org_id,
-        rag_read_enabled=model.rag_read_enabled,
+        search_read_enabled=model.search_read_enabled,
         object_read_enabled=model.object_read_enabled,
         object_write_enabled=model.object_write_enabled,
         last_modified_by=model.last_modified_by,
@@ -26,7 +26,7 @@ class MCPSettingsRepository:
     def upsert(
         self,
         org_id: UUID,
-        rag_read_enabled: bool,
+        search_read_enabled: bool,
         object_read_enabled: bool,
         object_write_enabled: bool,
         modified_by: UUID | None,
@@ -35,7 +35,7 @@ class MCPSettingsRepository:
         if model is None:
             model = MCPSettingsModel(org_id=org_id)
             self._session.add(model)
-        model.rag_read_enabled = rag_read_enabled
+        model.search_read_enabled = search_read_enabled
         model.object_read_enabled = object_read_enabled
         model.object_write_enabled = object_write_enabled
         model.last_modified_by = modified_by
