@@ -178,6 +178,12 @@ ORG_SLUG_MAX_LENGTH = 63
 # necessarily a real, deliverable address.
 USERNAME_MAX_LENGTH = 254
 
+# Default CORS-allowed origin for cross-origin cookie requests (api/presentation/web/cors.py) when
+# WEBUI_ORIGINS isn't set — the fixed local Vite dev-server origin from CLAUDE.md's "Local dev
+# preview" conventions (webui/vite.config.ts pins this exact host:port). Real deployments override
+# via WEBUI_ORIGINS (comma-separated) to whatever origin the built webui/ is actually served from.
+DEFAULT_WEBUI_ORIGIN = "http://127.0.0.1:5173"
+
 # Reserved so a user-chosen org slug can never collide with a real top-level route, present or
 # future — sourced from this app's actual Flask blueprint url_prefixes and the SPA's top-level
 # React Router paths, not an arbitrary list.

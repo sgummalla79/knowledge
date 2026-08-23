@@ -1,5 +1,7 @@
 import os
 
+from api.constants import DEFAULT_WEBUI_ORIGIN
+
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 # VERSION lives at the repo root; this file is at api/config.py, so one parent up.
@@ -18,6 +20,14 @@ class Config:
         # keep working — a Secure cookie is silently dropped by the browser over plain HTTP. Set
         # true only behind real TLS (the Hostinger deployment's Traefik/cert-manager termination).
         self.session_cookie_secure = os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true"
+        # webui/ is a separate deployable from this API now (see this repo's CLAUDE.md session
+        # history on the standalone-API change) — cross-origin cookie requests need CORS
+        # (api/presentation/web/cors.py) explicitly opted into per allowed origin.
+        self.webui_origins = frozenset(
+            origin.strip()
+            for origin in os.environ.get("WEBUI_ORIGINS", DEFAULT_WEBUI_ORIGIN).split(",")
+            if origin.strip()
+        )
 
     @staticmethod
     def _require(name):

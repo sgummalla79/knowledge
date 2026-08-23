@@ -18,11 +18,15 @@ Structured as hexagonal/clean architecture:
 `api/application` (services — one per feature area, no framework imports) →
 `api/infrastructure` (SQLAlchemy ORM/repositories, embeddings provider registries, auth
 helpers) → `api/presentation` (Flask blueprints/routes, pydantic schemas — JSON only; see item 13,
-there is no server-rendered HTML left anywhere in this app). The React SPA (`webui/`, built into
-`api/static/workspace/`) is the only UI — see item 13 for how it's served. Bundles an MCP server
-(`mcp_server/`) exposing `list_libraries`/`query_library` tools over streamable-HTTP, published
-loopback-only via docker-compose (never reachable off this machine) and secured by the same OAuth2
-stack as the rest of the API — see session history item 8.
+there is no server-rendered HTML left anywhere in this app — nor any HTML at all, including the
+React SPA shell; see item 34). The React SPA (`webui/`) is a **separate deployable from this API**,
+run on its own (e.g. `npm run dev`, or its own hosting once built) and talking to this API
+cross-origin (`webui/src/api/config.ts`'s `VITE_API_BASE_URL` + this API's CORS allowlist,
+`api/presentation/web/cors.py`) — see item 34/35 for the full story, and don't trust item 13's
+description of it as bundled/co-served, which predates that change. Bundles an MCP server under
+`api/mcp_server/`, exposing three permission-gated tool tiers over streamable-HTTP at
+`/<org-slug>/mcp/{rag,read,write}`, on the same port as the REST API (not loopback-only — see item
+16/23) and secured by the same OAuth2/permission stack as the rest of the API.
 
 ## Session history — what's been built (in build order)
 
@@ -844,7 +848,80 @@ stack as the rest of the API — see session history item 8.
     image tag, or raw `docker run`/`docker stop` commands for `knowledge-dev-preview`, that
     reference predates this item and is stale.**
 
-Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+34. **The API became a standalone, client-agnostic deployable — this image renders zero HTML,
+    including no React SPA shell.** `api/presentation/routes/app_shell.py` and
+    `api/presentation/web/spa.py` (`serve_spa_shell()` + the `WEBUI_DEV_SERVER` dev-shell) were
+    deleted outright: no more `GET /sign-in`, `/sign-up`, `/change-password`, `/oauth/authorize`
+    HTML-rendering routes, no more `window.__CSRF_TOKEN__`/`__USERNAME__`/`__ORG_ID__`/
+    `__ORG_SLUG__`/`__OAUTH_AUTHORIZE__`/`__OAUTH_ERROR__` injected into a served page — nothing
+    in this API renders HTML at all anymore. Three JSON bootstrap endpoints replace what that
+    HTML shell used to embed: `GET /csrf-token`, `GET /session` (401 if not logged in), `GET
+    /oauth/authorize-context` (`api/presentation/routes/auth_ui.py`/`oauth.py`). `deploy/Dockerfile`
+    dropped its `node:22-slim` webui build stage entirely — this is a pure Python/API image now,
+    webui/ is not baked into it. No `/api/` path prefix on any route: API and UI are meant to live
+    on separate origins, disambiguated by host, not path. This also shipped a real security pass
+    (CSRF required on every cookie-mutation, not just auth routes; explicit
+    `SESSION_COOKIE_SAMESITE`/`SECURE`; closed a login timing oracle; a tight per-IP+username
+    `POST /sign-in` rate limit; fixed an IDOR on ingestion/crawl job status endpoints) plus
+    correlated request/response logging (one structured `method/path/status_code/duration_ms` line
+    per request, carrying `request_id`).
+
+    **This item was never recorded when the underlying change landed** — the change itself
+    predates this item's own write-up (found and documented only once the gap caused real
+    confusion: item 35 below is the fix for the frontend breakage this caused). If this file,
+    comments, or memory ever describe `app_shell.py`, `serve_spa_shell()`, `WEBUI_DEV_SERVER`, a
+    webui/ build baked into this image, or a browser reading `window.__CSRF_TOKEN__`/
+    `__USERNAME__`/`__ORG_ID__`/`__ORG_SLUG__`/`__OAUTH_AUTHORIZE__`/`__OAUTH_ERROR__` as current,
+    that reference predates this item and is stale — despite items 12/13/21/26 above still
+    describing that machinery as live; those are frozen historical entries, not corrected
+    retroactively (this repo's own convention — see item 16's similar note).
+
+35. **Fixed webui/ to actually work against the standalone API from item 34** — until this item,
+    the frontend still read the deleted `window.__CSRF_TOKEN__`/etc. globals, so no page (sign-in
+    included) could load correctly against a real image; this was only discovered while verifying
+    a routine release, not caught by the test suite (webui/ has no such coverage).
+    - `webui/src/api/shell.ts`'s `csrfToken()`/`currentUsername()`/`currentOrgId()`/
+      `currentOrgSlug()` are unchanged in signature (every existing call site — `NavBar.tsx`,
+      `client.ts`'s CSRF header, several Settings pages — needed zero changes) but now read from a
+      module-level cache populated by a new `bootstrap()`, which fetches `GET /csrf-token` then
+      `GET /session` once. `App.tsx` awaits `bootstrap()` in a `useEffect` before mounting
+      `BrowserRouter` (renders `null` until ready) — replaces what used to be synchronously true
+      the instant the server-rendered shell loaded.
+    - `AuthorizePage.tsx` fetches `GET /oauth/authorize-context` on mount
+      (`webui/src/api/oauth.ts`'s new `fetchAuthorizeContext()`) instead of reading
+      `window.__OAUTH_AUTHORIZE__`/`__OAUTH_ERROR__`.
+    - New `webui/src/api/config.ts` exports `API_BASE_URL` (`import.meta.env.VITE_API_BASE_URL`,
+      default `''` for a same-origin/reverse-proxied setup) — every relative fetch path in
+      `client.ts`, `auth.ts`, `oauth.ts`, `shell.ts` is now prefixed with it, since a relative path
+      no longer reliably resolves to this API's origin (item 34 removed the co-hosted case this
+      relied on). `webui/.env.development` sets it to `http://127.0.0.1:13102` (this repo's fixed
+      local-dev-preview API port) so `npm run dev` talks to a real local API with zero extra setup;
+      override via `VITE_API_BASE_URL` env for anything else. `webui/src/vite-env.d.ts` gained the
+      matching `ImportMetaEnv` type.
+    - New `api/presentation/web/cors.py`'s `register_cors()`, wired into `create_app()` — every
+      resource route is cookie+CSRF authenticated, not bearer-token, so a cross-origin `fetch()`
+      with `credentials: 'include'` needs explicit `Access-Control-Allow-Origin` (one
+      allowlisted, echoed origin, never `'*'` — required whenever credentials are involved) and
+      `Access-Control-Allow-Credentials: true`, plus preflight `OPTIONS` handling. Allowed origins
+      come from `WEBUI_ORIGINS` (comma-separated; `api/config.py`'s `config.webui_origins`),
+      defaulting to `DEFAULT_WEBUI_ORIGIN` (`api/constants.py`) — the fixed Vite dev-server origin,
+      `http://127.0.0.1:5173`, matching `webui/vite.config.ts`'s pinned port. `127.0.0.1` and
+      `localhost` are different origins for CORS (and different **sites** for `SameSite` cookie
+      purposes, unlike differing only by port, which browsers treat as same-site) — use
+      `127.0.0.1` consistently for both the API and webui/ in local dev, not a mix of the two, or
+      the session cookie won't be sent cross-origin.
+    - Verified end-to-end (not just unit tests, which don't cover webui/ at all): built a real
+      image from this branch, ran it alongside a fresh Postgres, pointed a real `npm run dev`
+      Vite instance at it via `VITE_API_BASE_URL`, and drove it with Playwright — sign-in,
+      CORS preflight, session bootstrap, and the post-login dashboard/document API calls all
+      confirmed working end-to-end in a real browser context.
+    - `docs/DOCKER_HUB.md`'s Quick Start / "The Admin UI" / "First Login" sections still describe
+      the old co-hosted, same-image UI (`http://localhost:13102/login`, no separate webui/ step) —
+      **stale as of item 34, not reconciled by this item** — needs its own follow-up once webui/
+      has a real hosting story (item 34 called this "a later phase"; no build/deploy path for
+      webui/ exists yet beyond `npm run dev` against a real API).
+
+Current test suite: **624 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
@@ -857,6 +934,13 @@ Current test suite: **591 tests passing** (`python -m pytest api/tests/ api/mcp_
 - Ollama support (embedding provider, dev-preview's throwaway Ollama container/instructions) is
   planned for full removal in an upcoming task — not started yet; item 33 above deliberately left
   existing Ollama references alone in anticipation of that.
+- webui/ has no real hosting/deploy story yet (item 34 dropped it from the Docker image; item 35
+  only got local dev working via `npm run dev` + `VITE_API_BASE_URL`) — a real build/serve path is
+  still needed, and `docs/DOCKER_HUB.md` needs a rewrite once it exists (currently describes the
+  old co-hosted single-image setup).
+- webui/ has no automated test coverage at all — item 35's frontend/CSRF-bootstrap breakage went
+  undetected by the test suite (624 tests, all backend) and was only caught by manual/Playwright
+  verification during a routine release.
 
 ## Docker testing workflow
 
@@ -888,13 +972,11 @@ on this machine.
 A third option alongside plain `pytest` and `deploy/test-image.sh`: a persistent local Flask dev
 server + throwaway Postgres/Ollama containers, for manually exercising a change in the browser
 (uploads, search, Settings pages) without waiting on a Docker image build.
-`deploy/dev-preview-up.sh`/`.ps1` and `deploy/dev-preview-down.sh`/`.ps1` automate the Postgres
-(via `deploy/docker-compose.dev-preview.yml`) + migrations + Flask parts of the flow below — run
-those instead of typing the steps out by hand for the common case. They serve a one-time `npm run
-build` bundle through Flask rather than the Vite/HMR setup steps 4-5 below describe; use the
-manual commands below instead of the scripts when you specifically want Vite's hot-reload while
-iterating on `webui/`. Fixed conventions — reuse these exact values every time rather than picking
-new ones:
+`deploy/dev-preview-up.sh`/`.ps1` and `deploy/dev-preview-down.sh`/`.ps1` automate the entire flow
+below (Postgres via `deploy/docker-compose.dev-preview.yml`, migrations, Flask, and webui/'s own
+Vite dev server) — run those instead of typing the steps out by hand; the manual commands below are
+what they run, kept here for reference and for debugging when a script step fails. Fixed
+conventions — reuse these exact values every time rather than picking new ones:
 
 | What | Value |
 |---|---|
@@ -939,25 +1021,29 @@ docker exec knowledge-dev-preview-ollama ollama pull nomic-embed-text
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
   api/.venv/bin/python -m alembic -c api/alembic.ini upgrade head
 
-# 4. Vite dev server (webui/, HMR) — leave running, tracking its PID
-cd webui && nohup npm run dev > /tmp/knowledge-dev-preview-vite.log 2>&1 &
+# 4. Vite dev server (webui/, HMR) — leave running, tracking its PID. Overrides
+# webui/.env.development's VITE_API_BASE_URL (which points at the verify/"prod" API port, 13102 —
+# see session history item 35) to this flow's Flask port instead.
+cd webui && VITE_API_BASE_URL=http://127.0.0.1:15100 \
+  nohup npm run dev > /tmp/knowledge-dev-preview-vite.log 2>&1 &
 disown
 echo $! > /tmp/workspace-preview-vite.pid
 cd ..
 
-# 5. Start Flask, tracking its PID — WEBUI_DEV_SERVER points serve_spa_shell() (api/presentation/
-# web/spa.py) at the Vite dev server above instead of the built webui/ bundle
+# 5. Start Flask, tracking its PID — pure JSON API now (see session history item 34), no HTML/SPA
+# serving of any kind, so no WEBUI_DEV_SERVER or equivalent to set here. Its default CORS allowlist
+# (DEFAULT_WEBUI_ORIGIN, api/constants.py) already matches Vite's fixed 127.0.0.1:5173 above, so no
+# WEBUI_ORIGINS override is needed for this exact port combination either.
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
-  WEBUI_DEV_SERVER=http://127.0.0.1:5173 \
   nohup api/.venv/bin/python -m flask --app api.wsgi run --port 15100 \
   > /tmp/knowledge-dev-preview-flask.log 2>&1 &
 disown
 echo $! > /tmp/workspace-preview.pid
 ```
-Then open `http://127.0.0.1:15100/login` — `admin@local`/`admin`, forced password change on first login
-— and configure the embedding provider once at `http://127.0.0.1:15100/settings` (Providers tab,
-the default landing page): model `nomic-embed-text`, base URL `http://127.0.0.1:11500`,
-dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
+Then open `http://127.0.0.1:5173/sign-in` (Vite serves the actual UI now — Flask's own
+`127.0.0.1:15100` answers only JSON, see item 34/35) — `admin@local`/`admin`, forced password
+change on first login — and configure the embedding provider once (Providers tab): model
+`nomic-embed-text`, base URL `http://127.0.0.1:11500`, dimensions `768`, then Enable.
 
 **Day-to-day after that (containers already running):**
 - **Backend code change:** Flask's dev server doesn't hot-reload — kill the tracked PID
@@ -965,9 +1051,10 @@ dimensions `768`, then Enable. Libraries/documents live under `/workspace`.
   and re-run step 5 above (containers/DB/model/Vite stay up, so only Flask needs restarting).
 - **Frontend-only change:** nothing to do — Vite's dev server hot-reloads the browser directly.
   Leave `npm run dev` (step 4) running for the whole session; only restart it if it crashes or the
-  webui/ dependency tree changes (e.g. after `npm install`). `npm run build` is still what
-  `deploy/Dockerfile`/CI produce for a real image — run it only when you actually need to verify
-  the production bundle, not as part of this iteration loop.
+  webui/ dependency tree changes (e.g. after `npm install`). `npm run build` is no longer part of
+  producing the API image (`deploy/Dockerfile` dropped its webui/ build stage — see item 34) and
+  webui/ has no real hosting story yet (see "Not yet done" below) — `npm run dev` against a real
+  API is the only way to run it today.
 - **Don't tear the containers down between checks** — keep this as one stable, persistent preview
   across a session rather than recreating it for every verification pass; the user may be clicking
   around the same URL. If you need a DB for your own throwaway/automated test script, spin up yet

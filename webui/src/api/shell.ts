@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './config'
+
 export interface OAuthAuthorizeRequest {
   application_name: string
   org_name: string
@@ -14,38 +16,53 @@ export interface OAuthErrorInfo {
   message: string
 }
 
+// Bootstrap state, fetched once at app start (see bootstrap() below) rather than injected into a
+// server-rendered HTML shell — this API renders no HTML at all now (see this repo's CLAUDE.md
+// session history on the standalone-API change; api/presentation/routes/auth_ui.py's GET
+// /csrf-token and GET /session are the replacements for what app_shell.py used to embed). Reads
+// stay synchronous (csrfToken()/currentUsername()/etc.) so every existing call site — NavBar,
+// client.ts's CSRF header, the Settings pages reading currentOrgId() — keeps working unchanged;
+// only the population moved from "already present before React renders" to "awaited once by
+// App.tsx before the router mounts".
+let csrfTokenValue = ''
+let sessionInfo: { username: string; orgId: string | null; orgSlug: string | null } | null = null
+
+export async function bootstrap(): Promise<void> {
+  const csrfResponse = await fetch(`${API_BASE_URL}/csrf-token`, { credentials: 'include' })
+  if (csrfResponse.ok) {
+    const data = (await csrfResponse.json()) as { csrf_token: string }
+    csrfTokenValue = data.csrf_token
+  }
+
+  const sessionResponse = await fetch(`${API_BASE_URL}/session`, { credentials: 'include' })
+  if (sessionResponse.ok) {
+    const data = (await sessionResponse.json()) as { username: string; org_id: string; org_slug: string | null }
+    sessionInfo = { username: data.username, orgId: data.org_id, orgSlug: data.org_slug }
+  } else {
+    sessionInfo = null
+  }
+}
+
+export function csrfToken(): string {
+  return csrfTokenValue
+}
+
+export function currentUsername(): string {
+  return sessionInfo?.username ?? ''
+}
+
+export function currentOrgId(): string | null {
+  return sessionInfo?.orgId ?? null
+}
+
+export function currentOrgSlug(): string | null {
+  return sessionInfo?.orgSlug ?? null
+}
+
 declare global {
   interface Window {
-    __CSRF_TOKEN__?: string
-    __USERNAME__?: string
-    __ORG_ID__?: string | null
-    // The session's real org slug — drives the app's URL prefix (see App.tsx). Never injected on
-    // the pre-login pages (sign-in/sign-up/change-password/oauth-authorize), only by app_shell.py.
-    __ORG_SLUG__?: string | null
     // Injected only on GET /oauth/authorize — see api/presentation/routes/oauth.py.
     __OAUTH_AUTHORIZE__?: OAuthAuthorizeRequest
     __OAUTH_ERROR__?: OAuthErrorInfo
   }
-}
-
-// Globals injected into the served SPA shell by api/presentation/web/spa.py (serve_spa_shell) —
-// every logged-in page gets a fresh CSRF token, the logged-in identity's username, and the active
-// org's id on first load, so the nav bar can render without an extra round trip (see
-// api/presentation/routes/app_shell.py). Permissions aren't injected here — they're resolved
-// fresh per request server-side, so the frontend reads them from GET /orgs (Org.permissions)
-// instead of a page-load snapshot that could go stale.
-export function csrfToken(): string {
-  return window.__CSRF_TOKEN__ ?? ''
-}
-
-export function currentUsername(): string {
-  return window.__USERNAME__ ?? ''
-}
-
-export function currentOrgId(): string | null {
-  return window.__ORG_ID__ ?? null
-}
-
-export function currentOrgSlug(): string | null {
-  return window.__ORG_SLUG__ ?? null
 }

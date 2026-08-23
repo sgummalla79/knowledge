@@ -1,3 +1,4 @@
+import { API_BASE_URL } from './config'
 import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
 
@@ -15,7 +16,7 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
     headers.set('X-CSRF-Token', csrfToken())
   }
 
-  const response = await fetch(path, { ...init, method, headers, credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, method, headers, credentials: 'include' })
   if (!response.ok) {
     if (response.status === 401) {
       // Session expired mid-use (every page load is already server-gated, so this only fires

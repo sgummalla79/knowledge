@@ -1,3 +1,4 @@
+import { API_BASE_URL } from './config'
 import { ApiError, parseErrorBody } from './errors'
 import { csrfToken } from './shell'
 
@@ -7,7 +8,7 @@ import { csrfToken } from './shell'
 // destination may be /change-password or the post-login redirect target and Flask must re-serve a
 // fresh SPA shell (fresh CSRF token, fresh org/role globals) for whichever page is next.
 async function post(path: string, json: unknown): Promise<{ redirect: string }> {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
@@ -29,7 +30,9 @@ export function signUp(username: string, password: string, name: string, orgName
 }
 
 export async function checkOrgNameAvailable(orgName: string): Promise<{ available: boolean; message: string | null }> {
-  const response = await fetch(`/check-org-name?name=${encodeURIComponent(orgName)}`, { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/check-org-name?name=${encodeURIComponent(orgName)}`, {
+    credentials: 'include',
+  })
   return (await response.json()) as { available: boolean; message: string | null }
 }
 
@@ -38,5 +41,5 @@ export function changePassword(newPassword: string, confirmPassword: string) {
 }
 
 export async function signOut(): Promise<void> {
-  await fetch('/logout', { method: 'POST', credentials: 'include' })
+  await fetch(`${API_BASE_URL}/logout`, { method: 'POST', credentials: 'include' })
 }

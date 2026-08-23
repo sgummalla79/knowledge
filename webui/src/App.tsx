@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import { currentOrgSlug } from './api/shell'
+import { bootstrap, currentOrgSlug } from './api/shell'
 import { NavBar } from './components/NavBar'
 import { SetupLayout } from './components/SetupLayout'
 import { UserSettingsLayout } from './components/UserSettingsLayout'
@@ -31,15 +32,27 @@ import { UserSettingsPage } from './pages/UserSettingsPage'
 const queryClient = new QueryClient()
 
 export default function App() {
+  const [ready, setReady] = useState(false)
+
+  // bootstrap() fetches the CSRF token + session (GET /csrf-token, GET /session) once before
+  // anything renders — this API injects nothing into the page anymore (see this repo's CLAUDE.md
+  // session history on the standalone-API change), so this replaces what used to be available
+  // synchronously the instant the served HTML shell loaded. currentOrgSlug()/currentUsername()/
+  // currentOrgId() below all read from that fetched (or absent, if not logged in) session.
+  useEffect(() => {
+    void bootstrap().finally(() => setReady(true))
+  }, [])
+
+  if (!ready) return null
+
   const orgSlug = currentOrgSlug()
 
-  // __ORG_SLUG__ is only ever injected server-side (app_shell.py) from the session's *real* org —
-  // never derived from the URL itself — so a mismatch here means the browser's address bar is
-  // stale (an old bookmark, a manually edited URL, a next= redirect built before login resolved
-  // which org this identity belongs to). Corrects silently to the org's own home rather than
-  // trying to preserve whatever sub-path was requested, since a wrong org's deep link (e.g. an
-  // item id) wouldn't resolve to anything meaningful in the real org anyway. Runs before the
-  // router ever mounts so there's no flash of a non-matching route.
+  // The session's *real* org slug — never derived from the URL itself — so a mismatch here means
+  // the browser's address bar is stale (an old bookmark, a manually edited URL, a next= redirect
+  // built before login resolved which org this identity belongs to). Corrects silently to the
+  // org's own home rather than trying to preserve whatever sub-path was requested, since a wrong
+  // org's deep link (e.g. an item id) wouldn't resolve to anything meaningful in the real org
+  // anyway.
   if (orgSlug) {
     const expectedPrefix = `/${orgSlug}`
     const { pathname } = window.location
@@ -55,10 +68,10 @@ export default function App() {
         {/* basename is the single place the org slug enters routing — every existing absolute
             Link/navigate call (e.g. to="/browse") is automatically prefixed and matched against it
             by React Router, so no individual route/link needs to know about the org slug at all.
-            Pre-login pages (sign-in/sign-up/change-password/oauth/authorize) never get an
-            __ORG_SLUG__ global, so basename is unset for them — same BrowserRouter, just a fresh
-            mount with different globals, since every login/logout boundary is already a full page
-            reload (see webui/src/api/auth.ts). */}
+            Pre-login pages (sign-in/sign-up/change-password/oauth/authorize) get a 401 from
+            GET /session, so orgSlug stays null and basename is unset for them — same
+            BrowserRouter, just a fresh mount once bootstrap() re-resolves after login, since every
+            login/logout boundary is already a full page reload (see webui/src/api/auth.ts). */}
         <BrowserRouter basename={orgSlug ? `/${orgSlug}` : undefined}>
           <Routes>
             <Route path="/sign-in" element={<SignInPage />} />
