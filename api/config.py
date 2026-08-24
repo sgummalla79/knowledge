@@ -1,6 +1,11 @@
 import os
 
-from api.constants import DEFAULT_WEBUI_ORIGIN
+from api.constants import (
+    DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT,
+    DB_LOCK_TIMEOUT_MS_DEFAULT,
+    DB_STATEMENT_TIMEOUT_MS_DEFAULT,
+    DEFAULT_WEBUI_ORIGIN,
+)
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
@@ -27,6 +32,15 @@ class Config:
             origin.strip()
             for origin in os.environ.get("WEBUI_ORIGINS", DEFAULT_WEBUI_ORIGIN).split(",")
             if origin.strip()
+        )
+        # Per-connection Postgres session timeouts — see the constants module for why all three
+        # are needed together. Env-overridable since these are operational tuning, not code.
+        self.db_lock_timeout_ms = int(os.environ.get("DB_LOCK_TIMEOUT_MS", DB_LOCK_TIMEOUT_MS_DEFAULT))
+        self.db_statement_timeout_ms = int(
+            os.environ.get("DB_STATEMENT_TIMEOUT_MS", DB_STATEMENT_TIMEOUT_MS_DEFAULT)
+        )
+        self.db_idle_in_transaction_timeout_ms = int(
+            os.environ.get("DB_IDLE_IN_TRANSACTION_TIMEOUT_MS", DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT)
         )
 
     @staticmethod
