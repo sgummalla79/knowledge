@@ -124,6 +124,37 @@ def test_ingestion_job_success_logs_started_and_completed(db_session, session_fa
     verify_session.close()
 
 
+def test_start_ingestion_commits_job_row_before_background_thread_can_see_it(db_session, session_factory):
+    # Regression test: IngestionJobRepository.create() only flushes, and start_ingestion() used to
+    # spawn the background thread (its own independent session) right after — a real prod incident
+    # showed that thread's first update_status() call losing the race against this session's own
+    # eventual commit at request teardown, finding no row and raising AttributeError on None.
+    # Patching out threading.Thread entirely isolates the fix: the row must already be committed
+    # and visible to a totally independent session the instant start_ingestion() returns, regardless
+    # of whether the background thread ever actually gets scheduled.
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    ingestion_jobs = IngestionJobRepository(db_session)
+
+    with patch("api.application.document_service.threading.Thread") as mock_thread:
+        DocumentService(document_repo, chunk_repo, ingestion_jobs).start_ingestion(
+            org_id, owner.id, "notes.txt", b"hello world"
+        )
+    mock_thread.return_value.start.assert_called_once()
+
+    verify_session = session_factory()
+    jobs = IngestionJobRepository(verify_session).list_by_org(org_id, limit=1, offset=0)
+    assert len(jobs) == 1
+    assert jobs[0].status == "queued"
+    verify_session.close()
+
+
 def _fake_provider():
     from unittest.mock import MagicMock
 

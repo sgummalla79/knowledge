@@ -159,6 +159,11 @@ class DocumentService:
     ) -> str:
         job_id = JobStore.create(org_id)
         ingestion_job_id = self._ingestion_jobs.create(org_id, type="upload", triggered_by=owner_id).id
+        # Commits the row before handing off below — the background thread opens its own
+        # independent session (see _run_ingestion_job), which can't see an uncommitted row from
+        # this one (READ COMMITTED). Without this, its first update_status() call races the
+        # request thread's own eventual commit at teardown and can find no row at all.
+        self._ingestion_jobs.commit()
         # Logged on the *request* thread, so this line also carries request_id from the context
         # filter — the bridge that lets you grep by request_id to find when a job was created,
         # then by job_id to follow the rest of its lifecycle on the background thread below.
@@ -189,6 +194,8 @@ class DocumentService:
         ingestion_job_id = self._ingestion_jobs.create(
             org_id, type="reindex", document_id=document_id, triggered_by=owner_id
         ).id
+        # See start_ingestion's identical comment above — same cross-thread visibility race.
+        self._ingestion_jobs.commit()
         logger.info(
             "Retry job created",
             extra={"job_id": job_id, "org_id": str(org_id), "document_id": str(document_id)},
@@ -212,6 +219,8 @@ class DocumentService:
     ) -> str:
         job_id = CrawlJobStore.create(org_id, url)
         ingestion_job_id = self._ingestion_jobs.create(org_id, type="crawl", triggered_by=owner_id).id
+        # See start_ingestion's identical comment above — same cross-thread visibility race.
+        self._ingestion_jobs.commit()
         logger.info(
             "Crawl job created",
             extra={"job_id": job_id, "org_id": str(org_id), "seed_url": url, "max_pages": max_pages},

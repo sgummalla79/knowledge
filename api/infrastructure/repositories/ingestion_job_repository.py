@@ -55,3 +55,11 @@ class IngestionJobRepository:
             setattr(model, key, value)
         self._session.flush()
         return _to_entity(model)
+
+    def commit(self) -> None:
+        """Durably commits whatever's pending on this session -- specifically for callers (see
+        DocumentService.start_ingestion/start_retry/start_crawl) that hand a job row off to a
+        background thread with its own independent session immediately after create(), which only
+        flushes. Without an explicit commit here first, that other session's own transaction
+        (READ COMMITTED) can't see the row yet and update_status() fails looking it up."""
+        self._session.commit()
