@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import { API_BASE_URL } from '../api/config'
 import { ApiError } from '../api/errors'
 import { currentOrgId } from '../api/shell'
 import { useMCPSettings, useOrgs } from '../api/queries'
@@ -92,7 +93,11 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
     }
   }
 
-  const origin = window.location.origin
+  // API_BASE_URL is '' for a same-origin/reverse-proxied setup (see api/config.ts) — window.location.origin
+  // is the correct fallback there, but wrong whenever webui and the API are on separate origins (the
+  // normal case since the standalone-API split — see this repo's CLAUDE.md item 34/35), since these
+  // URLs are for the MCP *server*, not for this page itself.
+  const origin = API_BASE_URL || window.location.origin
 
   return (
     <div className="max-w-2xl">
