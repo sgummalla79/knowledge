@@ -80,8 +80,9 @@ def _clear_auth_context():
 
 def authenticate_as(org_id, identity_id, scopes, mcp_access=True):
     """Simulates an already-authenticated connection the same way
-    mcp.server.auth.middleware.auth_context.AuthContextMiddleware would for a real request — auth
-    resolution itself (KnowledgeTokenVerifier) is unit-tested separately (test_auth.py)."""
+    api.presentation.web.mcp_org_scoping.MCPOrgScopingMiddleware sets auth_context_var for a real
+    request — that middleware's own bearer-token resolution is covered separately by
+    mcp_server/tests/integration/test_asgi_org_scoping.py."""
     access_token = AccessToken(
         token="irrelevant",
         client_id=str(uuid4()),
