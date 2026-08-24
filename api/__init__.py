@@ -80,18 +80,19 @@ def create_app(
     @app.after_request
     def _log_request_completed(response):
         duration_ms = (time.monotonic() - g.get("_request_start", time.monotonic())) * 1000
-        logger.info(
-            "%s %s %s",
-            request.method,
-            request.path,
-            response.status_code,
-            extra={
-                "method": request.method,
-                "path": request.path,
-                "status_code": response.status_code,
-                "duration_ms": round(duration_ms, 2),
-            },
-        )
+        extra = {
+            "method": request.method,
+            "path": request.path,
+            "status_code": response.status_code,
+            "duration_ms": round(duration_ms, 2),
+        }
+        # Set by error_handlers.py's _envelope on every failed request, never on a 2xx one — kept
+        # out of extra entirely on success so the JSON line doesn't grow a null field on every one
+        # of this app's high-volume /health-style requests.
+        error_code = g.get("error_code")
+        if error_code is not None:
+            extra["error_code"] = error_code
+        logger.info("%s %s %s", request.method, request.path, response.status_code, extra=extra)
         return response
 
     # A separate flag from `testing`: most unit tests use testing=True (no real DB) and this is

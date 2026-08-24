@@ -1,6 +1,6 @@
 import logging
 
-from flask import jsonify
+from flask import g, jsonify
 from flask_limiter.errors import RateLimitExceeded
 from pydantic import ValidationError as PydanticValidationError
 from werkzeug.exceptions import HTTPException
@@ -17,6 +17,13 @@ def _envelope(code: str, message: str, field: str | None, status: int):
     # responses, so Flask's teardown_appcontext sees no exception and would otherwise commit
     # whatever partial flush happened before the error (see container.rollback_session_if_active).
     rollback_session_if_active()
+    # error.code only, never error.message, into g — a DomainError's message can echo
+    # caller-supplied data back (e.g. IDENTITY_USERNAME_TAKEN embeds the attempted username,
+    # which is PII by this app's own design), so only the code is safe to carry into the
+    # request-completion log line (api/__init__.py's _log_request_completed, which reads this
+    # back off g). The response body below still includes the real message — the caller already
+    # knows what they just typed; only the log is the PII concern (found in a security review).
+    g.error_code = code
     body = {"error": {"code": code, "message": message}}
     if field is not None:
         body["error"]["field"] = field
@@ -26,12 +33,6 @@ def _envelope(code: str, message: str, field: str | None, status: int):
 def register_error_handlers(app):
     @app.errorhandler(DomainError)
     def handle_domain_error(error: DomainError):
-        # error.code only, never error.message — a DomainError's message can echo caller-supplied
-        # data back (e.g. IDENTITY_USERNAME_TAKEN embeds the attempted username, which is PII by
-        # this app's own design — usernames must be email-shaped). The response body below still
-        # includes the real message (the caller already knows what they just typed); only the log
-        # is the PII concern (found in a security review this session).
-        logger.debug("Domain error: %s", error.code)
         return _envelope(error.code, error.message, error.field, error.http_status)
 
     @app.errorhandler(PydanticValidationError)
