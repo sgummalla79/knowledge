@@ -1133,6 +1133,44 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     `IngressClass` name actually is `traefik` (`kubectl get ingressclass`) before relying on
     `06-cluster-issuer.yaml`'s HTTP01 solver config, which assumes it.
 
+41. **Item 40's manifests were actually applied to the real Hostinger box, in the same session,
+    and are now the live deployment.** The "I prepare files, you run them" access model item 40
+    assumed turned out to be too conservative — this environment already had a working SSH key for
+    `root@` the box (confirmed by direct connection, not assumed), so the whole
+    `docs/HOSTINGER_DEPLOY.md` walkthrough was executed directly instead of only handed off:
+    `rsync`'d `deploy/k3s/`, `deploy/Dockerfile.webui` (+ its dockerignore), `deploy/nginx.conf`,
+    and `webui/` (excluding `node_modules`/`dist` — an initial plain `scp -r` attempt without that
+    exclusion was killed partway through for pulling the entire dependency tree over the network
+    for no reason, since the Docker build runs its own `npm ci` from `package-lock.json` anyway)
+    onto the box, applied every manifest in order, generated `knowledge-secrets`' values with
+    `openssl rand` directly in the remote shell (never printed, never passed through a local
+    variable this session's own transcript could echo), installed Docker on the box (needed only
+    for the one-time `Dockerfile.webui` build — k3s's own containerd is a separate runtime, doesn't
+    conflict), and loaded the built image with `docker save | k3s ctr images import`.
+
+    One real one-time hiccup, not a manifest bug: `knowledge.sgummallaworks.com`'s A record
+    propagated to public resolvers (confirmed resolving via both 1.1.1.1 and 8.8.4.4) well before
+    it propagated to the box's own configured resolver (Hostinger's `153.92.2.6`, first in its
+    `resolvectl` order) — cert-manager's HTTP01 self-check runs from *inside* the cluster and hit
+    that same lagging resolver, so `knowledge-sgummallaworks-com-tls`'s challenge sat `pending` with
+    an explicit `no such host` reason for a few minutes after the DNS record was actually live
+    everywhere else. Resolved itself without any config change once that one resolver caught up —
+    worth knowing about if a future domain add on this cluster seems stuck on an HTTP01 challenge
+    that *should* be passing: check `dig @<the box's actual current resolver, from resolvectl
+    status>` specifically, not just any public resolver, before assuming the manifest itself is
+    wrong.
+
+    Confirmed genuinely working end-to-end against the live public URLs (not just from the box):
+    `https://api.sgummallaworks.com/knowledge/health` returns `200` with a valid Let's Encrypt cert
+    and the path-strip landing on the real `/health` route; the CORS preflight headers
+    (`Access-Control-Allow-Origin`/`-Credentials`) are present and correct for
+    `https://knowledge.sgummallaworks.com`'s origin; and a real Playwright-driven browser session
+    against `https://knowledge.sgummallaworks.com/sign-in` completed a full sign-in and landed on
+    the authenticated dashboard. `deploy/k3s/02-api.yaml` still pins `sgummalla/knowledge:4.3.2`
+    (not `:4.3.3`) — deliberately not bumped for this deployment, since no API code changed between
+    those two tags (item 40's own commit was manifests/docs only) and there was no reason to
+    introduce a mismatch between what's pinned in the repo and what's actually running.
+
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
