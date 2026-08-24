@@ -4,10 +4,25 @@ from a2wsgi import WSGIMiddleware
 from flask import Flask
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
 from starlette.types import ASGIApp
 
+from api.config import config
 from api.presentation.web.mcp_org_scoping import MCPOrgScopingMiddleware
+
+
+async def _health(request):
+    """Answered directly at the ASGI layer, ahead of the Flask catch-all below -- deliberately
+    bypasses a2wsgi's WSGIMiddleware and its single shared, bounded ThreadPoolExecutor (the same
+    executor every other Flask route runs through). A burst of real requests stuck on a slow/dead
+    DB connection can otherwise fill that executor entirely, starving Kubernetes' liveness/
+    readiness probe of a thread to run on and causing it to fail even though the process itself
+    isn't actually deadlocked -- this route has no such dependency: no DB, no thread pool, just an
+    in-memory response from the event loop. Flask's own `@app.get("/health")` (api/__init__.py)
+    stays in place, unreachable via this combined app once this route wins first, but still what
+    local dev-preview hits directly (`flask --app api.wsgi run` never goes through this bridge)."""
+    return JSONResponse({"status": "ok", "version": config.version})
 
 
 def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -> ASGIApp:
@@ -48,6 +63,7 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
     routes = []
     for mcp in mcp_servers:
         routes.extend(mcp.streamable_http_app().routes)
+    routes.append(Route("/health", _health))
     routes.append(Mount("/", app=WSGIMiddleware(flask_app)))
 
     lifespan = None
