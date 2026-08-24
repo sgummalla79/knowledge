@@ -261,6 +261,16 @@ export interface MCPSettings {
   tier_url_segments: Record<string, string>
 }
 
+// Response of POST /mcp-settings/test-connection — a dry run of the same gate chain a real MCP
+// request goes through (token valid -> belongs to this org -> mcp_access -> tier enabled), without
+// opening a real MCP session. `reason` is a stable code ("invalid_token", "tier_disabled", "ok",
+// ...); `detail` is the human-readable message to show as-is.
+export interface MCPConnectionTestResult {
+  ok: boolean
+  reason: string
+  detail: string
+}
+
 export interface PermissionOption {
   value: string
   label: string

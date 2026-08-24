@@ -42,6 +42,12 @@
      with roughly-balanced contrast against both a near-white and a near-black background, rather
      than a separate tuned value per theme. */
   --warning: oklch(0.55 0.15 70);
+  /* Not part of the tweakcn export either — added for MCPSettingsPage's "Test" button/result,
+     same reasoning/pattern as --warning immediately above: one oklch value reused in every block
+     below rather than a separate tuned value per theme. -foreground pairs it the same way
+     --destructive/--destructive-foreground do, for the solid-fill button variant. */
+  --success: oklch(0.6 0.17 145);
+  --success-foreground: oklch(1.0000 0 0);
   --border: oklch(0.9317 0.0118 231.6594);
   --input: oklch(0.9809 0.0025 228.7836);
   --ring: oklch(0.6818 0.1584 243.3540);
@@ -72,6 +78,8 @@
   --destructive: oklch(0.6188 0.2376 25.7658);
   --destructive-foreground: oklch(1.0000 0 0);
   --warning: oklch(0.55 0.15 70);
+  --success: oklch(0.6 0.17 145);
+  --success-foreground: oklch(1.0000 0 0);
   --border: oklch(0.2674 0.0047 248.0045);
   --input: oklch(0.3020 0.0288 244.8244);
   --ring: oklch(0.6818 0.1584 243.3540);
@@ -99,6 +107,8 @@
     --destructive: oklch(0.6188 0.2376 25.7658);
     --destructive-foreground: oklch(1.0000 0 0);
     --warning: oklch(0.55 0.15 70);
+    --success: oklch(0.6 0.17 145);
+    --success-foreground: oklch(1.0000 0 0);
     --border: oklch(0.2674 0.0047 248.0045);
     --input: oklch(0.3020 0.0288 244.8244);
     --ring: oklch(0.6818 0.1584 243.3540);
@@ -126,6 +136,8 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
