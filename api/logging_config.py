@@ -37,6 +37,7 @@ _EXTRA_ALLOWLIST = (
     "path",
     "status_code",
     "duration_ms",
+    "error_code",
     "sqlstate",
     "db_fault",
     "operation",
