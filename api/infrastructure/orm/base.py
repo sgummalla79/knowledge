@@ -24,6 +24,10 @@ engine = create_engine(
     config.database_url,
     pool_pre_ping=True,
     pool_recycle=1800,
+    # Sized down from SQLAlchemy's own defaults (5+10=15) now that multiple processes share one
+    # Postgres max_connections budget -- see api/constants.py's DB_POOL_SIZE_DEFAULT comment.
+    pool_size=config.db_pool_size,
+    max_overflow=config.db_max_overflow,
     connect_args={
         "connect_timeout": 10,
         "options": (

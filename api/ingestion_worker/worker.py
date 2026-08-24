@@ -1,16 +1,12 @@
-"""Standalone claim-and-process loop for ingestion_jobs -- Release 1 of moving ingestion off the
-request-serving process (see this repo's Release 1 plan). Not wired into any live request path
-yet: nothing enqueues a job this worker would actually claim until a later release also stops the
-old threading.Thread path in api/application/document_service.py from claiming it first.
+"""Standalone claim-and-process loop for ingestion_jobs -- the only place ingestion actually runs
+now (Release 2 of moving ingestion off the request-serving process; Release 1 built this module
+inert, at replicas: 0, alongside the old threading.Thread-based path in document_service.py, which
+Release 2 then deleted in the same cutover that scaled this worker up for real).
 
-Deliberately does not import from document_service.py: _run_ingestion_job/_run_retry_job/
-_run_crawl_job are hard-wired to JobStore/CrawlJobStore calls throughout, which are meaningless in
-a separate OS process (plain in-memory dicts, scoped to whichever process holds them). This module
-re-does that same ingestion wiring against ingestion_jobs directly -- a small, deliberate,
-temporary duplication accepted so this release stays purely additive and risk-free to the live
-request path. A later release deletes _run_ingestion_job/_run_retry_job/_run_crawl_job/JobStore/
-CrawlJobStore outright, at which point this module's version is simply the only version -- nothing
-to "un-duplicate" then.
+api/application/document_service.py only ever enqueues a row now (start_ingestion/start_retry/
+start_crawl) and reads/cancels one (get_job_status/get_crawl_job_status/cancel_job) -- it does no
+ingestion work itself and has no JobStore/CrawlJobStore to coordinate with. This module owns the
+entire "how a queued job actually gets processed" responsibility on its own.
 """
 
 import logging
