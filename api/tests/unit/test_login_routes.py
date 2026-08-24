@@ -86,6 +86,27 @@ def test_sign_in_success_redirects_home_when_password_already_changed(client):
     assert response.get_json()["redirect"] == f"/{org.slug}"
 
 
+def test_sign_in_success_refreshes_last_active_at(client):
+    """Regression test for a real production lockout (2026-08-24): logging in must refresh
+    last_active_at itself, not just subsequent authenticated requests (session_guard.py's
+    resolve_cookie_session only reaches its own touch_last_active call after the inactivity check
+    already passed) -- otherwise an identity whose last_active_at is already older than the org's
+    inactivity_timeout_minutes can never log in again, since every fresh session immediately fails
+    the same stale-timestamp check on its very next request."""
+    csrf = _with_csrf(client)
+    org = _org()
+    identity = _identity(must_change_password=False)
+    with (
+        patch("api.presentation.routes.auth_ui.AuthService.login", return_value=identity),
+        patch("api.presentation.routes.auth_ui.AuthService.list_orgs_for_identity", return_value=[org.id]),
+        patch("api.presentation.routes.auth_ui.OrganizationRepository.get", return_value=org),
+        patch("api.presentation.routes.auth_ui.IdentityRepository.touch_last_active") as mock_touch,
+    ):
+        response = client.post("/sign-in", json={"username": "admin@local", "password": "x"}, headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 200
+    mock_touch.assert_called_once_with(identity.id)
+
+
 def test_sign_in_wrong_credentials_shows_error(client):
     csrf = _with_csrf(client)
     with patch(
