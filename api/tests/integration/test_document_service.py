@@ -1,14 +1,10 @@
-import logging
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from api.application.document_service import DocumentService, _run_ingestion_job, _run_retry_job
+from api.application.document_service import DocumentService
 from api.application.ingestion_service import IngestionService
-from api.application.job_store import JobStore
 from api.constants import EMBEDDING_DIM
 from api.domain import error_codes
 from api.domain.errors import NotFoundError, ValidationError
@@ -20,22 +16,11 @@ from api.infrastructure.repositories.embedding_settings_repository import Embedd
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
-from api.logging_config import configure_logging
 from api.tests.integration.conftest import seed_active_embedding_provider
 
-# _run_ingestion_job calls SessionLocal() internally (api/infrastructure/orm/base.py's module-level
-# sessionmaker, bound to config.database_url at import time) — that's the dummy placeholder
-# tests/conftest.py sets purely to satisfy Config._require() at import time, not the real
-# testcontainers Postgres the db_session/postgres_url fixtures use. Patching
-# api.application.document_service.SessionLocal to a sessionmaker bound to postgres_url is the
-# same technique already used for api.cli.SessionLocal in test_reembed_migration.py.
-
-
-@pytest.fixture()
-def session_factory(postgres_url):
-    engine = create_engine(postgres_url)
-    yield sessionmaker(bind=engine)
-    engine.dispose()
+# Actual ingestion *execution* (upload/retry/crawl, split-PDF, cancellation) is covered by
+# api/ingestion_worker/tests/ now — document_service.py itself only enqueues a queued row and
+# reads/cancels one; that's what this file tests.
 
 
 def _owner(db_session):
@@ -43,122 +28,8 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_ingestion_job_failure_logs_exception_with_job_id(db_session, session_factory, caplog):
-    # configure_logging is idempotent and safe to call here regardless of whether some earlier
-    # test already did — guarantees the ContextFilter that attaches job_id to LogRecords is
-    # actually wired up, so this test doesn't depend on suite-wide execution order.
-    configure_logging("INFO")
-
-    owner = _owner(db_session)
-    org_id = seed_active_embedding_provider(
-        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
-    )
-    db_session.commit()
-
-    job_id = JobStore.create(org_id)
-    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
-    db_session.commit()
-
-    with caplog.at_level(logging.INFO):
-        with patch("api.application.document_service.SessionLocal", session_factory):
-            with patch(
-                "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
-                side_effect=RuntimeError("embedding API unavailable"),
-            ):
-                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
-
-    failure_records = [
-        record
-        for record in caplog.records
-        if record.name == "api.application.document_service" and record.levelname == "ERROR"
-    ]
-    assert len(failure_records) == 1
-    assert failure_records[0].job_id == job_id
-    assert failure_records[0].exc_info is not None
-
-    status = JobStore.get(job_id)
-    assert status["status"] == "failed"
-
-
-def test_ingestion_job_success_logs_started_and_completed(db_session, session_factory, caplog):
-    configure_logging("INFO")
-
-    owner = _owner(db_session)
-    org_id = seed_active_embedding_provider(
-        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
-    )
-    db_session.commit()
-
-    job_id = JobStore.create(org_id)
-    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
-    db_session.commit()
-    fake_provider = _fake_provider()
-
-    with caplog.at_level(logging.INFO):
-        with patch("api.application.document_service.SessionLocal", session_factory):
-            with patch(
-                "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
-                return_value=fake_provider,
-            ):
-                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
-
-    job_records = [
-        record for record in caplog.records if record.name == "api.application.document_service"
-    ]
-    messages = [record.getMessage() for record in job_records]
-    assert "Ingestion job started" in messages
-    assert "Ingestion job completed" in messages
-    assert all(record.job_id == job_id for record in job_records)
-
-    status = JobStore.get(job_id)
-    assert status["status"] == "completed"
-
-    # A fresh session, not db_session — db_session's identity map still holds the "queued" row
-    # from before the background thread's own session committed its updates; re-using db_session
-    # here would silently read that stale cached object instead of what's actually in Postgres.
-    verify_session = session_factory()
-    persisted = IngestionJobRepository(verify_session).get(ingestion_job_id)
-    assert persisted.status == "indexed"
-    assert persisted.document_id is not None
-    assert persisted.finished_at is not None
-    verify_session.close()
-
-
-def test_start_ingestion_commits_job_row_before_background_thread_can_see_it(db_session, session_factory):
-    # Regression test: IngestionJobRepository.create() only flushes, and start_ingestion() used to
-    # spawn the background thread (its own independent session) right after — a real prod incident
-    # showed that thread's first update_status() call losing the race against this session's own
-    # eventual commit at request teardown, finding no row and raising AttributeError on None.
-    # Patching out threading.Thread entirely isolates the fix: the row must already be committed
-    # and visible to a totally independent session the instant start_ingestion() returns, regardless
-    # of whether the background thread ever actually gets scheduled.
-    owner = _owner(db_session)
-    org_id = seed_active_embedding_provider(
-        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
-    )
-    db_session.commit()
-
-    document_repo = DocumentRepository(db_session)
-    chunk_repo = ChunkRepository(db_session)
-    ingestion_jobs = IngestionJobRepository(db_session)
-
-    with patch("api.application.document_service.threading.Thread") as mock_thread:
-        DocumentService(document_repo, chunk_repo, ingestion_jobs).start_ingestion(
-            org_id, owner.id, "notes.txt", b"hello world"
-        )
-    mock_thread.return_value.start.assert_called_once()
-
-    verify_session = session_factory()
-    jobs = IngestionJobRepository(verify_session).list_by_org(org_id, limit=1, offset=0)
-    assert len(jobs) == 1
-    assert jobs[0].status == "queued"
-    verify_session.close()
-
-
 def _fake_provider():
     from unittest.mock import MagicMock
-
-    from api.constants import EMBEDDING_DIM
 
     provider = MagicMock()
     provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * EMBEDDING_DIM for _ in texts]
@@ -177,6 +48,171 @@ def _ingest(document_repo, chunk_repo, db_session, org_id, owner_id, filename="n
         document = ingestion_service.ingest(org_id, owner_id, filename, text.encode())
     db_session.commit()
     return document
+
+
+def _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
+    ingestion_service = IngestionService(
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+    )
+    with patch(
+        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        side_effect=RuntimeError("embedding API unavailable"),
+    ):
+        with pytest.raises(RuntimeError):
+            ingestion_service.ingest(org_id, owner_id, filename, b"hello world")
+    db_session.commit()
+    return document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
+
+
+def test_start_ingestion_enqueues_a_queued_row_and_returns_its_id(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+    category = CategoryRepository(db_session).create(org_id, name="Guides", slug="guides", description=None)
+    db_session.commit()
+
+    ingestion_jobs = IngestionJobRepository(db_session)
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    job_id = service.start_ingestion(org_id, owner.id, "notes.txt", b"hello world", category_id=category.id)
+
+    job = ingestion_jobs.get(UUID(job_id))
+    assert job.status == "queued"
+    assert job.payload_filename == "notes.txt"
+    assert job.category_id == category.id
+    assert ingestion_jobs.get_payload(job.id) == b"hello world"
+
+
+def test_start_retry_enqueues_a_queued_reindex_row(db_session):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
+
+    ingestion_jobs = IngestionJobRepository(db_session)
+    service = DocumentService(document_repo, chunk_repo, ingestion_jobs)
+    job_id = service.start_retry(org_id, failed_document.id, owner.id)
+
+    job = ingestion_jobs.get(UUID(job_id))
+    assert job.status == "queued"
+    assert job.type == "reindex"
+    assert job.document_id == failed_document.id
+
+
+def test_start_crawl_enqueues_a_queued_row_with_crawl_fields(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    ingestion_jobs = IngestionJobRepository(db_session)
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    job_id = service.start_crawl(org_id, owner.id, "https://example.com", 5, "https://example.com/docs")
+
+    job = ingestion_jobs.get(UUID(job_id))
+    assert job.status == "queued"
+    assert job.type == "crawl"
+    assert job.crawl_url == "https://example.com"
+    assert job.crawl_max_pages == 5
+    assert job.crawl_scope_prefix == "https://example.com/docs"
+
+
+@pytest.mark.parametrize(
+    "raw_status,expected",
+    [("queued", "pending"), ("processing", "running"), ("indexed", "completed"), ("failed", "failed")],
+)
+def test_get_job_status_maps_status_vocabulary(db_session, raw_status, expected):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    ingestion_jobs = IngestionJobRepository(db_session)
+    job = ingestion_jobs.create(org_id, type="upload", triggered_by=owner.id)
+    ingestion_jobs.update_status(job.id, raw_status)
+    db_session.commit()
+
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    assert service.get_job_status(org_id, str(job.id))["status"] == expected
+
+
+def test_get_job_status_returns_error_message_and_progress_fields(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    ingestion_jobs = IngestionJobRepository(db_session)
+    job = ingestion_jobs.create(org_id, type="upload", triggered_by=owner.id)
+    ingestion_jobs.update_status(job.id, "failed", error_message="boom")
+    ingestion_jobs.set_parts_total(job.id, 2)
+    ingestion_jobs.increment_parts_completed(job.id, uuid4())
+    ingestion_jobs.increment_parts_failed(job.id)
+    db_session.commit()
+
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    status = service.get_job_status(org_id, str(job.id))
+    assert status["error"] == "boom"
+    assert status["parts_total"] == 2
+    assert status["parts_completed"] == 1
+    assert status["parts_failed"] == 1
+    assert len(status["document_ids"]) == 1
+
+
+def test_get_job_status_missing_job_raises_job_not_found(db_session):
+    service = DocumentService(
+        DocumentRepository(db_session), ChunkRepository(db_session), IngestionJobRepository(db_session)
+    )
+    with pytest.raises(NotFoundError) as exc_info:
+        service.get_job_status(uuid4(), str(uuid4()))
+    assert exc_info.value.code == error_codes.JOB_NOT_FOUND
+
+
+def test_get_crawl_job_status_returns_pages(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    ingestion_jobs = IngestionJobRepository(db_session)
+    job = ingestion_jobs.create(org_id, type="crawl", triggered_by=owner.id, crawl_url="https://example.com/a")
+    ingestion_jobs.update_status(job.id, "indexed")
+    ingestion_jobs.set_page_status(job.id, "https://example.com/a", "completed", uuid4(), None)
+    db_session.commit()
+
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    status = service.get_crawl_job_status(org_id, str(job.id))
+    assert status["status"] == "completed"
+    assert status["seed_url"] == "https://example.com/a"
+    assert status["pages"]["https://example.com/a"]["status"] == "completed"
+
+
+def test_cancel_job_missing_job_raises_job_not_found(db_session):
+    service = DocumentService(
+        DocumentRepository(db_session), ChunkRepository(db_session), IngestionJobRepository(db_session)
+    )
+    with pytest.raises(NotFoundError) as exc_info:
+        service.cancel_job(uuid4(), "does-not-exist")
+    assert exc_info.value.code == error_codes.JOB_NOT_FOUND
+
+
+def test_cancel_job_sets_cancel_requested(db_session):
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    ingestion_jobs = IngestionJobRepository(db_session)
+    job = ingestion_jobs.create(org_id, type="upload", triggered_by=owner.id)
+    db_session.commit()
+
+    service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
+    service.cancel_job(org_id, str(job.id))
+
+    refreshed = ingestion_jobs.get(job.id)
+    assert refreshed.cancel_requested is True
 
 
 def test_delete_document_removes_chunks(db_session):
@@ -226,20 +262,6 @@ def test_delete_document_missing_document_raises_document_not_found(db_session):
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
-def _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
-    ingestion_service = IngestionService(
-        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
-    )
-    with patch(
-        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
-        side_effect=RuntimeError("embedding API unavailable"),
-    ):
-        with pytest.raises(RuntimeError):
-            ingestion_service.ingest(org_id, owner_id, filename, b"hello world")
-    db_session.commit()
-    return document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
-
-
 def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_session):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
@@ -275,50 +297,6 @@ def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
             uuid4(), failed_document.id, owner.id
         )
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
-
-
-def test_retry_job_success_logs_and_completes(db_session, session_factory, caplog):
-    configure_logging("INFO")
-
-    owner = _owner(db_session)
-    document_repo = DocumentRepository(db_session)
-    chunk_repo = ChunkRepository(db_session)
-    org_id = seed_active_embedding_provider(
-        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
-    )
-    db_session.commit()
-
-    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
-
-    job_id = JobStore.create(org_id)
-    ingestion_job_id = (
-        IngestionJobRepository(db_session)
-        .create(org_id, type="reindex", document_id=failed_document.id, triggered_by=owner.id)
-        .id
-    )
-    db_session.commit()
-    with caplog.at_level(logging.INFO):
-        with patch("api.application.document_service.SessionLocal", session_factory):
-            with patch(
-                "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
-                return_value=_fake_provider(),
-            ):
-                _run_retry_job(job_id, ingestion_job_id, org_id, failed_document.id)
-
-    job_records = [
-        record for record in caplog.records if record.name == "api.application.document_service"
-    ]
-    messages = [record.getMessage() for record in job_records]
-    assert "Retry job started" in messages
-    assert "Retry job completed" in messages
-    assert all(record.job_id == job_id for record in job_records)
-
-    status = JobStore.get(job_id)
-    assert status["status"] == "completed"
-
-    final_document = document_repo.get(failed_document.id)
-    assert final_document.status == "indexed"
-    assert chunk_repo.count_for_document(final_document.id) > 0
 
 
 def test_rename_document_updates_title(db_session):
@@ -452,15 +430,6 @@ def test_update_metadata_with_foreign_category_raises_category_not_found(db_sess
     assert document_repo.get(document.id).category_id != foreign_category.id
 
 
-def test_cancel_job_missing_job_raises_job_not_found(db_session):
-    document_repo = DocumentRepository(db_session)
-    chunk_repo = ChunkRepository(db_session)
-
-    with pytest.raises(NotFoundError) as exc_info:
-        DocumentService(document_repo, chunk_repo).cancel_job(uuid4(), "does-not-exist")
-    assert exc_info.value.code == error_codes.JOB_NOT_FOUND
-
-
 def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
@@ -491,36 +460,3 @@ def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
         org_id, cancelled_document.id, owner.id
     )
     assert job_id is not None
-
-
-def test_ingestion_job_cancelled_before_start_marks_job_and_document_failed(
-    db_session, session_factory, caplog
-):
-    configure_logging("INFO")
-
-    owner = _owner(db_session)
-    document_repo = DocumentRepository(db_session)
-    org_id = seed_active_embedding_provider(
-        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
-    )
-    db_session.commit()
-
-    job_id = JobStore.create(org_id)
-    JobStore.request_cancellation(job_id)
-    ingestion_job_id = IngestionJobRepository(db_session).create(org_id, type="upload", triggered_by=owner.id).id
-    db_session.commit()
-
-    with caplog.at_level(logging.INFO):
-        with patch("api.application.document_service.SessionLocal", session_factory):
-            with patch(
-                "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
-                return_value=_fake_provider(),
-            ):
-                _run_ingestion_job(job_id, ingestion_job_id, org_id, owner.id, "notes.txt", b"hello world", None)
-
-    status = JobStore.get(job_id)
-    assert status["status"] == "cancelled"
-
-    documents = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")
-    assert len(documents) == 1
-    assert documents[0].status == "failed"

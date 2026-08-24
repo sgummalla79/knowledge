@@ -346,3 +346,15 @@ SQLSTATE_FAULT_NAMES: dict[str, str] = {
 # Faults serious enough to log at ERROR (a deadlock aborted a transaction outright) rather than
 # WARNING (a timeout/serialization retry — noisy but expected under real contention).
 SQLSTATE_ERROR_LEVEL_CODES = frozenset({SQLSTATE_DEADLOCK_DETECTED, SQLSTATE_SERIALIZATION_FAILURE})
+
+# SQLAlchemy's own defaults (pool_size=5, max_overflow=10 -- 15 connections per process) were fine
+# when this app ran a single process total. Now that the API runs multiple gunicorn workers across
+# multiple k8s replicas, *plus* a separate ingestion-worker process, each with its own engine/pool
+# (api/infrastructure/orm/base.py), that default multiplies out fast: at 2 replicas x 3 workers + 1
+# ingestion worker = 7 processes, the old default alone would reach 105 -- over Postgres's own
+# max_connections (100 on the live deployment, verified 2026-08-24). Sized down explicitly so the
+# real total (processes x (pool_size + max_overflow)) stays comfortably under that regardless of
+# how replicas/workers get tuned later -- 5+5=10 per process leaves room for ~10 processes before
+# approaching the limit, with headroom left for psql/migrations/admin connections.
+DB_POOL_SIZE_DEFAULT = 5
+DB_MAX_OVERFLOW_DEFAULT = 5

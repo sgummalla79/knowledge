@@ -4,14 +4,13 @@ metadata:
   name: knowledge-ingestion-worker
   namespace: knowledge
 spec:
-  # Release 1: deliberately 0. This worker's claim query (IngestionJobRepository.claim_next_queued)
-  # targets the exact same ingestion_jobs.status='queued' rows the live API's threading.Thread-based
-  # path (api/application/document_service.py) already creates and processes itself -- running
-  # this Deployment with replicas > 0 against the same DATABASE_URL as a live knowledge-api
-  # Deployment would double-process every job. Do not scale this above 0 until a later release also
-  # lands the api-side cutover that stops start_ingestion/start_retry/start_crawl from spawning
-  # threads. See this repo's ingestion-worker Release 1 plan for the full rollout story.
-  replicas: 0
+  # Release 2 cutover (see session history): the API's document_service.py no longer spawns
+  # threading.Thread at all -- start_ingestion/start_retry/start_crawl only enqueue a queued row
+  # and return, so this is now the only thing that ever processes one. Safe at replicas > 1 too if
+  # ever needed: claim_next_queued()'s FOR UPDATE SKIP LOCKED lets multiple replicas claim
+  # different rows concurrently without double-processing (proven by a dedicated concurrency test,
+  # api/tests/integration/test_ingestion_job_repository.py).
+  replicas: 1
   strategy:
     type: RollingUpdate
   selector:

@@ -10,13 +10,22 @@ alembic -c api/alembic.ini upgrade head
 # "one stuck/idle connection doesn't block every other request" property --worker-class gthread
 # --threads used to, without needing multiple threads to do it.
 #
-# --workers stays 1 regardless: api/application/job_store.py and api/rate_limit.py both keep their
-# state in a plain in-memory dict scoped to one process (JobStore's own docstring says as much) —
-# multiple worker *processes* would silently split that state, so a job-status poll landing on a
-# different worker than the one that started the job would wrongly 404. Now also true of MCP
-# session state, for the same reason.
+# --workers 3 (was pinned to 1 until this app's ingestion-worker Release 2, see this repo's
+# session history): the only state that ever forced --workers 1 was api/application/job_store.py/
+# crawl_job_store.py, both deleted now that ingestion runs in its own standalone process
+# (api/ingestion_worker/) reading/writing ingestion_jobs in Postgres instead of an in-memory dict
+# scoped to one process. api/rate_limit.py's in-memory storage stays as a deliberate, accepted
+# tradeoff (see that file's own comment) -- it never needed cross-worker consistency, just
+# per-worker abuse-prevention. MCP session state doesn't need sharing across workers either: a
+# gunicorn worker owns whichever persistent connections it accepted for their entire lifetime (the
+# OS hands one accepted socket to exactly one process, never migrates it) -- a streamable-http
+# session's connection is pinned to one worker by that same mechanism throughout, the same way a
+# k8s Service pins a live connection to one pod. 3 is not a hard limit, just matches this box's
+# real capacity (2 vCPU) with headroom shared across api/deploy/k3s/02-api.yaml's replica count --
+# see api/constants.py's DB_POOL_SIZE_DEFAULT comment for how the DB connection budget was sized
+# to match total processes (replicas x workers, plus the ingestion worker).
 #
 # --log-level stays as-is (gunicorn's own flag, case-insensitive) even though this app's LOG_LEVEL
 # convention is uppercase — that's a gunicorn property, not a uvicorn one, and gunicorn remains the
 # outer process manager even when running an ASGI worker.
-exec gunicorn -b 0.0.0.0:${PORT:-13102} --workers 1 -k uvicorn.workers.UvicornWorker --access-logfile - --error-logfile - --log-level ${LOG_LEVEL:-info} api.asgi:app
+exec gunicorn -b 0.0.0.0:${PORT:-13102} --workers 3 -k uvicorn.workers.UvicornWorker --access-logfile - --error-logfile - --log-level ${LOG_LEVEL:-info} api.asgi:app

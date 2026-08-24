@@ -4,12 +4,16 @@ metadata:
   name: knowledge-api
   namespace: knowledge
 spec:
-  replicas: 1
-  # Never scale this beyond 1: job status and rate-limit state live in an in-memory dict scoped to
-  # one process (same reason the container itself runs a single gunicorn worker -- see
-  # api/deploy/entrypoint.sh's own comment). A second replica would silently split that state.
+  # Bumped from 1 (this app's ingestion-worker Release 2, see session history): job status used to
+  # live in an in-memory dict scoped to one process, which is exactly what pinned this to a single
+  # replica -- ingestion now runs in its own standalone process (api/deploy/k3s/
+  # 07-ingestion-worker.yaml) reading/writing Postgres instead, so this constraint is gone.
+  replicas: 2
+  # Recreate -> RollingUpdate: real redundancy (one pod restarting -- a crash, an OOM, a node
+  # hiccup -- no longer means total outage) and zero-downtime deploys, now that this Deployment
+  # has no in-memory state that would fragment across an overlapping old/new pod during rollout.
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels: { app: knowledge-api }
   template:
