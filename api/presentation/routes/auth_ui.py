@@ -101,7 +101,18 @@ def _establish_session(identity_id: UUID) -> None:
     """Sets the session's active org for a freshly authenticated identity — always its one and
     only org membership (an identity belongs to exactly one org for its whole life; see
     domain/entities.py's Identity docstring), or none yet for the rare case a membership hasn't
-    been created (mid-signup failure)."""
+    been created (mid-signup failure).
+
+    Also refreshes last_active_at right here, at login time -- not just on subsequent
+    authenticated requests (session_guard.py's resolve_cookie_session, which only reaches its own
+    touch_last_active call *after* the inactivity check already passed). Without this, an
+    identity whose last_active_at is already older than the org's inactivity_timeout_minutes gets
+    permanently locked out: every fresh login re-establishes a session against the same stale
+    timestamp, so the very next request fails the inactivity check again — before it ever gets a
+    chance to refresh it. Found via a real production lockout (2026-08-24): a returning user's
+    prior session had aged past the timeout, and no number of repeated sign-ins could ever recover
+    since login itself never touched this field."""
+    _identities().touch_last_active(identity_id)
     memberships = _auth_service().list_orgs_for_identity(identity_id)
     session["identity_id"] = str(identity_id)
     if memberships:
