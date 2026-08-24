@@ -21,6 +21,7 @@ from api.domain.entities import (
     DashboardStats,
     Document,
     IngestionJob,
+    MCPConnectionTestResult,
     MCPSettings,
     MostRetrievedDocument,
     Organization,
@@ -785,6 +786,25 @@ class MCPSettingsResponse(BaseModel):
             last_modified_at=settings.last_modified_at,
             tier_url_segments=dict(MCP_TIERS),
         )
+
+
+class MCPConnectionTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # URL segment (e.g. "search"), not the mcp_settings column — matches what
+    # MCPSettingsResponse.tier_url_segments already hands the webui for building each tier's URL.
+    tier: str
+    token: str = Field(min_length=1)
+
+
+class MCPConnectionTestResponse(BaseModel):
+    ok: bool
+    reason: str
+    detail: str
+
+    @classmethod
+    def from_result(cls, result: MCPConnectionTestResult) -> "MCPConnectionTestResponse":
+        return cls(ok=result.ok, reason=result.reason, detail=result.detail)
 
 
 class SessionSettingsUpdateRequest(BaseModel):

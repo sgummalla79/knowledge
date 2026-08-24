@@ -2,10 +2,12 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import { API_BASE_URL } from '../api/config'
 import { ApiError } from '../api/errors'
 import { currentOrgId } from '../api/shell'
 import { useMCPSettings, useOrgs } from '../api/queries'
-import type { MCPSettings } from '../api/types'
+import type { MCPConnectionTestResult, MCPSettings } from '../api/types'
+import { PasswordField } from '../components/PasswordField'
 import { useToast } from '../components/toastContext'
 
 const TIERS: { key: keyof Pick<MCPSettings, 'search_read_enabled' | 'object_read_enabled' | 'object_write_enabled'>; label: string; description: string }[] = [
@@ -27,29 +29,6 @@ const TIERS: { key: keyof Pick<MCPSettings, 'search_read_enabled' | 'object_read
   },
 ]
 
-function CopyableValue({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-
-  async function handleCopy() {
-    await navigator.clipboard.writeText(value)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div className="flex items-start gap-2 rounded-sm border border-border bg-secondary px-3.5 py-3">
-      <code className="flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[12.5px] text-foreground">{value}</code>
-      <button
-        type="button"
-        onClick={() => void handleCopy()}
-        className="shrink-0 rounded-sm bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
-      >
-        {copied ? 'Copied' : 'Copy'}
-      </button>
-    </div>
-  )
-}
-
 // Keyed by settings.org_id in the parent so a freshly loaded row seeds initial state directly, no
 // reset-effect or render-time setState needed (same pattern as EmbeddingModelsPage's form).
 //
@@ -61,6 +40,68 @@ function CopyableValue({ value }: { value: string }) {
 // comes from settings.tier_url_segments (GET /mcp-settings), not a hardcoded frontend mapping —
 // see api.constants.MCP_TIERS, the single source both that response and
 // api/mcp_server/permissions.py derive from.
+type TestState = { status: 'idle' } | { status: 'loading' } | { status: 'done'; result: MCPConnectionTestResult } | { status: 'error'; message: string }
+
+// One row per tier: the connection URL, a "Test connection" button (before Copy, sharing the
+// token pasted into the panel above), and Copy. Test connection dry-runs
+// POST /mcp-settings/test-connection (api/application/mcp_connection_test_service.py), which
+// checks the same gate chain a real MCP request goes through (token valid -> belongs to this org
+// -> mcp_access -> tier enabled) without opening a real MCP session. Deliberately doesn't prove
+// any individual tool call would succeed — see that service's own docstring.
+function TierUrlRow({ value, tierSegment, token }: { value: string; tierSegment: string; token: string }) {
+  const [copied, setCopied] = useState(false)
+  const [testState, setTestState] = useState<TestState>({ status: 'idle' })
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleTest() {
+    setTestState({ status: 'loading' })
+    try {
+      const result = await api.post<MCPConnectionTestResult>('/mcp-settings/test-connection', {
+        tier: tierSegment,
+        token,
+      })
+      setTestState({ status: 'done', result })
+    } catch (err) {
+      setTestState({
+        status: 'error',
+        message: err instanceof ApiError ? err.message : 'Something went wrong — please try again.',
+      })
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-start gap-2 rounded-sm border border-border bg-secondary px-3.5 py-3">
+        <code className="flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[12.5px] text-foreground">{value}</code>
+        <button
+          type="button"
+          onClick={() => void handleTest()}
+          disabled={!token || testState.status === 'loading'}
+          className="shrink-0 rounded-sm bg-success px-3 py-1.5 text-xs font-semibold text-success-foreground hover:opacity-90 disabled:opacity-60"
+        >
+          {testState.status === 'loading' ? 'Testing…' : 'Test'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleCopy()}
+          className="shrink-0 rounded-sm bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      {testState.status === 'error' && <p className="mt-1.5 text-xs text-destructive">{testState.message}</p>}
+      {testState.status === 'done' && (
+        <p className={`mt-1.5 text-xs ${testState.result.ok ? 'text-success' : 'text-destructive'}`}>{testState.result.detail}</p>
+      )}
+    </div>
+  )
+}
+
 function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSettings; canWrite: boolean; orgSlug: string }) {
   const queryClient = useQueryClient()
   const { showToast } = useToast()
@@ -71,6 +112,7 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [testToken, setTestToken] = useState('')
 
   const dirty =
     values.search_read_enabled !== settings.search_read_enabled ||
@@ -92,7 +134,14 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
     }
   }
 
-  const origin = window.location.origin
+  // The MCP server lives on the API's origin, not wherever this webui page happens to be served
+  // from — those are two different origins as of the standalone-API split (see this repo's
+  // CLAUDE.md session history, item 34/35), so this can't reuse window.location.origin the way it
+  // used to when both were co-hosted. API_BASE_URL is empty only for a same-origin/reverse-proxied
+  // setup, where the API genuinely *is* window.location.origin — everywhere else (local dev
+  // against a separately-run API, or a real deployment on its own subdomain) it's already an
+  // absolute origin, exactly what an external MCP client needs pasted into its own config.
+  const origin = API_BASE_URL || window.location.origin
 
   return (
     <div className="max-w-2xl">
@@ -134,6 +183,16 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
             Bearer &lt;token&gt;"
           </code>
         </p>
+        <div className="mt-3 border-t border-border pt-3">
+          <label htmlFor="mcp-test-token" className="mb-1.5 block text-[13px] font-medium text-foreground">
+            Test a token
+          </label>
+          <PasswordField id="mcp-test-token" placeholder="Paste a token to test" value={testToken} onChange={setTestToken} />
+          <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+            Checks whether this token can connect to a tier below — not sent anywhere except this app, and never
+            saved.
+          </p>
+        </div>
       </div>
 
       <form id="mcp-settings-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -159,7 +218,11 @@ function MCPSettingsForm({ settings, canWrite, orgSlug }: { settings: MCPSetting
                 </span>
               </label>
               <div className="mt-2 pl-6">
-                <CopyableValue value={`${origin}/${orgSlug}/mcp/${settings.tier_url_segments[tier.key]}`} />
+                <TierUrlRow
+                  value={`${origin}/${orgSlug}/mcp/${settings.tier_url_segments[tier.key]}`}
+                  tierSegment={settings.tier_url_segments[tier.key]}
+                  token={testToken}
+                />
               </div>
             </div>
           ))}

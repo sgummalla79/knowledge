@@ -333,6 +333,17 @@ class MCPSettings:
 
 
 @dataclass(frozen=True)
+class MCPConnectionTestResult:
+    """Outcome of dry-running a bearer token against one MCP tier's gate chain — see
+    MCPConnectionTestService. `reason` is a stable machine-readable code (e.g. "invalid_token",
+    "tier_disabled"); `detail` is the human-readable message the webui shows as-is."""
+
+    ok: bool
+    reason: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class SessionSettings:
     """One row per org: how long a browser (cookie) session may sit idle before it's rejected,
     even though the signed cookie itself hasn't cryptographically expired — enforced in
