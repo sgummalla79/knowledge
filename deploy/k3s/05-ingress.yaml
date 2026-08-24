@@ -7,8 +7,9 @@ metadata:
     # References deploy/k3s/06-cluster-issuer.yaml -- cert-manager watches for this annotation
     # and creates/renews the Certificate automatically, no separate Certificate resource needed.
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # References deploy/k3s/04-middleware.yaml -- <namespace>-<name>@kubernetescrd is Traefik's
-    # required format for pointing a plain Ingress at one of its own CRD-defined middlewares.
+    # References api/deploy/k3s/04-middleware.yaml -- <namespace>-<name>@kubernetescrd is
+    # Traefik's required format for pointing a plain Ingress at one of its own CRD-defined
+    # middlewares.
     traefik.ingress.kubernetes.io/router.middlewares: knowledge-strip-knowledge-prefix@kubernetescrd
 spec:
   ingressClassName: traefik

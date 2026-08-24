@@ -5,18 +5,21 @@ APIs) and `knowledge.sgummallaworks.com` (webui, its own subdomain, no prefix). 
 k3s cluster already running on the box (`31.220.50.148`) — Traefik (k3s's built-in Ingress
 controller) and cert-manager are already installed there; nothing else was.
 
-Manifests live in `deploy/k3s/`, applied in order (the number prefixes reflect real dependency
-order — `01-postgres.yaml` before `02-api.yaml`, etc.):
+Manifests live in two directories in this repo — `api/deploy/k3s/` for the api+db release
+artifacts (they move in lockstep with the api image's own release lifecycle), `deploy/k3s/` for
+everything webui-only or cluster-shared — but land together in one flat `k3s/` directory on the
+box (see step 2), and are applied in order (the number prefixes reflect real dependency order —
+`01-postgres.yaml` before `02-api.yaml`, etc.) regardless of which directory each one came from:
 
-| File | What |
-|---|---|
-| `00-namespace.yaml` | The `knowledge` namespace everything else lives in |
-| `01-postgres.yaml` | Postgres/pgvector — PVC (`local-path` StorageClass), Deployment, Service |
-| `02-api.yaml` | The API — Deployment (pulls the published `sgummalla/knowledge` image straight from Docker Hub, no build needed), Service |
-| `03-webui.yaml` | webui — Deployment (a locally-built image, see step 4 below), Service |
-| `04-middleware.yaml` | Traefik `Middleware` that strips `/knowledge` before forwarding to the API |
-| `05-ingress.yaml` | The two `Ingress` resources (one per domain) that actually route external traffic in |
-| `06-cluster-issuer.yaml` | cert-manager `ClusterIssuer` for Let's Encrypt — cluster-wide, not `knowledge`-namespaced, applied once regardless of how many apps this cluster ends up running |
+| File | Repo source | What |
+|---|---|---|
+| `00-namespace.yaml` | `deploy/k3s/` | The `knowledge` namespace everything else lives in |
+| `01-postgres.yaml` | `api/deploy/k3s/` | Postgres/pgvector — PVC (`local-path` StorageClass), Deployment, Service |
+| `02-api.yaml` | `api/deploy/k3s/` | The API — Deployment (pulls the published `sgummalla/knowledge` image straight from Docker Hub, no build needed), Service |
+| `03-webui.yaml` | `deploy/k3s/` | webui — Deployment (a locally-built image, see step 4 below), Service |
+| `04-middleware.yaml` | `api/deploy/k3s/` | Traefik `Middleware` that strips `/knowledge` before forwarding to the API |
+| `05-ingress.yaml` | `deploy/k3s/` | The two `Ingress` resources (one per domain) that actually route external traffic in — genuinely cross-cutting (api + webui in one file), which is why it stays outside `api/deploy/` |
+| `06-cluster-issuer.yaml` | `deploy/k3s/` | cert-manager `ClusterIssuer` for Let's Encrypt — cluster-wide, not `knowledge`-namespaced, applied once regardless of how many apps this cluster ends up running |
 
 ## Known limitation
 
@@ -38,10 +41,14 @@ actually needs live discovery.
 
 ### 2. Get the manifests onto the box
 
-From this repo's root, on your own machine:
+From this repo's root, on your own machine — the two `k3s/` sources merge into one flat `k3s/`
+directory on the box, since the split only matters on the repo side (see the table above):
 
 ```bash
-scp -r deploy/k3s deploy/Dockerfile.webui deploy/Dockerfile.webui.dockerignore deploy/nginx.conf webui root@31.220.50.148:~/knowledge-deploy/
+ssh root@31.220.50.148 mkdir -p ~/knowledge-deploy/k3s
+scp api/deploy/k3s/*.yaml deploy/k3s/*.yaml root@31.220.50.148:~/knowledge-deploy/k3s/
+scp deploy/Dockerfile.webui deploy/Dockerfile.webui.dockerignore deploy/nginx.conf root@31.220.50.148:~/knowledge-deploy/
+scp -r webui root@31.220.50.148:~/knowledge-deploy/
 ```
 
 ### 3. Create the namespace and secrets
@@ -143,8 +150,8 @@ The first should return `{"status":"ok","version":"..."}`; the second a `200` wi
 
 ## Upgrading later
 
-**API version bump** (no webui change): edit the `image:` tag in `deploy/k3s/02-api.yaml` to the
-new version, then:
+**API version bump** (no webui change): edit the `image:` tag in `api/deploy/k3s/02-api.yaml` to
+the new version, then:
 
 ```bash
 kubectl apply -f k3s/02-api.yaml
@@ -165,7 +172,7 @@ itself didn't change, so nothing tells Kubernetes to recreate the pod. `rollout 
 ## Adding a second API to api.sgummallaworks.com later
 
 Each new API is fully independent — its own `Middleware` (a different prefix), its own `Ingress`,
-no shared file to edit. Copy the pattern from `deploy/k3s/04-middleware.yaml` and
+no shared file to edit. Copy the pattern from `api/deploy/k3s/04-middleware.yaml` and
 `deploy/k3s/05-ingress.yaml`'s `knowledge-api` block: a new `Middleware` stripping that API's own
 path prefix, and a new `Ingress` on the same `api.sgummallaworks.com` host with that prefix's
 `path:`, annotated with that new `Middleware`'s `@kubernetescrd` reference. `06-cluster-issuer.yaml`

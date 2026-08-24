@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds and verifies a knowledge image (tagged knowledge:testing) in complete isolation from any
-# other local containers — never touches deploy/docker-compose.dev-preview.yml's dev-preview
-# stack. See CLAUDE.md, "Docker testing workflow", for why this exists.
+# other local containers — never touches the repo-root ../deploy/docker-compose.dev-preview.yml's
+# dev-preview stack. See CLAUDE.md, "Docker testing workflow", for why this exists.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -12,8 +12,8 @@ COMPOSE="docker compose -p knowledge-test -f deploy/docker-compose.test.yml"
 
 echo "==> Running pytest (unit + integration; integration tests use ephemeral testcontainers, not this compose stack)"
 PYTHON=python3
-[ -x api/.venv/bin/python ] && PYTHON=api/.venv/bin/python
-"$PYTHON" -m pytest api/tests/ api/mcp_server/tests/
+[ -x .venv/bin/python ] && PYTHON=.venv/bin/python
+"$PYTHON" -m pytest tests/ mcp_server/tests/
 
 echo "==> Building isolated test image + booting knowledge-test / knowledge-db-test"
 $COMPOSE up -d --build

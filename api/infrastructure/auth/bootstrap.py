@@ -41,7 +41,7 @@ def bootstrap_default_identity(session) -> None:
     is also called directly by integration tests that need a seeded identity without going
     through create_app(). Tolerates a duplicate-insert race (unique constraint on email) in case
     multiple workers ever start concurrently — this app now runs multiple gunicorn workers
-    (deploy/entrypoint.sh), each calling create_app() independently at boot.
+    (api/deploy/entrypoint.sh), each calling create_app() independently at boot.
     """
     identities = IdentityRepository(session)
     if identities.get() is not None:

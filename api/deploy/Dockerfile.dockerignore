@@ -1,0 +1,22 @@
+# Named `Dockerfile.dockerignore`, not `.dockerignore`, and lives here in api/deploy/ rather than
+# the api/ context root — Docker's own convention: for a build invoked with `-f
+# api/deploy/Dockerfile` and `context: api` (see api/deploy/docker-compose*.yml and the CI
+# workflow), it looks for `<dockerfile-path-relative-to-context>.dockerignore` in the context root
+# before falling back to a plain `.dockerignore` there. Since `deploy/Dockerfile.dockerignore` is
+# itself a valid path within the api/ context, this resolves to this exact file (same convention
+# this repo already verified empirically before the api/ consolidation — see CLAUDE.md) — a
+# Dockerfile-specific ignore file physically alongside the Dockerfile it governs.
+#
+# Every pattern below is relative to api/ (the context root) now, not the repo root — webui/ isn't
+# part of this context at all anymore, so there's no webui/node_modules line to exclude.
+#
+# Dockerignore matching is NOT gitignore-style — a bare pattern like `.venv` only matches at the
+# context root, not at any depth (unlike git's own .gitignore). `**/` is required to match these
+# wherever they actually occur (.venv, **/__pycache__, etc).
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+static/workspace
+tests
+mcp_server/tests

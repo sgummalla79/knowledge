@@ -363,7 +363,7 @@ endpoint requires one, **Model** (e.g. `text-embedding-3-small`), and **Dimensio
 
 ## Tags
 
-- `sgummalla/knowledge:<version>` — e.g. `2.0.1`, matching this repo's `VERSION` file
+- `sgummalla/knowledge:<version>` — e.g. `2.0.1`, matching this repo's `api/VERSION` file
 - `sgummalla/knowledge:latest` — always the most recently published version
 
 ## Connecting Claude Code (MCP)

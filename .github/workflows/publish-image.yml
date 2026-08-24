@@ -1,16 +1,20 @@
 # Publishes the knowledge image to Docker Hub.
 #
-# VERSION-BASED, not branch-based: a push to releases/v4 publishes ONLY when the repo-root
-# VERSION file changed in that push. The branch is the carrier; the version is the trigger.
-# releases/v1, releases/v2, and releases/v3 are closed (see CLAUDE.md) and no longer trigger this
-# workflow. A
-# manual run (Actions -> this workflow -> Run workflow, or `gh workflow run`) ALWAYS republishes
-# the current VERSION -- the override for when a multi-merge push left the VERSION bump in a
-# non-tip commit. This mirrors nexus-kit-api's .github/workflows/build-image.yml.
+# GATED ON A REAL api/ CHANGE, not branch-based and not VERSION-alone: a push to releases/v4
+# publishes ONLY when BOTH (a) api/VERSION changed in that push AND (b) something under api/ other
+# than VERSION itself also changed. Requiring both catches the case a VERSION bump alone can't:
+# someone bumps api/VERSION out of habit on a change that never actually touched the api (e.g. a
+# webui-only fix) — that push now skips publishing instead of shipping a no-op image under a new
+# tag. The branch is the carrier; the api/ diff is the trigger. releases/v1, releases/v2, and
+# releases/v3 are closed (see CLAUDE.md) and no longer trigger this workflow. A manual run
+# (Actions -> this workflow -> Run workflow, or `gh workflow run`) ALWAYS republishes the current
+# api/VERSION -- the override for when a multi-merge push left the VERSION bump in a non-tip
+# commit, or for a deliberate republish regardless of the diff. This mirrors nexus-kit-api's
+# .github/workflows/build-image.yml.
 #
 # Runs the test suite first (the `test` job -- pytest, including testcontainers-backed
 # integration tests, which need the Docker daemon that's already available on ubuntu-latest
-# runners) and publishes only if it passes AND VERSION changed.
+# runners) and publishes only if it passes AND the dual api/ gate above passes.
 #
 # Multi-arch (linux/amd64 + linux/arm64) so the image pulls natively on x86 hosts and Apple
 # Silicon. Tags published to Docker Hub:
@@ -47,7 +51,7 @@ jobs:
         run: python -m pytest api/tests/
 
   publish:
-    name: Publish image (on VERSION change)
+    name: Publish image (on a real api/ change)
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -55,23 +59,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Two commits so we can diff VERSION against the previous tip.
+          # Two commits so we can diff api/ against the previous tip.
           fetch-depth: 2
       - id: ver
-        name: Read version + detect a VERSION change
+        name: Read version + detect a real api/ change
         run: |
           set -euo pipefail
-          version=$(cat VERSION)
-          # A manual run (workflow_dispatch) always republishes the current VERSION -- the
-          # escape hatch for when a push's tip commit didn't change VERSION (e.g. the bump
-          # landed in an earlier merge of a multi-merge push, so the HEAD^..HEAD diff below
-          # misses it). A normal push still publishes ONLY on a VERSION change.
+          version=$(cat api/VERSION)
+          # A manual run (workflow_dispatch) always republishes the current api/VERSION -- the
+          # escape hatch for when a push's tip commit didn't change VERSION (e.g. the bump landed
+          # in an earlier merge of a multi-merge push, so the HEAD^..HEAD diff below misses it),
+          # or for a deliberate republish. A normal push still requires BOTH signals below.
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             changed=true
-          elif git diff --quiet HEAD^ HEAD -- VERSION; then
-            changed=false
           else
-            changed=true
+            # version_changed: did api/VERSION itself change?
+            if git diff --quiet HEAD^ HEAD -- api/VERSION; then
+              version_changed=false
+            else
+              version_changed=true
+            fi
+            # api_code_changed: did anything under api/ OTHER than VERSION change? (git pathspec
+            # exclude -- ':(exclude)api/VERSION' subtracts just that one file from the api/* glob)
+            if git diff --quiet HEAD^ HEAD -- 'api/*' ':(exclude)api/VERSION'; then
+              api_code_changed=false
+            else
+              api_code_changed=true
+            fi
+            if [ "$version_changed" = true ] && [ "$api_code_changed" = true ]; then
+              changed=true
+            else
+              changed=false
+            fi
+            echo "version_changed=$version_changed, api_code_changed=$api_code_changed"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
@@ -90,8 +110,8 @@ jobs:
         if: steps.ver.outputs.changed == 'true'
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: deploy/Dockerfile
+          context: api
+          file: api/deploy/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
@@ -105,5 +125,5 @@ jobs:
           if [ "${{ steps.ver.outputs.changed }}" = "true" ]; then
             echo "### Published \`sgummalla/knowledge:${{ steps.ver.outputs.version }}\` + \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### VERSION unchanged (\`${{ steps.ver.outputs.version }}\`) -- nothing published" >> "$GITHUB_STEP_SUMMARY"
+            echo "### Nothing published (\`${{ steps.ver.outputs.version }}\`) -- api/VERSION and an actual api/ code change are both required" >> "$GITHUB_STEP_SUMMARY"
           fi
