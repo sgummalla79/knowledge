@@ -1,6 +1,7 @@
 import os
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -69,7 +70,11 @@ def live_server_url(postgres_url):
     port = _free_port()
     env = {**os.environ, "DATABASE_URL": postgres_url, "SECRET_KEY": "test-secret-key"}
     proc = subprocess.Popen(
-        ["api/.venv/bin/python", "-m", "uvicorn", "api.asgi:app", "--port", str(port), "--log-level", "warning"],
+        # sys.executable, not a hardcoded "api/.venv/bin/python" -- CI's pytest job installs
+        # dependencies straight into the runner's system Python (no venv at that path at all), so a
+        # hardcoded venv path only ever worked locally. sys.executable is whatever interpreter is
+        # actually running this test, correct in both environments.
+        [sys.executable, "-m", "uvicorn", "api.asgi:app", "--port", str(port), "--log-level", "warning"],
         env=env,
         cwd=str(REPO_ROOT),
     )
