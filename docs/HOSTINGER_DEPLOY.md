@@ -20,6 +20,7 @@ box (see step 2), and are applied in order (the number prefixes reflect real dep
 | `04-middleware.yaml` | `api/deploy/k3s/` | Traefik `Middleware` that strips `/knowledge` before forwarding to the API |
 | `05-ingress.yaml` | `deploy/k3s/` | The two `Ingress` resources (one per domain) that actually route external traffic in — genuinely cross-cutting (api + webui in one file), which is why it stays outside `api/deploy/` |
 | `06-cluster-issuer.yaml` | `deploy/k3s/` | cert-manager `ClusterIssuer` for Let's Encrypt — cluster-wide, not `knowledge`-namespaced, applied once regardless of how many apps this cluster ends up running |
+| `07-ingestion-worker.yaml` | `api/deploy/k3s/` | Standalone ingestion-job worker — same published image as the API, different command, no Service/Ingress (not HTTP). Ships at `replicas: 0` — see this repo's ingestion-worker Release 1 plan for why it's not live yet |
 
 ## Known limitation
 

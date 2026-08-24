@@ -20,3 +20,4 @@
 static/workspace
 tests
 mcp_server/tests
+ingestion_worker/tests
