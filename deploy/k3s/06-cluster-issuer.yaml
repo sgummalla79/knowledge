@@ -1,6 +1,7 @@
 # ClusterIssuer, not a namespaced Issuer -- shared across every namespace on this cluster (any
-# future app on this box can reference the same one), which is why this isn't under deploy/k3s/
-# with the rest of the knowledge-namespaced resources. Apply once per cluster, not once per app.
+# future app on this box can reference the same one), unlike the rest of the knowledge-namespaced
+# resources (split across api/deploy/k3s/ and this directory -- see docs/HOSTINGER_DEPLOY.md).
+# Apply once per cluster, not once per app.
 #
 # ingressClassName assumes k3s's default Traefik IngressClass is named "traefik" (true for a
 # stock k3s install with no --disable traefik override) -- verify with `kubectl get ingressclass`

@@ -4,8 +4,8 @@ from api.constants import DEFAULT_WEBUI_ORIGIN
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
-# VERSION lives at the repo root; this file is at api/config.py, so one parent up.
-_VERSION_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+# VERSION lives at api/VERSION, right next to this file.
+_VERSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
 
 
 class Config:

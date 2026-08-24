@@ -12,7 +12,7 @@ smoke-test coverage yet of signup/org-switching/content CRUD against that sessio
 cover that too, the same way api/tests/integration/test_ingestion_service.py and
 test_retrieval_service.py cover ingest/query once an embedding provider is configured.
 
-Run only by deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
+Run only by api/deploy/test-image.sh, after the isolated stack is confirmed healthy. Never run
 against a shared or long-lived instance — it changes the admin password.
 """
 import sys

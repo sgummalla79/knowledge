@@ -70,7 +70,7 @@ def create_app(
 
     # Kept as its own before/after pair, separate from the request-id hooks above (single
     # responsibility each) — the correlated request/response summary line gunicorn's own access
-    # log (deploy/entrypoint.sh) doesn't provide, since that's a separate, uncorrelated stream with
+    # log (api/deploy/entrypoint.sh) doesn't provide, since that's a separate, uncorrelated stream with
     # no request_id. request.path only, never full_path/the query string — query params can carry
     # tokens or other sensitive values that don't belong in a log line.
     @app.before_request

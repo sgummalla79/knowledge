@@ -7,7 +7,7 @@ spec:
   replicas: 1
   # Never scale this beyond 1: job status and rate-limit state live in an in-memory dict scoped to
   # one process (same reason the container itself runs a single gunicorn worker -- see
-  # deploy/entrypoint.sh's own comment). A second replica would silently split that state.
+  # api/deploy/entrypoint.sh's own comment). A second replica would silently split that state.
   strategy:
     type: Recreate
   selector:
@@ -19,7 +19,7 @@ spec:
       containers:
         - name: knowledge-api
           # Bump this tag to upgrade -- check docker.io/sgummalla/knowledge/tags or this repo's
-          # VERSION file for the current one, then `kubectl apply -f` this file again.
+          # api/VERSION file for the current one, then `kubectl apply -f` this file again.
           image: sgummalla/knowledge:4.3.2
           ports:
             - containerPort: 13102
