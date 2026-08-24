@@ -27,9 +27,9 @@ def _service() -> MCPSettingsService:
 
 def _connection_test_service() -> MCPConnectionTestService:
     # Independent construction of AppAuthService, same as app_auth.py's require_permission and
-    # api/mcp_server/auth.py's KnowledgeTokenVerifier each already do — this app has no shared
-    # factory for it, by design (see AppAuthService's own docstring on being framework-free and
-    # reusable, not on being wired through one central place).
+    # api/presentation/web/mcp_org_scoping.py's MCPOrgScopingMiddleware each already do — this app
+    # has no shared factory for it, by design (see AppAuthService's own docstring on being
+    # framework-free and reusable, not on being wired through one central place).
     session_ = get_session()
     permissions = PermissionService(OrgMemberRepository(session_), ProfileRepository(session_))
     app_auth = AppAuthService(ApplicationRepository(session_), PersonalAccessTokenRepository(session_), permissions)
