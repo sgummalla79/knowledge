@@ -3,6 +3,8 @@ import os
 from api.constants import (
     DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT,
     DB_LOCK_TIMEOUT_MS_DEFAULT,
+    DB_MAX_OVERFLOW_DEFAULT,
+    DB_POOL_SIZE_DEFAULT,
     DB_STATEMENT_TIMEOUT_MS_DEFAULT,
     DEFAULT_WEBUI_ORIGIN,
 )
@@ -42,6 +44,11 @@ class Config:
         self.db_idle_in_transaction_timeout_ms = int(
             os.environ.get("DB_IDLE_IN_TRANSACTION_TIMEOUT_MS", DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT)
         )
+        # Per-process pool sizing — see the constants module for why this had to shrink once
+        # multiple processes (gunicorn workers x k8s replicas x the ingestion worker) started
+        # sharing one Postgres max_connections budget.
+        self.db_pool_size = int(os.environ.get("DB_POOL_SIZE", DB_POOL_SIZE_DEFAULT))
+        self.db_max_overflow = int(os.environ.get("DB_MAX_OVERFLOW", DB_MAX_OVERFLOW_DEFAULT))
 
     @staticmethod
     def _require(name):
