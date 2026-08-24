@@ -31,6 +31,10 @@ import { UserSettingsPage } from './pages/UserSettingsPage'
 
 const queryClient = new QueryClient()
 
+// Routes reachable without a session — everything else lives under the NavBar route tree below
+// and requires one.
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/change-password', '/oauth/authorize']
+
 export default function App() {
   const [ready, setReady] = useState(false)
 
@@ -47,17 +51,30 @@ export default function App() {
 
   const orgSlug = currentOrgSlug()
 
-  // The session's *real* org slug — never derived from the URL itself — so a mismatch here means
-  // the browser's address bar is stale (an old bookmark, a manually edited URL, a next= redirect
-  // built before login resolved which org this identity belongs to). Corrects silently to the
-  // org's own home rather than trying to preserve whatever sub-path was requested, since a wrong
-  // org's deep link (e.g. an item id) wouldn't resolve to anything meaningful in the real org
-  // anyway.
   if (orgSlug) {
+    // The session's *real* org slug — never derived from the URL itself — so a mismatch here
+    // means the browser's address bar is stale (an old bookmark, a manually edited URL, a next=
+    // redirect built before login resolved which org this identity belongs to). Corrects silently
+    // to the org's own home rather than trying to preserve whatever sub-path was requested, since
+    // a wrong org's deep link (e.g. an item id) wouldn't resolve to anything meaningful in the
+    // real org anyway.
     const expectedPrefix = `/${orgSlug}`
     const { pathname } = window.location
     if (pathname !== expectedPrefix && !pathname.startsWith(`${expectedPrefix}/`)) {
       window.location.replace(expectedPrefix)
+      return null
+    }
+  } else {
+    // No session — every route below except the public auth pages requires one. Without this
+    // check the protected route tree (NavBar/HomePage/...) would mount anyway, fire its data
+    // queries unauthenticated, and only bounce to /sign-in once those queries 401 (client.ts) —
+    // a visible flash of the home page before the redirect. Redirecting here, before the router
+    // ever mounts, matches the org-slug correction above: skip trying to preserve the requested
+    // path, since it wasn't reachable without a session anyway.
+    const { pathname } = window.location
+    const isPublicPath = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+    if (!isPublicPath) {
+      window.location.replace('/sign-in')
       return null
     }
   }
