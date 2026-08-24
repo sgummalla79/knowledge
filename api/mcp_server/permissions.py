@@ -15,7 +15,8 @@ _TIER_SETTINGS_COLUMN = {segment: column for column, segment in MCP_TIERS}
 
 def current_caller() -> dict:
     """The MCP-tool-call counterpart to api/presentation/routes/app_auth.py's g.org_id/g.user_id —
-    reads the AccessToken (and its claims) KnowledgeTokenVerifier resolved for this connection."""
+    reads the AccessToken (and its claims) api.presentation.web.mcp_org_scoping's
+    MCPOrgScopingMiddleware resolved for this connection."""
     access_token = get_access_token()
     if access_token is None:
         raise ToolError("Not authenticated.")
@@ -33,7 +34,7 @@ def require_tier_permission(session, tier: str, permission: str | None) -> dict:
     """Every tool calls this first — three independent gates, cheapest-to-most-expensive:
 
     1. This application has mcp_access at all (read straight off the AccessToken claims already
-       resolved by KnowledgeTokenVerifier — no DB round trip).
+       resolved by MCPOrgScopingMiddleware — no DB round trip).
     2. This tool's tier (search/read/write) is activated for the caller's org (mcp_settings — one DB
        row read).
     3. If a permission is given, the caller's already-resolved scopes grant it — the exact same

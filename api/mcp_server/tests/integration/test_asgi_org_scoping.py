@@ -1,4 +1,5 @@
 import pytest
+from mcp.server.auth.middleware.auth_context import auth_context_var
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
@@ -23,12 +24,20 @@ async def _echo(request):
     return PlainTextResponse(request.url.path)
 
 
+async def _echo_caller(request):
+    """Stands in for a tool call reading mcp_server/permissions.py's current_caller() — proves the
+    middleware itself sets auth_context_var (FastMCP no longer does, see server.py), and that it's
+    reset once the request completes rather than leaking into whatever handles the next one."""
+    access_token = auth_context_var.get().access_token
+    return PlainTextResponse(f"{access_token.claims['org_id']}:{access_token.claims['mcp_access']}")
+
+
 def _dummy_downstream_app() -> Starlette:
     """Stands in for the real FastMCP-mounted app — the middleware under test only cares about
     rejecting/rewriting before a request reaches whatever's downstream, not about MCP protocol
     specifics, so a trivial app that echoes back the path it received is enough to prove the
     rewrite happened."""
-    return Starlette(routes=[Route("/mcp/{tier}", _echo)])
+    return Starlette(routes=[Route("/mcp/{tier}", _echo), Route("/mcp/{tier}/whoami", _echo_caller)])
 
 
 @pytest.fixture()
@@ -97,3 +106,16 @@ def test_matching_org_and_token_forwards_a_sub_path(db_session, client):
     response = client.get(f"/{org.slug}/mcp/write", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.text == "/mcp/write"
+
+
+def test_forwarded_request_carries_the_resolved_caller_via_auth_context_var(db_session, client):
+    org, token = _org_with_token(db_session)
+    response = client.get(f"/{org.slug}/mcp/search/whoami", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.text == f"{org.id}:True"
+
+
+def test_auth_context_var_is_reset_after_the_request_completes(db_session, client):
+    org, token = _org_with_token(db_session)
+    client.get(f"/{org.slug}/mcp/search", headers={"Authorization": f"Bearer {token}"})
+    assert auth_context_var.get() is None

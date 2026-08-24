@@ -18,13 +18,15 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
     combined app around a create_app(testing=True) instance instead, with or without any MCP
     servers mounted.
 
-    Each FastMCP server's own Starlette app (streamable_http_app()) already carries both its
-    streamable-http endpoint and its RFC 9728 well-known discovery route at real, full top-level
-    paths (see mcp_server/server.py's streamable_http_path/resource_server_url) — those routes are
-    merged directly into this app's own top-level route list rather than nested under an extra
-    Mount(), since nesting would double the path prefix and break the well-known route's path-
-    insertion (which is computed relative to that sub-app's own root). Flask's catch-all is listed
-    last for readability — a route with a real path always wins over it regardless of order.
+    Each FastMCP server's own Starlette app (streamable_http_app()) carries its streamable-http
+    endpoint at a real, full top-level path (see mcp_server/server.py's streamable_http_path) —
+    that route is merged directly into this app's own top-level route list rather than nested
+    under an extra Mount(), since nesting would double the path prefix. (An earlier version of
+    mcp_server/server.py also configured FastMCP's own AuthSettings, which would have added an RFC
+    9728 well-known discovery route here too — computed relative to that sub-app's own root, same
+    nesting-breaks-it hazard. That's gone now: see server.py's own docstring on why FastMCP no
+    longer does its own auth/discovery at all.) Flask's catch-all is listed last for readability —
+    a route with a real path always wins over it regardless of order.
 
     Each FastMCP server's own internal lifespan (which enters its session_manager.run() — see the
     installed SDK's FastMCP.streamable_http_app) is never triggered just by merging its routes in:
