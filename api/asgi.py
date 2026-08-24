@@ -1,5 +1,5 @@
 """Combined ASGI entrypoint — the Flask REST API (wrapped WSGI-in-ASGI) and the three MCP tool
-tiers, served by one process (see deploy/entrypoint.sh: gunicorn -k uvicorn.workers.UvicornWorker
+tiers, served by one process (see api/deploy/entrypoint.sh: gunicorn -k uvicorn.workers.UvicornWorker
 api.asgi:app).
 
 api/wsgi.py stays a plain Flask WSGI app, unchanged and still used directly for fast local

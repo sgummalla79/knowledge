@@ -1171,6 +1171,71 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     those two tags (item 40's own commit was manifests/docs only) and there was no reason to
     introduce a mismatch between what's pinned in the repo and what's actually running.
 
+42. **The api+db release artifacts moved under `api/`, and CI publishing is now gated on a real
+    `api/` diff, not just a `VERSION` bump.** Prompted by a concrete near-miss: a webui-only fix
+    (correcting `MCPSettingsPage.tsx`'s connection-URL derivation) still went through the
+    documented "bump `VERSION`" step, which — unbeknownst until this item — would have triggered a
+    full Docker Hub republish of an image whose actual contents hadn't changed at all, since the
+    old CI gate only checked "did `VERSION` change," never "did the api actually change."
+
+    `VERSION` moved to `api/VERSION` — `api/config.py`'s `_VERSION_FILE` now walks up only one
+    `dirname()` instead of two. The repo-root `deploy/` folder split by release-artifact ownership:
+    everything that defines/builds/tests/releases the **api+db** image moved to `api/deploy/`
+    (`Dockerfile`, `Dockerfile.dockerignore`, `entrypoint.sh`, `docker-compose.test.yml`,
+    `test-image.sh`, `smoke_test.py`, `.env`/`.env.example`, and the production k3s manifests that
+    are exclusively api/db's own — `k3s/01-postgres.yaml`, `k3s/02-api.yaml`,
+    `k3s/04-middleware.yaml`, the last of these because it only ever strips the api's own
+    `/knowledge` path prefix). Everything webui-only, whole-cluster-shared, or local-dev-convenience
+    stayed at the repo-root `deploy/` untouched: `Dockerfile.webui`, `Dockerfile.webui.dockerignore`,
+    `nginx.conf`, `k3s/00-namespace.yaml`, `k3s/03-webui.yaml`, `k3s/06-cluster-issuer.yaml`, and
+    `k3s/05-ingress.yaml` (kept there deliberately — it holds **both** the api and webui `Ingress`
+    in one file, genuinely cross-cutting, not a clean fit for either side). The four dev-preview
+    scripts (`dev-preview-up/down.sh`/`.ps1`) and their throwaway `docker-compose.dev-preview.yml`
+    also stayed put — they orchestrate api+webui+db together for local dev, aren't part of the
+    release pipeline, and needed zero edits since every path they reference stayed exactly where it
+    was.
+
+    Since the Dockerfile, its entrypoint, and `VERSION` now all live inside `api/`, and the webui
+    build stage was already removed from the image entirely (item 34), the Dockerfile needs nothing
+    from outside `api/` anymore — so the Docker build **context narrowed from the repo root to
+    `api/` itself**. `COPY api api` became `COPY . api` (context root *is* `api/` now; still lands
+    at `/srv/api` so every `from api.xxx import` and the `api.wsgi:app`/`api.asgi:app` gunicorn
+    target are unchanged). `COPY VERSION .` was deleted outright — `api/VERSION` now rides in
+    automatically as part of `COPY . api`. `api/deploy/Dockerfile.dockerignore`'s patterns dropped
+    their `api/`/`webui/` prefixes accordingly (`api/tests` → `tests`, etc.) since they're relative
+    to `api/` now, and its `.git`/`webui/node_modules` lines were removed as no longer applicable —
+    neither is part of the `api/` context at all. `api/deploy/docker-compose.test.yml` needed **no**
+    content changes at all: its `context: ..`/`dockerfile: deploy/Dockerfile` are both relative
+    expressions that resolve correctly automatically once the compose file and the Dockerfile moved
+    together, preserving their relative relationship. `api/deploy/test-image.sh`'s `cd
+    "$(dirname "$0")/.."` now lands in `api/` instead of the repo root (intentional) — its internal
+    `api/.venv`/`api/tests`/`api/mcp_server/tests` references dropped their now-redundant `api/`
+    prefix to match.
+
+    `.github/workflows/publish-image.yml` changed from a single-condition gate ("did `VERSION`
+    change") to a two-condition one: `version_changed` (`git diff` on `api/VERSION`) **and**
+    `api_code_changed` (`git diff` on `api/*` excluding `api/VERSION`, via git's pathspec
+    `:(exclude)` syntax) — both must be true (or the run must be a manual `workflow_dispatch`,
+    which still unconditionally overrides as before) before it builds/pushes anything. A `VERSION`
+    bump with no real `api/` diff — exactly the near-miss that prompted this item — now gets
+    skipped with a clear step-summary line instead of silently publishing a no-op image under a new
+    tag. `context: .`/`file: deploy/Dockerfile` became `context: api`/`file: api/deploy/Dockerfile`
+    to match the narrowed build context above. The `test` job (plain `pytest api/tests/`, no
+    change) still runs unconditionally regardless of what changed, same as before.
+
+    `docs/HOSTINGER_DEPLOY.md` and `docs/DOCKER_HUB.md` updated to match every moved path — the
+    Hostinger walkthrough's manifest table now shows each file's repo-source directory
+    (`api/deploy/k3s/` vs `deploy/k3s/`) since the numbered apply order (00 → 06) spans both, and
+    its scp step now pulls from both directories into one flat `k3s/` directory on the box (the
+    split only matters on the repo side — the box-side layout and every `kubectl apply -f
+    k3s/NN-file.yaml` command are unchanged). **If this file, comments, or memory ever mention a
+    repo-root `VERSION` file, a repo-root `deploy/Dockerfile`/`entrypoint.sh`/`test-image.sh`/
+    `smoke_test.py`/`docker-compose.test.yml`/`.env`, or `deploy/k3s/01-postgres.yaml`/
+    `02-api.yaml`/`04-middleware.yaml` as current, that reference predates this item and is stale**
+    — including items 1-41 above, which still describe `VERSION` and all of `deploy/` as living at
+    the repo root throughout (frozen historical entries, accurately describing what was built at
+    the time — not corrected retroactively, this repo's own established convention).
+
 Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
@@ -1195,24 +1260,30 @@ There is no locally-built "prod" container in this repo anymore (see the "No loc
 compose" note in Versioning below) — the only two local Docker-managed stacks are the isolated
 test stack and the dev-preview database, and they must stay isolated from each other.
 
-All deploy-related files (`Dockerfile`, both compose files, the container entrypoint, and the
-dev-preview scripts) live under `deploy/` — everything else in the repo is app code. The
-Dockerfile's build *context* is still the repo root (it COPYs `api/`, `VERSION`, etc.), set via
-`context: ..` in `docker-compose.test.yml`; only the compose/Dockerfile *files themselves* moved.
+The api+db release artifacts (`Dockerfile`, the test compose file, the container entrypoint,
+`test-image.sh`, `smoke_test.py`, and the production k3s manifests for the api+db) live under
+`api/deploy/` — see item 42's session history for why they moved there from the old top-level
+`deploy/`. Everything webui-only, cluster-shared, or local-dev-convenience (the dev-preview
+scripts and their throwaway Postgres compose, `Dockerfile.webui`, and the webui/shared k3s
+manifests) stays at the repo-root `deploy/`. The Dockerfile's build *context* is `api/` itself now
+(it COPYs `.` — i.e. everything under `api/`, including `api/VERSION` — into `/srv/api`), set via
+`context: ..` in `api/deploy/docker-compose.test.yml`; only the compose/Dockerfile *files
+themselves* need to move together to keep that relative expression correct.
 
-`./deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up their
-own ephemeral Postgres via testcontainers — neither touches any docker-compose container), then
-builds a separate image (`knowledge:testing`) and boots it as `knowledge-test` +
-`knowledge-db-test` (`deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
+`./api/deploy/test-image.sh` — runs `pytest` (unit tests are mocked, integration tests spin up
+their own ephemeral Postgres via testcontainers — neither touches any docker-compose container),
+then builds a separate image (`knowledge:testing`) and boots it as `knowledge-test` +
+`knowledge-db-test` (`api/deploy/docker-compose.test.yml`), fully isolated on port 13199 with a
 throwaway tmpfs database, under its own compose project (`knowledge-test`) so it's never confused
 with the dev-preview stack. Confirms the built image actually boots (migrations run, gunicorn
 serves `/health`, and the MCP HTTP server accepts connections on its own loopback-bound port).
 Tears the isolated stack down automatically on exit, success or failure.
 
-Once `deploy/test-image.sh` passes and a version-bumped commit lands on `releases/v4`, CI
-(`.github/workflows/publish-image.yml`) builds and publishes the real image to Docker Hub
-automatically — see Versioning below. There is no local command that builds/runs a "prod" image
-on this machine.
+Once `api/deploy/test-image.sh` passes and a version-bumped commit lands on `releases/v4`, CI
+(`.github/workflows/publish-image.yml`) builds and publishes the real image to Docker Hub — but
+only when the push actually changed something under `api/` beyond just `api/VERSION`, not merely
+because `api/VERSION` changed (see Versioning below for why). There is no local command that
+builds/runs a "prod" image on this machine.
 
 ## Local dev preview — for interactively clicking around a change, not for CI-style verification
 
@@ -1308,8 +1379,10 @@ docker compose -p knowledge-dev-preview -f deploy/docker-compose.dev-preview.yml
 
 ## Versioning
 
-The repo root `VERSION` file (plain text, single line, e.g. `3.0.0`) is the single source of truth
-for the app's release version, following semver (`MAJOR.MINOR.PATCH`).
+The `api/VERSION` file (plain text, single line, e.g. `3.0.0`) is the single source of truth for
+the app's release version, following semver (`MAJOR.MINOR.PATCH`) — it lives inside `api/`, not at
+the repo root, since it's specifically the api+db image's version, not a whole-repo version (webui/
+has no comparable version file or publish pipeline — see item 42's session history).
 
 **Release history:**
 - `releases/v1` — the first release line, starting at `1.0.0`, cut from `master`. **Closed:
@@ -1342,21 +1415,27 @@ merged back via the workflow below. `master` only ever receives commits via cher
 
 1. Branch off `releases/v4` for the work (e.g. `releases/v4-fix-<short-description>`).
 2. Make and test the change.
-3. Before committing, bump the appropriate number in `VERSION` (`PATCH` for bug fixes, `MINOR` for
-   backward-compatible feature additions, `MAJOR` for breaking changes — e.g. `4.0.0` → `4.0.1`)
-   and include that bump in the same commit as the change.
+3. **Only if the change touches `api/`** (application code, migrations, or the api+db release
+   artifacts under `api/deploy/`), bump the appropriate number in `api/VERSION` (`PATCH` for bug
+   fixes, `MINOR` for backward-compatible feature additions, `MAJOR` for breaking changes — e.g.
+   `4.0.0` → `4.0.1`) before committing, and include that bump in the same commit as the change. A
+   webui-only or docs-only change should **not** bump `api/VERSION` — CI now checks for a real
+   `api/` diff independently (see step 4), so an unnecessary bump just gets silently skipped there,
+   but it's still misleading to leave in the commit.
 4. Push the branch, verify it (see the Docker testing workflow above), then merge into
-   `releases/v4`. That push (with the changed `VERSION`) triggers CI
-   (`.github/workflows/publish-image.yml`) to build and publish
-   `docker.io/sgummalla/knowledge:<version>` + `:latest` automatically — there is no local
-   "promote" step.
-5. Tag the merge commit on `releases/v4` with `v<version>` (e.g. `v4.0.1`) and push the tag.
+   `releases/v4`. That push triggers CI (`.github/workflows/publish-image.yml`), which builds and
+   publishes `docker.io/sgummalla/knowledge:<version>` + `:latest` only when **both** `api/VERSION`
+   changed **and** something under `api/` other than `api/VERSION` itself also changed in that push
+   — a `VERSION` bump with no real `api/` diff (or vice versa) is skipped, not published. There is
+   no local "promote" step.
+5. Tag the merge commit on `releases/v4` with `v<version>` (e.g. `v4.0.1`) and push the tag —
+   only meaningful when step 3 actually applied (a webui/docs-only merge has no new version to tag).
 6. Cherry-pick the fix/feature commit onto `master` — squashed into one commit if the branch
    accumulated more than one (as `releases/v3-multi-tenant-data-model` did: 22 commits, squashed
    to a single commit on `master` while keeping full history on `releases/v3`/the feature branch
-   itself), otherwise cherry-picked as-is. Exclude the branch's own `VERSION` bump if it was a
-   separate commit. `master`'s `VERSION` file is independent of `releases/v4`'s and is not kept in
-   sync day-to-day — `master` is expected to be ahead in features, so its own version number is
+   itself), otherwise cherry-picked as-is. Exclude the branch's own `api/VERSION` bump if it was a
+   separate commit. `master`'s `api/VERSION` file is independent of `releases/v4`'s and is not kept
+   in sync day-to-day — `master` is expected to be ahead in features, so its own version number is
    tracked separately — except at a release-line cutover itself, where the two are deliberately
    realigned (as they were for the `3.0.0` and now `4.0.0` cutovers) so the next release line
    starts from a clean, matching base.
