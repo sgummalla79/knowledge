@@ -37,6 +37,9 @@ _EXTRA_ALLOWLIST = (
     "path",
     "status_code",
     "duration_ms",
+    "sqlstate",
+    "db_fault",
+    "operation",
 )
 
 _HANDLER_MARKER = "_knowledge_json_handler"
