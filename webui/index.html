@@ -3,16 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- SVG favicon is theme-adaptive (embedded prefers-color-scheme CSS — black glyph on a
-         light tab bar, white on a dark one); the .ico is a fixed-color fallback for browsers
-         that don't support SVG favicons. The ?v=2 query string is a deliberate cache-bust:
-         these two paths existed with no file behind them for a while (see this repo's CLAUDE.md
-         session history), and Chrome's per-origin favicon cache is notoriously sticky — it can
-         keep serving whatever it first resolved (including a stale/fallback state) from cache
-         indefinitely, ignoring normal reloads. Bump this query string again if a future favicon
-         change doesn't show up. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <!-- Theme-adaptive favicon, chosen in JS rather than via an embedded prefers-color-scheme
+         media query inside the SVG itself — a first attempt at the latter (a single favicon.svg
+         with an embedded <style> media query) turned out unreliable across Chrome/Edge/Firefox in
+         practice: a browser's favicon-rendering path doesn't consistently re-evaluate an embedded
+         media query the way normal page content does, so it kept rendering favicon.ico's fixed
+         color regardless of the tab's actual light/dark state. favicon-light.svg/-dark.svg are
+         each a single flat color with no conditional logic at all — the script below just swaps
+         which file the <link> points at based on matchMedia, on load and on live OS theme
+         change, which is the technique that's actually reliable browser-to-browser. The .ico
+         stays as the last-resort fallback for a browser with JS disabled or no SVG-favicon
+         support at all (fixed color — see api/static/brand-icon.png's own history for why). -->
+    <link rel="icon" type="image/svg+xml" href="/favicon-light.svg" id="favicon-link" />
     <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
+    <script>
+      (function () {
+        var mql = window.matchMedia('(prefers-color-scheme: dark)')
+        function applyFavicon() {
+          var link = document.getElementById('favicon-link')
+          link.href = mql.matches ? '/favicon-dark.svg' : '/favicon-light.svg'
+        }
+        applyFavicon()
+        mql.addEventListener('change', applyFavicon)
+      })()
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
