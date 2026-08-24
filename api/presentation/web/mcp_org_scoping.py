@@ -1,3 +1,4 @@
+import logging
 import re
 
 from mcp.server.auth.middleware.auth_context import auth_context_var
@@ -31,6 +32,8 @@ from api.mcp_server.db import session_scope
 # verifies an MCP request's bearer token at all — see _authenticated_user below.
 _ORG_SCOPED_PATH = re.compile(r"^/(?P<org_slug>[^/]+)/mcp/(?P<tier>search|read|write)(?P<rest>/.*)?$")
 _BARE_MCP_PATH = re.compile(r"^/mcp/(search|read|write)(/.*)?$")
+
+logger = logging.getLogger(__name__)
 
 
 def _bearer_token(scope: Scope) -> str | None:
@@ -90,23 +93,37 @@ class MCPOrgScopingMiddleware:
         tier = match.group("tier")
         rest = match.group("rest") or ""
 
-        token = _bearer_token(scope)
-        if token is None:
-            return await _reject(scope, receive, send, 401, "Not authenticated.")
+        # Everything above this line only matches/rejects on the URL itself (no DB, no I/O) --
+        # nothing worth wrapping. Everything below does real work (DB lookups, token
+        # verification) before any response has been sent, so it's safe to catch here and turn
+        # into a clean JSON 500: unlike the delegated self._app(...) call further down, no bytes
+        # have gone out yet, so there's no risk of double-sending a response. This is the one
+        # place in the combined ASGI app that sits entirely outside Flask's own
+        # @app.errorhandler(Exception) (api/presentation/error_handlers.py) -- without this, a
+        # failure here would escape raw and unlogged straight to uvicorn.
+        try:
+            token = _bearer_token(scope)
+            if token is None:
+                return await _reject(scope, receive, send, 401, "Not authenticated.")
 
-        with session_scope() as session:
-            organization = OrganizationRepository(session).get_by_slug(org_slug)
-            if organization is None:
-                return await _reject(scope, receive, send, 404, "Not found.")
-            auth_service = AppAuthService(
-                ApplicationRepository(session),
-                PersonalAccessTokenRepository(session),
-                PermissionService(OrgMemberRepository(session), ProfileRepository(session)),
-            )
-            caller = auth_service.authenticate_bearer_token(token)
+            with session_scope() as session:
+                organization = OrganizationRepository(session).get_by_slug(org_slug)
+                if organization is None:
+                    return await _reject(scope, receive, send, 404, "Not found.")
+                auth_service = AppAuthService(
+                    ApplicationRepository(session),
+                    PersonalAccessTokenRepository(session),
+                    PermissionService(OrgMemberRepository(session), ProfileRepository(session)),
+                )
+                caller = auth_service.authenticate_bearer_token(token)
 
-        if caller is None or caller.org_id != organization.id:
-            return await _reject(scope, receive, send, 403, "This credential does not belong to this organization.")
+            if caller is None or caller.org_id != organization.id:
+                return await _reject(
+                    scope, receive, send, 403, "This credential does not belong to this organization."
+                )
+        except Exception:
+            logger.exception("Unhandled exception resolving MCP org scope")
+            return await _reject(scope, receive, send, 500, "An unexpected error occurred.")
 
         rewritten_scope = dict(scope)
         rewritten_scope["path"] = f"/mcp/{tier}{rest}"

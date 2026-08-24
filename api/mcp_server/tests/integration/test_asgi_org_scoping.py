@@ -119,3 +119,21 @@ def test_auth_context_var_is_reset_after_the_request_completes(db_session, clien
     org, token = _org_with_token(db_session)
     client.get(f"/{org.slug}/mcp/search", headers={"Authorization": f"Bearer {token}"})
     assert auth_context_var.get() is None
+
+
+def test_unhandled_exception_resolving_org_scope_returns_500_and_is_logged(db_session, client, caplog, monkeypatch):
+    """This middleware sits entirely outside Flask's own @app.errorhandler(Exception) -- a DB or
+    lookup failure here must not escape raw and unlogged straight to uvicorn."""
+    org, token = _org_with_token(db_session)
+
+    def _boom(self, slug):
+        raise RuntimeError("simulated DB failure")
+
+    monkeypatch.setattr(OrganizationRepository, "get_by_slug", _boom)
+
+    with caplog.at_level("ERROR", logger="api.presentation.web.mcp_org_scoping"):
+        response = client.get(f"/{org.slug}/mcp/search", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == "An unexpected error occurred."
+    assert any("Unhandled exception resolving MCP org scope" in record.message for record in caplog.records)
