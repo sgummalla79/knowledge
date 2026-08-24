@@ -109,6 +109,14 @@ class IngestionJobRepository:
         self._session.commit()
         return _to_entity(model)
 
+    def request_cancellation(self, job_id: UUID) -> None:
+        """Sets the flag the worker's is_cancellation_requested() polls between embedding
+        batches -- the API-side counterpart to that read, called from DocumentService.cancel_job."""
+        model = self._session.get(IngestionJobModel, job_id)
+        if model is not None:
+            model.cancel_requested = True
+            self._session.flush()
+
     def is_cancellation_requested(self, job_id: UUID) -> bool:
         """Cheap poll query -- same semantics as JobStore.is_cancellation_requested, backed by a
         row instead of a dict. Called between embedding batches (low frequency), so a plain SELECT

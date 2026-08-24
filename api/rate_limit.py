@@ -18,7 +18,11 @@ def _login_rate_limit_key() -> str:
 # default_limits is deliberately not set here — Flask-Limiter reads app.config["RATELIMIT_DEFAULT"]
 # at init_app() time instead, so each create_app() call (including tests) controls its own limit.
 #
-# In-memory storage — single gunicorn *process* (gthread, multiple threads — see
-# api/deploy/entrypoint.sh), consistent with JobStore's same single-process assumption. Move to a
-# shared backend (e.g. Redis) before ever running multiple worker processes.
+# In-memory storage — deliberately kept even now that the API runs multiple gunicorn
+# workers/replicas (see api/deploy/entrypoint.sh, api/deploy/k3s/02-api.yaml): each
+# worker/replica enforces the configured limit independently, so the real effective ceiling is
+# roughly limit × (workers × replicas) rather than exact. Accepted tradeoff, not an oversight —
+# these limits exist to blunt abuse (login attempts, crawl rate), not for billing-grade precision,
+# and a shared backend (e.g. Redis) would be a new stateful service to run just for this. Revisit
+# only if that imprecision becomes a real problem in practice.
 limiter = Limiter(key_func=_rate_limit_key, storage_uri="memory://")
