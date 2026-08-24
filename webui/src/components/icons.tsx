@@ -62,6 +62,15 @@ export function CheckIcon({ className }: IconProps) {
   )
 }
 
+export function XIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  )
+}
+
 export function HomeIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

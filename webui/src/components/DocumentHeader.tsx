@@ -6,7 +6,9 @@ import { ApiError } from '../api/errors'
 import type { Document } from '../api/types'
 import { formatRelativeTime } from '../lib/formatRelativeTime'
 import { useToast } from './toastContext'
-import { PencilIcon, TrashIcon } from './icons'
+import { CheckIcon, PencilIcon, SpinnerIcon, TrashIcon, XIcon } from './icons'
+
+const ICON_BUTTON = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-sm disabled:opacity-60'
 
 interface Props {
   document: Document
@@ -70,37 +72,19 @@ export function DocumentHeader({ document }: Props) {
 
   return (
     <header>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         {editing ? (
-          <div className="flex flex-1 items-center gap-2">
-            <input
-              autoFocus
-              value={titleDraft}
-              onChange={(event) => setTitleDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void saveTitle()
-                if (event.key === 'Escape') setEditing(false)
-              }}
-              disabled={saving}
-              className="w-full rounded-sm border border-border bg-secondary px-3 py-1.5 text-[26px] font-semibold leading-snug text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <button
-              type="button"
-              onClick={() => void saveTitle()}
-              disabled={saving}
-              className="shrink-0 rounded-sm bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              disabled={saving}
-              className="shrink-0 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-          </div>
+          <input
+            autoFocus
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void saveTitle()
+              if (event.key === 'Escape') setEditing(false)
+            }}
+            disabled={saving}
+            className="w-full flex-1 rounded-sm border border-border bg-secondary px-3 py-1.5 text-[26px] font-semibold leading-snug text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
         ) : (
           <div className="group flex min-w-0 items-center gap-2">
             <h1 className="text-[30px] font-semibold leading-snug text-foreground">{document.title}</h1>
@@ -115,16 +99,39 @@ export function DocumentHeader({ document }: Props) {
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => void handleDelete()}
-          disabled={deleting}
-          aria-label="Delete document"
-          className="mt-1 flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
-        >
-          <TrashIcon className="h-4 w-4" />
-          {deleting ? 'Deleting…' : 'Delete'}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {editing && (
+            <>
+              <button
+                type="button"
+                onClick={() => void saveTitle()}
+                disabled={saving}
+                aria-label="Save title"
+                className={`${ICON_BUTTON} bg-primary text-primary-foreground hover:opacity-90`}
+              >
+                {saving ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <CheckIcon className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                disabled={saving}
+                aria-label="Cancel"
+                className={`${ICON_BUTTON} text-muted-foreground hover:bg-secondary hover:text-foreground`}
+              >
+                <XIcon className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+            aria-label="Delete document"
+            className={`${ICON_BUTTON} text-destructive hover:bg-destructive/10`}
+          >
+            {deleting ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <TrashIcon className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
