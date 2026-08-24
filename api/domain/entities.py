@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
@@ -206,6 +206,26 @@ class IngestionJob:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    # Release 1 of the standalone-worker migration (see migration 0018) -- durable equivalents of
+    # JobStore/CrawlJobStore's in-memory fields, plus request-time inputs a standalone worker
+    # process needs that today only live in a Python function argument. Not yet read/written by
+    # any live request path (that's a later, separate release) -- populated here so
+    # IngestionJobRepository.claim_next_queued() has a complete entity to hand the worker.
+    # Defaulted (unlike this dataclass's other fields) so existing call sites that construct
+    # IngestionJob(...) directly, without knowing about these new fields, keep working unchanged.
+    category_id: UUID | None = None
+    payload_filename: str | None = None
+    crawl_url: str | None = None
+    crawl_max_pages: int | None = None
+    crawl_scope_prefix: str | None = None
+    cancel_requested: bool = False
+    parts_total: int | None = None
+    parts_completed: int = 0
+    parts_failed: int = 0
+    document_ids: list[str] = field(default_factory=list)
+    pages: dict = field(default_factory=dict)
+    claimed_at: datetime | None = None
+    claimed_by: str | None = None
 
 
 @dataclass(frozen=True)
