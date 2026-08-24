@@ -13,5 +13,10 @@ venv/
 webui/node_modules/
 webui/dist/
 
+# Playwright's own run output (webui/tests/e2e/) — not committed source.
+webui/test-results/
+webui/playwright-report/
+webui/blob-report/
+
 # Local scratch content, not part of the app
 Knowledge data library pages/

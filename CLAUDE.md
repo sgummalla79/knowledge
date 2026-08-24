@@ -1370,6 +1370,12 @@ provider/credentials you have.
   down Docker Desktop itself before. Always kill by the exact tracked PID or `docker rm -f
   <container-name>`.
 
+**Pre-deploy smoke check**: `cd webui && npm run test:e2e` (Playwright, `webui/tests/e2e/`) —
+against this same running stack, no separate setup. Added 2026-08-24 after the login-lockout
+incident was caught only by manual Playwright verification; replaces ad-hoc one-off scripts with a
+permanent suite (sign up/sign in/sign out, upload + job-status polling, concurrent authenticated
+navigations). First run needs `npx playwright install chromium` once.
+
 **Full teardown**, once genuinely done with the preview:
 ```bash
 kill $(cat /tmp/workspace-preview.pid) 2>/dev/null
