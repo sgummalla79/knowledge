@@ -12,6 +12,28 @@ from api.config import config
 from api.presentation.web.mcp_org_scoping import MCPOrgScopingMiddleware
 
 
+def _mark_input_terminated(wsgi_app):
+    """a2wsgi.WSGIMiddleware's build_environ() never sets 'wsgi.input_terminated' -- the WSGI
+    extension flag Werkzeug's get_input_stream() checks to decide whether it's safe to read the
+    request body directly. Without it, Werkzeug falls back to its DoS-safety default: if the
+    Content-Length header is missing, it hands the WSGI app an *empty* stream instead of the real
+    one, even though a2wsgi's ASGI-backed Body always knows exactly where the body ends (via the
+    ASGI "more_body" flag) regardless of Content-Length. A request that loses its Content-Length
+    header on the way in -- e.g. a large upload Traefik forwards to this backend as chunked
+    transfer-encoding -- gets silently treated as bodyless: multipart parsing fails instantly on
+    empty input, and the connection closes while the client is still mid-upload, which surfaces to
+    the browser as a corrupted TLS session (ERR_SSL_BAD_RECORD_MAC_ALERT) rather than a real error.
+    Setting this flag is always safe for a2wsgi's Body specifically, since it's unconditionally a
+    properly-terminated stream; Werkzeug still enforces MAX_CONTENT_LENGTH on it exactly as before.
+    """
+
+    def wrapped(environ, start_response):
+        environ["wsgi.input_terminated"] = True
+        return wsgi_app(environ, start_response)
+
+    return wrapped
+
+
 async def _health(request):
     """Answered directly at the ASGI layer, ahead of the Flask catch-all below -- deliberately
     bypasses a2wsgi's WSGIMiddleware and its single shared, bounded ThreadPoolExecutor (the same
@@ -64,7 +86,7 @@ def build_asgi_app(flask_app: Flask, mcp_servers: list[FastMCP] | None = None) -
     for mcp in mcp_servers:
         routes.extend(mcp.streamable_http_app().routes)
     routes.append(Route("/health", _health))
-    routes.append(Mount("/", app=WSGIMiddleware(flask_app)))
+    routes.append(Mount("/", app=WSGIMiddleware(_mark_input_terminated(flask_app))))
 
     lifespan = None
     if mcp_servers:
