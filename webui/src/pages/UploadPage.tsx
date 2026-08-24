@@ -5,6 +5,7 @@ import { ApiError } from '../api/errors'
 import { useCategories, useCrawlOptions, useIngestionJobs, useShelves } from '../api/queries'
 import type { Tag } from '../api/types'
 import { Dropzone } from '../components/Dropzone'
+import { SpinnerIcon } from '../components/icons'
 import { RecentUploadsList } from '../components/RecentUploadsList'
 import { Select } from '../components/Select'
 import { SourceTypeRadio, type SourceType } from '../components/SourceTypeRadio'
@@ -16,6 +17,9 @@ interface JobStatus {
   status: string
   error: string | null
   document_id: string | null
+  parts_total: number | null
+  parts_completed: number
+  parts_failed: number
 }
 
 interface CrawlStatus {
@@ -72,7 +76,7 @@ export function UploadPage() {
     }
   }
 
-  useJobPolling<JobStatus>(sourceType === 'upload' ? activeJobId : null, 'upload', (status) => {
+  const uploadStatus = useJobPolling<JobStatus>(sourceType === 'upload' ? activeJobId : null, 'upload', (status) => {
     setActiveJobId(null)
     void (async () => {
       if (status.status === 'completed' && status.document_id) {
@@ -89,7 +93,7 @@ export function UploadPage() {
     })()
   })
 
-  useJobPolling<CrawlStatus>(sourceType === 'url' ? activeJobId : null, 'crawl', (status) => {
+  const crawlStatus = useJobPolling<CrawlStatus>(sourceType === 'url' ? activeJobId : null, 'crawl', (status) => {
     setActiveJobId(null)
     const completedPages = Object.values(status.pages).filter((page) => page.status === 'completed').length
     if (status.status === 'completed' && completedPages > 0) {
@@ -101,6 +105,28 @@ export function UploadPage() {
     void queryClient.invalidateQueries({ queryKey: ['documents'] })
     resetForm()
   })
+
+  function uploadProgressLabel(status: JobStatus | null): string {
+    if (!status || status.status === 'pending') return 'Queued — starting shortly…'
+    if (status.status === 'running') {
+      if (status.parts_total && status.parts_total > 1) {
+        const done = Math.min(status.parts_completed + status.parts_failed + 1, status.parts_total)
+        return `Chunking and embedding — part ${done} of ${status.parts_total}…`
+      }
+      return 'Chunking and embedding…'
+    }
+    return 'Finishing up…'
+  }
+
+  function crawlProgressLabel(status: CrawlStatus | null): string {
+    const pages = status ? Object.values(status.pages) : []
+    if (!status || status.status === 'pending' || pages.length === 0) return 'Discovering pages…'
+    if (status.status === 'running') {
+      const done = pages.filter((page) => page.status === 'completed' || page.status === 'failed').length
+      return `Crawling — ${done} of ${pages.length} page${pages.length === 1 ? '' : 's'} processed…`
+    }
+    return 'Finishing up…'
+  }
 
   function toggleShelf(shelfId: string) {
     setShelfIds((current) =>
@@ -154,6 +180,27 @@ export function UploadPage() {
         </p>
 
         <SourceTypeRadio value={sourceType} onChange={setSourceType} />
+
+        {activeJobId && (
+          <div className="mb-6 rounded-sm border border-border bg-secondary px-4 py-3">
+            <div className="flex items-center gap-3 text-sm text-foreground">
+              <SpinnerIcon className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              <span>{sourceType === 'url' ? crawlProgressLabel(crawlStatus) : uploadProgressLabel(uploadStatus)}</span>
+            </div>
+            {uploadStatus?.parts_total && uploadStatus.parts_total > 1 && (
+              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{
+                    width: `${
+                      ((uploadStatus.parts_completed + uploadStatus.parts_failed) / uploadStatus.parts_total) * 100
+                    }%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {sourceType === 'upload' && <Dropzone file={file} onFileSelected={setFile} />}
@@ -266,10 +313,10 @@ export function UploadPage() {
 
           <button
             type="submit"
-            disabled={submitting || sourceType === 'connector'}
+            disabled={submitting || activeJobId !== null || sourceType === 'connector'}
             className="rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
-            {submitting ? 'Adding…' : 'Add to library'}
+            {submitting ? 'Adding…' : activeJobId ? 'Indexing…' : 'Add to library'}
           </button>
         </form>
       </div>
