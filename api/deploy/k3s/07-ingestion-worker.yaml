@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowledge-ingestion-worker
+  namespace: knowledge
+spec:
+  # Release 1: deliberately 0. This worker's claim query (IngestionJobRepository.claim_next_queued)
+  # targets the exact same ingestion_jobs.status='queued' rows the live API's threading.Thread-based
+  # path (api/application/document_service.py) already creates and processes itself -- running
+  # this Deployment with replicas > 0 against the same DATABASE_URL as a live knowledge-api
+  # Deployment would double-process every job. Do not scale this above 0 until a later release also
+  # lands the api-side cutover that stops start_ingestion/start_retry/start_crawl from spawning
+  # threads. See this repo's ingestion-worker Release 1 plan for the full rollout story.
+  replicas: 0
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels: { app: knowledge-ingestion-worker }
+  template:
+    metadata:
+      labels: { app: knowledge-ingestion-worker }
+    spec:
+      containers:
+        - name: knowledge-ingestion-worker
+          # Same published image as knowledge-api (02-api.yaml) -- keep these two tags in sync on
+          # every bump, since both run from the exact same source tree.
+          image: sgummalla/knowledge:4.4.4
+          # Bypasses api/deploy/entrypoint.sh (and its `alembic upgrade head` step) entirely --
+          # migrations stay owned by the API Deployment only. If both Deployments' entrypoints ran
+          # `alembic upgrade head` and were applied together, nothing stops two concurrent alembic
+          # invocations from racing against the same database (Alembic has no built-in advisory
+          # lock for this).
+          command: ["python", "-m", "api.ingestion_worker.main"]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: knowledge-secrets, key: database-url }
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: knowledge-secrets, key: secret-key }
+            - name: LOG_LEVEL
+              value: INFO

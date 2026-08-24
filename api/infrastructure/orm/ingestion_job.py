@@ -1,7 +1,8 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
-from sqlalchemy.dialects.postgresql import ENUM, UUID
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, LargeBinary, String, func
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
+from sqlalchemy.orm import deferred
 
 from api.infrastructure.orm.base import Base
 
@@ -24,3 +25,30 @@ class IngestionJob(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
+
+    # --- Release 1 of the standalone-worker migration (see migration 0018) ---
+    # Request-time inputs a standalone worker process needs, durably -- today these only exist as
+    # arguments passed straight into threading.Thread(...) and are lost the instant that thread's
+    # stack unwinds.
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    # Upload-only. Deferred, same reasoning as Document.raw_file_bytes: only loaded when a worker
+    # explicitly reads it, never on a plain get()/list_by_org() call.
+    payload = deferred(Column(LargeBinary, nullable=True))
+    payload_filename = Column(String, nullable=True)
+    # Crawl-only.
+    crawl_url = Column(String, nullable=True)
+    crawl_max_pages = Column(Integer, nullable=True)
+    crawl_scope_prefix = Column(String, nullable=True)
+
+    # Live-progress fields -- durable equivalents of JobStore/CrawlJobStore's in-memory dict.
+    cancel_requested = Column(Boolean, nullable=False, default=False)
+    parts_total = Column(Integer, nullable=True)
+    parts_completed = Column(Integer, nullable=False, default=0)
+    parts_failed = Column(Integer, nullable=False, default=0)
+    document_ids = Column(JSONB, nullable=False, default=list)
+    pages = Column(JSONB, nullable=False, default=dict)
+
+    # Claim bookkeeping -- observability only, not correctness (FOR UPDATE SKIP LOCKED is what
+    # makes claiming itself correct). claimed_by is a free-text worker instance id, not a FK.
+    claimed_at = Column(DateTime(timezone=True), nullable=True)
+    claimed_by = Column(String, nullable=True)
