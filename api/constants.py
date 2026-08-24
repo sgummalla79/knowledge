@@ -307,3 +307,42 @@ MCP_TIERS: tuple[tuple[str, str], ...] = (
     ("object_read_enabled", "read"),
     ("object_write_enabled", "write"),
 )
+
+# Per-connection PostgreSQL session timeouts (api/infrastructure/orm/base.py), env-overridable
+# since these are operational tuning values, not code. All three close a gap found in a real
+# production incident (2026-08-24): a request-scoped session that opened a transaction (to set the
+# RLS session vars below) then stalled in application code before its next query sat
+# idle-in-transaction, holding a row lock, until it was found and killed by hand. statement_timeout
+# alone doesn't catch that state (it only cancels a currently-*executing* query) — the other two do:
+# lock_timeout fails a query that's been waiting to *acquire* a lock too long; idle_in_transaction
+# fails a session sitting idle mid-transaction, regardless of why. Defaults chosen relative to each
+# other: lock_timeout (fail waiting-on-a-lock fast) < statement_timeout (already-established,
+# matches a2wsgi's shared WSGI thread pool concern) < idle_in_transaction (the longest leash, since
+# legitimate request handling should never sit idle mid-transaction at all).
+DB_LOCK_TIMEOUT_MS_DEFAULT = 10_000
+DB_STATEMENT_TIMEOUT_MS_DEFAULT = 15_000
+DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT = 30_000
+
+# PostgreSQL SQLSTATE codes classified by api/infrastructure/orm/db_fault_logging.py's
+# handle_error listener, so a lock/timeout fault is a searchable, alertable log line instead of a
+# silent stall discovered only once it becomes a user-visible outage (see the incident note above).
+# Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
+SQLSTATE_LOCK_NOT_AVAILABLE = "55P03"  # lock_timeout exceeded waiting to acquire a lock
+SQLSTATE_QUERY_CANCELED = "57014"  # statement_timeout exceeded mid-execution
+SQLSTATE_IDLE_IN_TRANSACTION_TIMEOUT = "25P03"  # idle_in_transaction_session_timeout exceeded
+SQLSTATE_DEADLOCK_DETECTED = "40P01"
+SQLSTATE_SERIALIZATION_FAILURE = "40001"
+
+# Human-readable fault name per SQLSTATE above, used as the logged `db_fault` field — keeps the log
+# line greppable by name without every reader needing to memorize raw SQLSTATE codes.
+SQLSTATE_FAULT_NAMES: dict[str, str] = {
+    SQLSTATE_LOCK_NOT_AVAILABLE: "db_lock_timeout",
+    SQLSTATE_QUERY_CANCELED: "db_query_canceled",
+    SQLSTATE_IDLE_IN_TRANSACTION_TIMEOUT: "db_idle_in_transaction_timeout",
+    SQLSTATE_DEADLOCK_DETECTED: "db_deadlock",
+    SQLSTATE_SERIALIZATION_FAILURE: "db_serialization_failure",
+}
+
+# Faults serious enough to log at ERROR (a deadlock aborted a transaction outright) rather than
+# WARNING (a timeout/serialization retry — noisy but expected under real contention).
+SQLSTATE_ERROR_LEVEL_CODES = frozenset({SQLSTATE_DEADLOCK_DETECTED, SQLSTATE_SERIALIZATION_FAILURE})
