@@ -51,4 +51,15 @@ def resolve_cookie_session() -> tuple[UUID, UUID] | None:
             raise AuthenticationError("Session expired due to inactivity — please sign in again.")
 
     identities.touch_last_active(identity_id)
+    # Commits immediately, right after the write, rather than leaving it for teardown_session at
+    # the end of the whole request: an UPDATE's row lock is held until COMMIT, and this runs at
+    # the very start of every authenticated request. Left uncommitted, that lock would sit open
+    # for this request's *entire* remaining duration -- and since a single page load fires several
+    # concurrent requests for the same signed-in identity (documents/shelves/categories/dashboard
+    # stats/etc. all at once), every one of them calls touch_last_active on the exact same
+    # identities row, serializing them behind whichever one got there first. Traced to a real
+    # production incident (2026-08-24): a burst of concurrent requests all queued on this one lock
+    # and started failing with `db_lock_timeout` once enough piled up -- committing here bounds the
+    # lock's lifetime to the UPDATE itself (microseconds) instead of the whole request.
+    db_session.commit()
     return identity_id, org_id
