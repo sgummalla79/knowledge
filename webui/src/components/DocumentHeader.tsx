@@ -127,9 +127,10 @@ export function DocumentHeader({ document }: Props) {
             onClick={() => void handleDelete()}
             disabled={deleting}
             aria-label="Delete document"
-            className={`${ICON_BUTTON} text-destructive hover:bg-destructive/10`}
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-sm bg-destructive px-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             {deleting ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <TrashIcon className="h-4 w-4" />}
+            {deleting ? 'Deleting…' : 'Delete'}
           </button>
         </div>
       </div>
