@@ -58,6 +58,19 @@ def test_list_ingestion_jobs_returns_all(client):
     assert mock_list.call_args.args[2] == 0
 
 
+def test_list_ingestion_jobs_includes_payload_filename(client):
+    """Regression test: an upload job's source filename must reach the client so it can show
+    what was actually uploaded instead of just the generic job type (previously missing from
+    IngestionJobResponse entirely, even though the domain entity/DB already had it)."""
+    jobs = [_job(payload_filename="quarterly-report.pdf"), _job(type="crawl", payload_filename=None)]
+    with patch("api.presentation.routes.ingestion_jobs.IngestionJobService.list_jobs", return_value=jobs):
+        response = client.get("/ingestion-jobs")
+
+    body = response.get_json()
+    assert body[0]["payload_filename"] == "quarterly-report.pdf"
+    assert body[1]["payload_filename"] is None
+
+
 def test_list_ingestion_jobs_passes_limit_offset(client):
     with patch(
         "api.presentation.routes.ingestion_jobs.IngestionJobService.list_jobs", return_value=[]

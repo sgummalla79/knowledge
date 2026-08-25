@@ -189,6 +189,8 @@ export interface IngestionJob {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  // Set for a "upload" job (the source file's original name); null for every other job type.
+  payload_filename: string | null
 }
 
 // api_key was removed as a Connected Applications auth method — see PersonalAccessToken below for
