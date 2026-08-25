@@ -45,6 +45,7 @@ export function UploadPage() {
   const [pendingTags, setPendingTags] = useState<Tag[]>([])
   const [shelfIds, setShelfIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -153,7 +154,8 @@ export function UploadPage() {
         const formData = new FormData()
         formData.append('file', file)
         if (categoryId) formData.append('category_id', categoryId)
-        const { job_id } = await api.upload<{ job_id: string }>('/documents', formData)
+        setUploadProgress(0)
+        const { job_id } = await api.uploadWithProgress<{ job_id: string }>('/documents', formData, setUploadProgress)
         setActiveJobId(job_id)
       } else if (sourceType === 'url') {
         const { job_id } = await api.post<{ job_id: string }>('/documents/crawl', {
@@ -168,6 +170,7 @@ export function UploadPage() {
       setFormError(err instanceof ApiError ? err.message : 'Something went wrong — please try again.')
     } finally {
       setSubmitting(false)
+      setUploadProgress(null)
     }
   }
 
@@ -180,27 +183,6 @@ export function UploadPage() {
         </p>
 
         <SourceTypeRadio value={sourceType} onChange={setSourceType} />
-
-        {activeJobId && (
-          <div className="mb-6 rounded-sm border border-border bg-secondary px-4 py-3">
-            <div className="flex items-center gap-3 text-sm text-foreground">
-              <SpinnerIcon className="h-4 w-4 shrink-0 animate-spin text-primary" />
-              <span>{sourceType === 'url' ? crawlProgressLabel(crawlStatus) : uploadProgressLabel(uploadStatus)}</span>
-            </div>
-            {uploadStatus?.parts_total && uploadStatus.parts_total > 1 && (
-              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{
-                    width: `${
-                      ((uploadStatus.parts_completed + uploadStatus.parts_failed) / uploadStatus.parts_total) * 100
-                    }%`,
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        )}
 
         <form onSubmit={handleSubmit}>
           {sourceType === 'upload' && <Dropzone file={file} onFileSelected={setFile} />}
@@ -311,12 +293,54 @@ export function UploadPage() {
             </div>
           )}
 
+          {sourceType === 'upload' && uploadProgress !== null && (
+            <div className="mb-4 rounded-sm border border-border bg-secondary px-4 py-3">
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <SpinnerIcon className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                <span>Uploading — {Math.round(uploadProgress * 100)}%…</span>
+              </div>
+              <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.round(uploadProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {activeJobId && (
+            <div className="mb-4 rounded-sm border border-border bg-secondary px-4 py-3">
+              <div className="flex items-center gap-3 text-sm text-foreground">
+                <SpinnerIcon className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                <span>{sourceType === 'url' ? crawlProgressLabel(crawlStatus) : uploadProgressLabel(uploadStatus)}</span>
+              </div>
+              {uploadStatus?.parts_total && uploadStatus.parts_total > 1 && (
+                <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{
+                      width: `${
+                        ((uploadStatus.parts_completed + uploadStatus.parts_failed) / uploadStatus.parts_total) * 100
+                      }%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={submitting || activeJobId !== null || sourceType === 'connector'}
             className="rounded-sm bg-primary px-5 py-2.5 text-[15px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
           >
-            {submitting ? 'Adding…' : activeJobId ? 'Indexing…' : 'Add to library'}
+            {uploadProgress !== null
+              ? `Uploading — ${Math.round(uploadProgress * 100)}%…`
+              : submitting
+                ? 'Adding…'
+                : activeJobId
+                  ? 'Indexing…'
+                  : 'Add to library'}
           </button>
         </form>
       </div>
