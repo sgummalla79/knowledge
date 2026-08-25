@@ -35,7 +35,16 @@ spec:
             - containerPort: 5432
           resources:
             requests: { cpu: 100m, memory: 256Mi }
-            limits: { cpu: "1", memory: 1Gi }
+            # 1Gi wasn't enough for a large upload's INSERT (ingestion_jobs.payload holds the raw
+            # file bytes as one value) -- confirmed via this pod's own logs: a 109MB upload OOM-
+            # killed a Postgres backend process, which crashes the whole instance into WAL recovery
+            # ("database system was not properly shut down; automatic recovery in progress"),
+            # killing every other connection too, not just this one request. Not just a failed
+            # upload -- a real availability incident for the whole app during recovery. Raised to
+            # 2Gi; this box has 7.8Gi total (see api/deploy/k3s/07-ingestion-worker.yaml's own
+            # comment on the same tradeoff -- a ceiling this pod grows into when it needs it, not a
+            # reservation, costs nothing at idle).
+            limits: { cpu: "1", memory: 2Gi }
           env:
             - name: POSTGRES_DB
               value: knowledge
