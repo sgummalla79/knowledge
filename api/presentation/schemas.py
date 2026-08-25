@@ -504,9 +504,15 @@ class IngestionJobResponse(BaseModel):
     # Populated for an "upload" job (the source file's original name) -- None for every other job
     # type. Lets a client show what was actually uploaded instead of just the generic job type.
     payload_filename: str | None
+    # The linked document's size (documents.size_bytes) -- only available once a job reaches a
+    # terminal state and resolved to exactly one document; see
+    # IngestionJobService.document_sizes_by_job's own docstring for why this isn't a column on
+    # ingestion_jobs itself. None for every job this doesn't apply to (queued/processing, a
+    # split-PDF job's multiple parts, or any non-upload job type).
+    size_bytes: int | None
 
     @classmethod
-    def from_entity(cls, job: IngestionJob) -> "IngestionJobResponse":
+    def from_entity(cls, job: IngestionJob, size_bytes: int | None = None) -> "IngestionJobResponse":
         return cls(
             id=job.id,
             org_id=job.org_id,
@@ -521,6 +527,7 @@ class IngestionJobResponse(BaseModel):
             started_at=job.started_at,
             finished_at=job.finished_at,
             payload_filename=job.payload_filename,
+            size_bytes=size_bytes,
         )
 
 

@@ -191,6 +191,10 @@ export interface IngestionJob {
   finished_at: string | null
   // Set for a "upload" job (the source file's original name); null for every other job type.
   payload_filename: string | null
+  // The linked document's size -- only set once the job reaches a terminal state and resolved to
+  // exactly one document (a still-queued/processing job, a non-upload job, or a split-PDF job's
+  // multiple parts all leave this null).
+  size_bytes: number | null
 }
 
 // api_key was removed as a Connected Applications auth method — see PersonalAccessToken below for
