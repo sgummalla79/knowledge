@@ -24,7 +24,7 @@ spec:
         - name: knowledge-api
           # Bump this tag to upgrade -- check docker.io/sgummalla/knowledge/tags or this repo's
           # api/VERSION file for the current one, then `kubectl apply -f` this file again.
-          image: sgummalla/knowledge:4.10.0
+          image: sgummalla/knowledge:4.10.1
           ports:
             - containerPort: 13102
           resources:
