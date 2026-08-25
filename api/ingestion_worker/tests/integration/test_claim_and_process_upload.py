@@ -21,22 +21,24 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_claim_and_process_upload_end_to_end(db_session, session_factory):
+def test_claim_and_process_upload_end_to_end(db_session, session_factory, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     ingestion_jobs = IngestionJobRepository(db_session)
+    payload_path = "org/job/upload.bin"
+    storage.save_bytes(payload_path, b"hello world, this is a test document")
     job = ingestion_jobs.create(
         org_id,
         type="upload",
         triggered_by=owner.id,
-        payload=b"hello world, this is a test document",
+        payload_path=payload_path,
         payload_filename="notes.txt",
     )
     db_session.commit()
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve", return_value=_fake_provider()
     ):
@@ -52,16 +54,23 @@ def test_claim_and_process_upload_end_to_end(db_session, session_factory):
     assert refreshed.finished_at is not None
     assert refreshed.claimed_by is not None
 
-    # Payload cleared -- this table never holds an upload's bytes longer than it takes to process.
-    assert IngestionJobRepository(verify_session).get_payload(job.id) is None
+    # Payload cleared -- this table never holds a pointer to an upload's file longer than it takes
+    # to process, and the file itself is moved into the document's own home (see
+    # IngestionService.ingest()), not deleted separately here.
+    assert refreshed.payload_path is None
 
     document = DocumentRepository(verify_session).get(refreshed.document_id)
     assert document.status == "indexed"
+    # Indexed -- the physical file was reclaimed too (IngestionService._process()).
+    assert document.raw_file_path is None
+    assert not storage.resolve(payload_path).exists()
     chunks = ChunkRepository(verify_session).list_for_document(document.id, limit=100, offset=0)
     assert len(chunks) > 0
     verify_session.close()
 
 
-def test_claim_and_process_one_returns_false_and_leaves_queue_empty_when_nothing_queued(db_session, session_factory):
-    worker = IngestionJobWorker(session_factory=session_factory)
+def test_claim_and_process_one_returns_false_and_leaves_queue_empty_when_nothing_queued(
+    db_session, session_factory, storage
+):
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     assert worker.claim_and_process_one() is False

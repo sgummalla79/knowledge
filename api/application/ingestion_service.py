@@ -2,7 +2,7 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from api.constants import INGESTION_EMBED_BATCH_SIZE
 from api.domain import error_codes
@@ -13,6 +13,7 @@ from api.infrastructure.chunking.chunker import TextChunker
 from api.infrastructure.embeddings.registry import EmbeddingProviderRegistry
 from api.infrastructure.parsing.html_parser import HtmlParser
 from api.infrastructure.parsing.registry import ParserRegistry
+from api.infrastructure.storage.upload_storage import UploadStorage
 
 # Documents created via ingest_html() carry this as their file_type — a fixed marker (not derived
 # from the source URL, which often has no real file extension, e.g. "/s/articleView?id=...") that
@@ -64,17 +65,19 @@ class IngestionService:
         document_repo: DocumentRepositoryPort,
         chunk_repo: ChunkRepositoryPort,
         embedding_settings_repo: EmbeddingSettingsRepositoryPort,
+        storage: UploadStorage,
     ):
         self._documents = document_repo
         self._chunks = chunk_repo
         self._embedding_settings = embedding_settings_repo
+        self._storage = storage
 
     def ingest(
         self,
         org_id: UUID,
         owner_id: UUID,
         filename: str,
-        file_bytes: bytes,
+        source_path: str,
         category_id: UUID | None = None,
         should_cancel: Callable[[], bool] | None = None,
         file_type: str | None = None,
@@ -86,12 +89,23 @@ class IngestionService:
         PdfSplitIngestionService when this document is one part of an auto-split oversized PDF —
         file_type must be passed as "pdf" there rather than derived from filename, since a part's
         display filename carries a "(part N of M)" suffix that isn't a real extension. Every other
-        caller omits these and gets today's behavior unchanged."""
+        caller omits these and gets today's behavior unchanged.
+
+        source_path must point at a file this call is free to take ownership of — it's moved
+        (UploadStorage.move_into, a same-filesystem rename, not a copy) into this document's own
+        on-disk home rather than read into memory here. Callers that don't already have a
+        standalone file to hand over (PdfSplitIngestionService, one part at a time) write one
+        first; the non-split/whole-upload case hands over the job's own upload file directly, with
+        no separate write needed."""
         settings = self.require_embedding_settings(org_id)
 
         resolved_file_type = file_type if file_type is not None else resolve_file_type(filename)
-        content_hash = hashlib.sha256(file_bytes).hexdigest()
+        content_hash, size_bytes = self._storage.sha256_and_size(source_path)
+        document_id = uuid4()
+        raw_file_path = self._storage.path_for_document(org_id, document_id)
+        self._storage.move_into(source_path, raw_file_path)
         document = self._documents.create(
+            id=document_id,
             org_id=org_id,
             owner_id=owner_id,
             category_id=category_id,
@@ -103,13 +117,13 @@ class IngestionService:
             # Kept only until this document reaches "indexed" — see
             # DocumentRepository.update_status — so a failed ingestion can be retried without
             # the client re-sending the file.
-            raw_file_bytes=file_bytes,
-            size_bytes=len(file_bytes),
+            raw_file_path=raw_file_path,
+            size_bytes=size_bytes,
             split_group_id=split_group_id,
             split_part=split_part,
             split_total=split_total,
         )
-        return self._process(document, org_id, file_bytes, settings, should_cancel)
+        return self._process(document, org_id, raw_file_path, settings, should_cancel)
 
     def ingest_html(
         self,
@@ -125,11 +139,19 @@ class IngestionService:
         uploaded. title is the page's URL itself (for display/linking, not extension sniffing).
         file_type defaults to the fixed HTML_SOURCE_FILE_TYPE marker rather than something derived
         from the URL (which frequently has no real file extension), but WebCrawlService passes
-        MARKDOWN_SOURCE_FILE_TYPE explicitly when WebPageFetcher fetched a markdown twin instead."""
+        MARKDOWN_SOURCE_FILE_TYPE explicitly when WebPageFetcher fetched a markdown twin instead.
+
+        Keeps taking html_bytes (not a path, unlike ingest()) — a crawled page is always small and
+        was never the OOM source this app's storage redesign targeted, and there's no pre-existing
+        file on disk to hand over here the way an upload already has one."""
         settings = self.require_embedding_settings(org_id)
 
         content_hash = hashlib.sha256(html_bytes).hexdigest()
+        document_id = uuid4()
+        raw_file_path = self._storage.path_for_document(org_id, document_id)
+        self._storage.save_bytes(raw_file_path, html_bytes)
         document = self._documents.create(
+            id=document_id,
             org_id=org_id,
             owner_id=owner_id,
             category_id=category_id,
@@ -138,29 +160,29 @@ class IngestionService:
             file_type=file_type,
             content_hash=content_hash,
             status="processing",
-            raw_file_bytes=html_bytes,
+            raw_file_path=raw_file_path,
             size_bytes=len(html_bytes),
         )
-        return self._process(document, org_id, html_bytes, settings, should_cancel)
+        return self._process(document, org_id, raw_file_path, settings, should_cancel)
 
     def retry(self, document: Document, should_cancel: Callable[[], bool] | None = None) -> Document:
         """Re-runs the exact same pipeline as ingest(), against an existing document row instead
-        of creating a new one, using the raw bytes stored at the original upload. A failed
+        of creating a new one, reading back the file stored at the original ingestion. A failed
         ingestion never gets far enough to call ChunkRepository.bulk_create (see _process below —
         chunks are only written after every chunk has embedded successfully), so there's no
         partial-chunk cleanup needed here; retrying just runs the pipeline again from scratch."""
         settings = self.require_embedding_settings(document.org_id)
 
-        file_bytes = self._documents.get_raw_bytes(document.id)
-        if file_bytes is None:
+        if document.raw_file_path is None:
             raise ValidationError(
                 error_codes.DOCUMENT_NOT_RETRYABLE,
                 "No stored file available to retry — this document predates retry support, or "
                 "was never actually uploaded with one.",
                 field="document_id",
             )
+        raw_file_path = document.raw_file_path
         document = self._documents.update_status(document.id, "processing")
-        return self._process(document, document.org_id, file_bytes, settings, should_cancel)
+        return self._process(document, document.org_id, raw_file_path, settings, should_cancel)
 
     def require_embedding_settings(self, org_id: UUID):
         settings = self._embedding_settings.get(org_id)
@@ -180,7 +202,7 @@ class IngestionService:
         self,
         document: Document,
         org_id: UUID,
-        file_bytes: bytes,
+        raw_file_path: str,
         settings,
         should_cancel: Callable[[], bool] | None = None,
     ) -> Document:
@@ -193,7 +215,7 @@ class IngestionService:
             # NUL (0x00) characters") — some PDFs' extracted text contains them (seen in
             # production). Stripped here, at the boundary where arbitrary file content enters the
             # pipeline, so it can never reach chunks.content regardless of which parser produced it.
-            text = parser.parse(file_bytes).replace("\x00", "")
+            text = parser.parse(self._storage.resolve(raw_file_path)).replace("\x00", "")
 
             chunker = TextChunker(chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap)
             pieces = chunker.split(text)
@@ -246,6 +268,10 @@ class IngestionService:
             document = self._documents.update_status(
                 document.id, "indexed", indexed_at=datetime.now(timezone.utc), chunk_count=chunk_count
             )
+            # The DB column is already nulled by update_status above -- this is the other half,
+            # reclaiming the actual file now that it's no longer needed for retry (content lives in
+            # `chunks` from here on).
+            self._storage.delete(raw_file_path)
             logger.info(
                 "Ingestion persisted", extra={"document_id": str(document.id), "chunk_count": chunk_count}
             )

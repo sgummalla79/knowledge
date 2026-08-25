@@ -1,8 +1,9 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from flask import Blueprint, g, jsonify, request
 
 from api.application.document_service import DocumentService
+from api.config import config
 from api.constants import WEB_CRAWL_RATE_LIMIT
 from api.container import get_session
 from api.domain import error_codes
@@ -12,6 +13,7 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.presentation.routes.app_auth import require_permission
 from api.presentation.routes.auth_ui import require_org_session
 from api.presentation.schemas import (
@@ -44,16 +46,26 @@ def upload_document():
         raise ValidationError(error_codes.VALIDATION_ERROR, "file is required", field="file")
 
     uploaded = request.files["file"]
-    file_bytes = uploaded.read()
+    # Pre-generated here (not left to the DB default) since the on-disk path is derived from it,
+    # and the file needs to land on disk before the job row referencing that path is created --
+    # see DocumentService.start_ingestion's own docstring.
+    job_id = uuid4()
+    storage = UploadStorage(config.uploads_dir)
+    payload_path = storage.path_for_job_upload(g.org_id, job_id)
+    # FileStorage.save() streams from the WSGI request body straight to disk in chunks -- never
+    # materializes the whole upload as one Python bytes object (see
+    # docs/UPLOAD_STORAGE_REDESIGN.md).
+    storage.save_stream(payload_path, uploaded)
     category_id = request.form.get("category_id")
-    job_id = _service().start_ingestion(
+    job_id_str = _service().start_ingestion(
         g.org_id,
         g.user_id,
         uploaded.filename,
-        file_bytes,
+        payload_path,
+        job_id=job_id,
         category_id=UUID(category_id) if category_id else None,
     )
-    return jsonify({"job_id": job_id}), 202
+    return jsonify({"job_id": job_id_str}), 202
 
 
 @documents_bp.post("/documents/crawl")

@@ -1,6 +1,7 @@
 import re
 from io import BytesIO
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from reportlab.lib.pagesizes import letter
@@ -18,7 +19,13 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.tests.integration.conftest import seed_active_embedding_provider
+
+
+@pytest.fixture
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
 
 
 def make_pdf_bytes(pages: list[str]) -> bytes:
@@ -42,13 +49,22 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def _make_split_service(db_session, splitter=None):
+def _source(storage, data: bytes, name: str = "upload.pdf") -> str:
+    """Writes bytes to a path PdfSplitIngestionService.ingest() reads from -- mirrors how the
+    upload route hands over the whole originally-uploaded file (ingestion_jobs.payload_path)."""
+    path = f"src/{name}"
+    storage.save_bytes(path, data)
+    return path
+
+
+def _make_split_service(db_session, storage, splitter=None):
     ingestion_service = IngestionService(
         DocumentRepository(db_session),
         ChunkRepository(db_session),
         EmbeddingSettingsRepository(db_session),
+        storage,
     )
-    return PdfSplitIngestionService(ingestion_service, splitter), ingestion_service
+    return PdfSplitIngestionService(ingestion_service, storage, splitter), ingestion_service
 
 
 def _chunk_text(db_session, document_id) -> str:
@@ -61,7 +77,7 @@ def _chunk_text(db_session, document_id) -> str:
     return " ".join(row.content for row in rows)
 
 
-def test_pdf_below_threshold_ingests_as_single_document_unchanged(db_session):
+def test_pdf_below_threshold_ingests_as_single_document_unchanged(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
@@ -69,15 +85,17 @@ def test_pdf_below_threshold_ingests_as_single_document_unchanged(db_session):
     db_session.commit()
 
     # Real default MAX_UPLOAD_MB threshold — this tiny synthetic PDF stays well under it.
-    split_service, _ = _make_split_service(db_session)
-    pdf_bytes = make_pdf_bytes(["just one small page"])
+    split_service, _ = _make_split_service(db_session, storage)
+    source_path = _source(storage, make_pdf_bytes(["just one small page"]))
 
     results = []
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        split_service.ingest(org_id, owner.id, "small.pdf", pdf_bytes, on_part_result=lambda *a: results.append(a))
+        split_service.ingest(
+            org_id, owner.id, uuid4(), "small.pdf", source_path, on_part_result=lambda *a: results.append(a)
+        )
     db_session.commit()
 
     assert len(results) == 1
@@ -91,7 +109,7 @@ def test_pdf_below_threshold_ingests_as_single_document_unchanged(db_session):
     assert document.title == "small.pdf"
 
 
-def test_oversized_pdf_splits_into_multiple_documents_with_overlapping_content(db_session):
+def test_oversized_pdf_splits_into_multiple_documents_with_overlapping_content(db_session, storage):
     owner = _owner(db_session)
     # chunk_size/chunk_overlap must be large relative to a single "marker NNN" token, or
     # TextChunker's own fixed-width windowing can chop a marker apart across two chunk rows —
@@ -103,17 +121,20 @@ def test_oversized_pdf_splits_into_multiple_documents_with_overlapping_content(d
 
     pages = [f"page {i} unique marker {i:03d}" for i in range(10)]
     pdf_bytes = make_pdf_bytes(pages)
+    source_path = _source(storage, pdf_bytes)
     # Small injected threshold/target so this small synthetic PDF actually triggers a split —
     # same DI pattern TextChunker already uses, no real MAX_UPLOAD_MB-sized fixture needed.
     splitter = PdfSplitter(threshold_bytes=10, target_part_bytes=len(pdf_bytes) // 5, max_parts=20)
-    split_service, _ = _make_split_service(db_session, splitter)
+    split_service, _ = _make_split_service(db_session, storage, splitter)
 
     results = []
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        split_service.ingest(org_id, owner.id, "big.pdf", pdf_bytes, on_part_result=lambda *a: results.append(a))
+        split_service.ingest(
+            org_id, owner.id, uuid4(), "big.pdf", source_path, on_part_result=lambda *a: results.append(a)
+        )
     db_session.commit()
 
     assert len(results) > 1
@@ -140,7 +161,7 @@ def test_oversized_pdf_splits_into_multiple_documents_with_overlapping_content(d
         assert marker_sets[i] & marker_sets[i + 1], "adjacent split parts should share boundary content"
 
 
-def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryable(db_session):
+def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryable(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=10, chunk_overlap=1
@@ -149,8 +170,9 @@ def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryabl
 
     pages = [f"page {i} unique marker {i:03d}" for i in range(9)]
     pdf_bytes = make_pdf_bytes(pages)
+    source_path = _source(storage, pdf_bytes)
     splitter = PdfSplitter(threshold_bytes=10, target_part_bytes=len(pdf_bytes) // 3, max_parts=20)
-    split_service, ingestion_service = _make_split_service(db_session, splitter)
+    split_service, ingestion_service = _make_split_service(db_session, storage, splitter)
 
     call_count = {"n": 0}
 
@@ -165,7 +187,9 @@ def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryabl
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=resolve_side_effect,
     ):
-        split_service.ingest(org_id, owner.id, "big.pdf", pdf_bytes, on_part_result=lambda *a: results.append(a))
+        split_service.ingest(
+            org_id, owner.id, uuid4(), "big.pdf", source_path, on_part_result=lambda *a: results.append(a)
+        )
     db_session.commit()
 
     assert len(results) == 3
@@ -178,12 +202,11 @@ def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryabl
     statuses = {d.status for d in documents}
     assert statuses == {"indexed", "failed"}
 
-    document_repo = DocumentRepository(db_session)
     failed_document = next(d for d in documents if d.status == "failed")
-    assert document_repo.get_raw_bytes(failed_document.id) is not None
+    assert failed_document.raw_file_path is not None
     assert failed_document.split_group_id is not None
 
-    # The failed part retries independently, against its own stored bytes — no re-splitting.
+    # The failed part retries independently, against its own stored file — no re-splitting.
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
@@ -196,18 +219,18 @@ def test_one_failed_part_does_not_abort_the_others_and_is_independently_retryabl
     assert retried_document.split_part == failed_document.split_part
 
 
-def test_non_pdf_oversized_file_raises_file_too_large_without_creating_a_document(db_session):
+def test_non_pdf_oversized_file_raises_file_too_large_without_creating_a_document(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=800, chunk_overlap=100
     )
     db_session.commit()
 
-    split_service, _ = _make_split_service(db_session)
-    oversized = b"x" * (51 * 1024 * 1024)
+    split_service, _ = _make_split_service(db_session, storage)
+    source_path = _source(storage, b"x" * (51 * 1024 * 1024), name="huge.md")
 
     with pytest.raises(ValidationError) as exc_info:
-        split_service.ingest(org_id, owner.id, "huge.md", oversized)
+        split_service.ingest(org_id, owner.id, uuid4(), "huge.md", source_path)
     assert exc_info.value.code == error_codes.FILE_TOO_LARGE
 
     documents = DocumentRepository(db_session).list_for_org(org_id, limit=10, offset=0, sort="created_at")

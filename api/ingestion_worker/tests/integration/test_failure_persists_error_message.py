@@ -13,22 +13,24 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_embedding_failure_marks_job_failed_with_error_message_and_clears_payload(db_session, session_factory):
+def test_embedding_failure_marks_job_failed_with_error_message_and_clears_payload(db_session, session_factory, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     ingestion_jobs = IngestionJobRepository(db_session)
+    payload_path = "org/job/upload.bin"
+    storage.save_bytes(payload_path, b"hello world")
     job = ingestion_jobs.create(
         org_id,
         type="upload",
         triggered_by=owner.id,
-        payload=b"hello world",
+        payload_path=payload_path,
         payload_filename="notes.txt",
     )
     db_session.commit()
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
@@ -42,11 +44,11 @@ def test_embedding_failure_marks_job_failed_with_error_message_and_clears_payloa
     assert refreshed.status == "failed"
     assert refreshed.error_message == "embedding API unavailable"
     assert refreshed.finished_at is not None
-    assert IngestionJobRepository(verify_session).get_payload(job.id) is None
+    assert refreshed.payload_path is None
     verify_session.close()
 
 
-def test_retry_job_failure_marks_job_failed(db_session, session_factory):
+def test_retry_job_failure_marks_job_failed(db_session, session_factory, storage):
     from unittest.mock import MagicMock
 
     from api.application.ingestion_service import IngestionService
@@ -65,13 +67,17 @@ def test_retry_job_failure_marks_job_failed(db_session, session_factory):
         return provider
 
     document_repo = DocumentRepository(db_session)
-    ingestion_service = IngestionService(document_repo, ChunkRepository(db_session), EmbeddingSettingsRepository(db_session))
+    ingestion_service = IngestionService(
+        document_repo, ChunkRepository(db_session), EmbeddingSettingsRepository(db_session), storage
+    )
+    source_path = "src/notes.txt"
+    storage.save_bytes(source_path, b"hello world")
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         try:
-            ingestion_service.ingest(org_id, owner.id, "notes.txt", b"hello world")
+            ingestion_service.ingest(org_id, owner.id, "notes.txt", source_path)
         except Exception:
             pass
     db_session.commit()
@@ -82,7 +88,7 @@ def test_retry_job_failure_marks_job_failed(db_session, session_factory):
     job = ingestion_jobs.create(org_id, type="reindex", document_id=failed_document.id, triggered_by=owner.id)
     db_session.commit()
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("still unavailable"),

@@ -1,8 +1,7 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, LargeBinary, String, func
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
-from sqlalchemy.orm import deferred
 
 from api.infrastructure.orm.base import Base
 
@@ -31,9 +30,10 @@ class IngestionJob(Base):
     # arguments passed straight into threading.Thread(...) and are lost the instant that thread's
     # stack unwinds.
     category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
-    # Upload-only. Deferred, same reasoning as Document.raw_file_bytes: only loaded when a worker
-    # explicitly reads it, never on a plain get()/list_by_org() call.
-    payload = deferred(Column(LargeBinary, nullable=True))
+    # Upload-only. Path (relative to UPLOADS_DIR) to the originally-uploaded whole file on disk --
+    # see api/infrastructure/storage/upload_storage.py and docs/UPLOAD_STORAGE_REDESIGN.md. A
+    # plain string, unlike the old bytea `payload` column, so no deferred-loading trick is needed.
+    payload_path = Column(String, nullable=True)
     payload_filename = Column(String, nullable=True)
     # Crawl-only.
     crawl_url = Column(String, nullable=True)

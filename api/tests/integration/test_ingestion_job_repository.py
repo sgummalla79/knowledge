@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from api.config import config
 from api.infrastructure.auth.bootstrap import bootstrap_default_identity
 from api.infrastructure.orm import IngestionJob as IngestionJobModel
 from api.infrastructure.repositories.identity_repository import IdentityRepository
@@ -26,42 +25,6 @@ def _owner_and_org(db_session):
     owner = IdentityRepository(db_session).get()
     org = OrganizationRepository(db_session).get_by_slug("default")
     return owner, org
-
-
-def _statement_timeout_ms(db_session) -> int:
-    # pg_settings.setting reports the raw millisecond value for statement_timeout, unlike
-    # SHOW/current_setting() which pretty-print it with a unit suffix (e.g. "3min") -- see
-    # IngestionJobRepository.create()'s own comment for why this needs checking precisely.
-    return int(db_session.execute(text("SELECT setting FROM pg_settings WHERE name = 'statement_timeout'")).scalar())
-
-
-def test_create_with_payload_relaxes_statement_timeout_for_that_transaction_only(db_session):
-    """Regression test: a large upload's raw bytes ride along on create()'s INSERT, which can
-    legitimately take longer than the connection's normal statement_timeout -- see
-    DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT's comment for the production incident (a real
-    ~80MB upload's INSERT alone exceeded the 15s default and was cancelled by Postgres). The SET
-    LOCAL must be scoped to just that one transaction, not leak into later ones on the same
-    connection -- verified here by checking a fresh transaction afterwards reverts to baseline."""
-    owner, org = _owner_and_org(db_session)
-    ingestion_jobs = IngestionJobRepository(db_session)
-    baseline = _statement_timeout_ms(db_session)
-
-    ingestion_jobs.create(org.id, type="upload", triggered_by=owner.id, payload=b"x" * 10)
-    assert _statement_timeout_ms(db_session) == config.db_statement_timeout_ms_large_payload
-    db_session.commit()
-
-    # A fresh transaction on the same connection must not inherit the relaxed timeout.
-    assert _statement_timeout_ms(db_session) == baseline
-
-
-def test_create_without_payload_does_not_relax_statement_timeout(db_session):
-    owner, org = _owner_and_org(db_session)
-    ingestion_jobs = IngestionJobRepository(db_session)
-    baseline = _statement_timeout_ms(db_session)
-
-    ingestion_jobs.create(org.id, type="crawl", triggered_by=owner.id)
-
-    assert _statement_timeout_ms(db_session) == baseline
 
 
 def test_claim_next_queued_returns_none_when_empty(db_session):
@@ -174,18 +137,22 @@ def test_is_cancellation_requested_false_for_unknown_job(db_session):
     assert IngestionJobRepository(db_session).is_cancellation_requested(uuid4()) is False
 
 
-def test_get_and_clear_payload(db_session):
+def test_create_stores_payload_path_and_clear_payload_nulls_it(db_session):
     owner, org = _owner_and_org(db_session)
     ingestion_jobs = IngestionJobRepository(db_session)
-    job = ingestion_jobs.create(org.id, type="upload", triggered_by=owner.id, payload=b"hello world")
+    job = ingestion_jobs.create(
+        org.id, type="upload", triggered_by=owner.id, payload_path="org/job/upload.bin"
+    )
     db_session.commit()
 
-    assert ingestion_jobs.get_payload(job.id) == b"hello world"
+    assert ingestion_jobs.get(job.id).payload_path == "org/job/upload.bin"
 
+    # DB-only -- deleting the physical file itself is the worker's job (it owns storage I/O), not
+    # this repository's (see clear_payload's own docstring).
     ingestion_jobs.clear_payload(job.id)
     db_session.commit()
 
-    assert ingestion_jobs.get_payload(job.id) is None
+    assert ingestion_jobs.get(job.id).payload_path is None
 
 
 def test_set_parts_total_and_increment_helpers(db_session):

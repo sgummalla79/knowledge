@@ -33,6 +33,12 @@ class Document:
     created_at: datetime
     last_modified_at: datetime
     indexed_at: datetime | None
+    # Path (relative to UPLOADS_DIR) to this document's raw ingested bytes on disk -- see
+    # api/infrastructure/storage/upload_storage.py. None once this document reaches "indexed"
+    # (the file is reclaimed then) or for a document with no retryable source at all. Defaulted
+    # (appended at the end, like IngestionJob's own Release-1 fields below) so existing call sites
+    # constructing Document(...) directly keep working unchanged.
+    raw_file_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +220,10 @@ class IngestionJob:
     # Defaulted (unlike this dataclass's other fields) so existing call sites that construct
     # IngestionJob(...) directly, without knowing about these new fields, keep working unchanged.
     category_id: UUID | None = None
+    # Path (relative to UPLOADS_DIR) to the originally-uploaded whole file on disk -- see
+    # api/infrastructure/storage/upload_storage.py. Set by the upload route, read once by the
+    # worker, then nulled (IngestionJobRepository.clear_payload) once no longer needed.
+    payload_path: str | None = None
     payload_filename: str | None = None
     crawl_url: str | None = None
     crawl_max_pages: int | None = None

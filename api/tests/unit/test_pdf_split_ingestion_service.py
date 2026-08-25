@@ -7,13 +7,15 @@ from api.application.pdf_split_ingestion_service import PdfSplitIngestionService
 from api.domain.errors import IngestionCancelled, ValidationError
 from api.infrastructure.parsing.pdf_splitter import SplitPlan
 
+_SOURCE_PATH = "org/job/upload.bin"
+
 
 def _plan(total_parts: int) -> SplitPlan:
     return SplitPlan(total_parts=total_parts, pages_per_part=1, overlap_pages=0)
 
 
 def _ids():
-    return uuid4(), uuid4()  # org_id, owner_id
+    return uuid4(), uuid4(), uuid4()  # org_id, owner_id, job_id
 
 
 def _settings():
@@ -23,15 +25,26 @@ def _settings():
     return settings
 
 
+def _storage(size_bytes: int = 100):
+    storage = MagicMock()
+    storage.size.return_value = size_bytes
+    storage.resolve.return_value = _SOURCE_PATH
+    storage.path_for_part.side_effect = lambda org_id, job_id, index: f"org/job/parts/part-{index}.bin"
+    return storage
+
+
 def test_non_pdf_within_limit_delegates_straight_to_ingest():
     ingestion_service = MagicMock()
     ingestion_service.ingest.return_value = MagicMock(id=uuid4())
     splitter = MagicMock()
+    storage = _storage(size_bytes=11)
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     results = []
-    service.ingest(org_id, owner_id, "notes.md", b"hello world", on_part_result=lambda *a: results.append(a))
+    service.ingest(
+        org_id, owner_id, job_id, "notes.md", _SOURCE_PATH, on_part_result=lambda *a: results.append(a)
+    )
 
     splitter.plan_for.assert_not_called()
     ingestion_service.ingest.assert_called_once()
@@ -44,12 +57,12 @@ def test_non_pdf_within_limit_delegates_straight_to_ingest():
 def test_non_pdf_over_limit_raises_file_too_large():
     ingestion_service = MagicMock()
     splitter = MagicMock()
-    service = PdfSplitIngestionService(ingestion_service, splitter)
+    storage = _storage(size_bytes=51 * 1024 * 1024)
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
 
-    org_id, owner_id = _ids()
-    oversized = b"x" * (51 * 1024 * 1024)
+    org_id, owner_id, job_id = _ids()
     with pytest.raises(ValidationError):
-        service.ingest(org_id, owner_id, "huge.md", oversized)
+        service.ingest(org_id, owner_id, job_id, "huge.md", _SOURCE_PATH)
     ingestion_service.ingest.assert_not_called()
 
 
@@ -59,11 +72,14 @@ def test_pdf_below_split_threshold_delegates_as_single_document():
     ingestion_service.ingest.return_value = MagicMock(id=uuid4())
     splitter = MagicMock()
     splitter.plan_for.return_value = None  # no real split needed
+    storage = _storage()
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     results = []
-    service.ingest(org_id, owner_id, "small.pdf", b"pdf bytes", on_part_result=lambda *a: results.append(a))
+    service.ingest(
+        org_id, owner_id, job_id, "small.pdf", _SOURCE_PATH, on_part_result=lambda *a: results.append(a)
+    )
 
     ingestion_service.ingest.assert_called_once()
     call_kwargs = ingestion_service.ingest.call_args.kwargs
@@ -82,11 +98,12 @@ def test_pdf_exception_on_single_part_propagates_uncaught():
     ingestion_service.ingest.side_effect = RuntimeError("embedding failed")
     splitter = MagicMock()
     splitter.plan_for.return_value = None
+    storage = _storage()
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     with pytest.raises(RuntimeError):
-        service.ingest(org_id, owner_id, "small.pdf", b"pdf bytes")
+        service.ingest(org_id, owner_id, job_id, "small.pdf", _SOURCE_PATH)
 
 
 def test_split_pdf_creates_one_document_per_part_with_shared_group_id():
@@ -96,11 +113,14 @@ def test_split_pdf_creates_one_document_per_part_with_shared_group_id():
     splitter = MagicMock()
     splitter.plan_for.return_value = _plan(total_parts=3)
     splitter.iter_parts.return_value = [b"part-1", b"part-2", b"part-3"]
+    storage = _storage()
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     results = []
-    service.ingest(org_id, owner_id, "big.pdf", b"original", on_part_result=lambda *a: results.append(a))
+    service.ingest(
+        org_id, owner_id, job_id, "big.pdf", _SOURCE_PATH, on_part_result=lambda *a: results.append(a)
+    )
 
     assert ingestion_service.ingest.call_count == 3
     group_ids = set()
@@ -120,7 +140,7 @@ def test_one_failed_part_does_not_abort_the_remaining_parts():
     ingestion_service = MagicMock()
     ingestion_service.require_embedding_settings.return_value = _settings()
 
-    def ingest(org_id, owner_id, filename, file_bytes, **kwargs):
+    def ingest(org_id, owner_id, filename, source_path, **kwargs):
         if kwargs.get("split_part") == 2:
             raise RuntimeError("embedding failed")
         return MagicMock(id=uuid4())
@@ -129,11 +149,14 @@ def test_one_failed_part_does_not_abort_the_remaining_parts():
     splitter = MagicMock()
     splitter.plan_for.return_value = _plan(total_parts=3)
     splitter.iter_parts.return_value = [b"part-1", b"part-2", b"part-3"]
+    storage = _storage()
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     results = []
-    service.ingest(org_id, owner_id, "big.pdf", b"original", on_part_result=lambda *a: results.append(a))
+    service.ingest(
+        org_id, owner_id, job_id, "big.pdf", _SOURCE_PATH, on_part_result=lambda *a: results.append(a)
+    )
 
     assert ingestion_service.ingest.call_count == 3
     assert len(results) == 3
@@ -152,9 +175,10 @@ def test_cancellation_between_parts_aborts_remaining_parts():
     splitter = MagicMock()
     splitter.plan_for.return_value = _plan(total_parts=3)
     splitter.iter_parts.return_value = [b"part-1", b"part-2", b"part-3"]
+    storage = _storage()
 
-    service = PdfSplitIngestionService(ingestion_service, splitter)
-    org_id, owner_id = _ids()
+    service = PdfSplitIngestionService(ingestion_service, storage, splitter)
+    org_id, owner_id, job_id = _ids()
     # Cancel right before the second part is processed.
     call_count = {"n": 0}
 
@@ -163,6 +187,6 @@ def test_cancellation_between_parts_aborts_remaining_parts():
         return call_count["n"] > 1
 
     with pytest.raises(IngestionCancelled):
-        service.ingest(org_id, owner_id, "big.pdf", b"original", should_cancel=should_cancel)
+        service.ingest(org_id, owner_id, job_id, "big.pdf", _SOURCE_PATH, should_cancel=should_cancel)
 
     assert ingestion_service.ingest.call_count == 1

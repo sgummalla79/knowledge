@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from pypdf import PdfReader
@@ -19,6 +20,14 @@ def make_pdf_bytes(pages: list[str]) -> bytes:
         pdf.showPage()
     pdf.save()
     return buffer.getvalue()
+
+
+def make_pdf_file(tmp_path: Path, pages: list[str], name: str = "upload.pdf") -> Path:
+    """PdfSplitter now reads from disk (docs/UPLOAD_STORAGE_REDESIGN.md), not from bytes already
+    in memory -- this writes make_pdf_bytes()'s output to a real file for it to open."""
+    path = tmp_path / name
+    path.write_bytes(make_pdf_bytes(pages))
+    return path
 
 
 def _page_texts(file_bytes: bytes) -> list[str]:
@@ -103,33 +112,35 @@ def test_plan_split_raises_when_max_parts_exceeded():
 # --- PdfSplitter: pypdf-backed behavior ---------------------------------------------------------
 
 
-def test_split_below_threshold_returns_original_bytes_unchanged():
+def test_split_below_threshold_returns_original_bytes_unchanged(tmp_path):
     splitter = PdfSplitter(threshold_bytes=10_000_000)
-    file_bytes = make_pdf_bytes(["only page"])
-    assert splitter.split(file_bytes, chunk_size=800, chunk_overlap=100) == [file_bytes]
+    path = make_pdf_file(tmp_path, ["only page"])
+    assert splitter.split(path, chunk_size=800, chunk_overlap=100) == [path.read_bytes()]
 
 
 def test_should_split_reflects_threshold():
     splitter = PdfSplitter(threshold_bytes=100)
     small = make_pdf_bytes(["short"])
-    assert not splitter.should_split(small[:50])
-    assert splitter.should_split(small + small + small)
+    assert not splitter.should_split(len(small[:50]))
+    assert splitter.should_split(len(small + small + small))
 
 
-def test_single_page_pdf_is_never_split_even_over_threshold():
+def test_single_page_pdf_is_never_split_even_over_threshold(tmp_path):
     splitter = PdfSplitter(threshold_bytes=10)
-    file_bytes = make_pdf_bytes(["the only page, but the file itself is 'oversized'"])
-    assert splitter.split(file_bytes, chunk_size=800, chunk_overlap=100) == [file_bytes]
+    path = make_pdf_file(tmp_path, ["the only page, but the file itself is 'oversized'"])
+    assert splitter.split(path, chunk_size=800, chunk_overlap=100) == [path.read_bytes()]
 
 
-def test_split_produces_multiple_independently_parseable_parts_with_overlap():
+def test_split_produces_multiple_independently_parseable_parts_with_overlap(tmp_path):
     pages = [f"page {i} unique marker {i:03d}" for i in range(10)]
     file_bytes = make_pdf_bytes(pages)
+    path = tmp_path / "upload.pdf"
+    path.write_bytes(file_bytes)
     chunk_size, chunk_overlap = 10, 1
     target_part_bytes = len(file_bytes) // 5
     splitter = PdfSplitter(threshold_bytes=10, target_part_bytes=target_part_bytes, max_parts=20)
 
-    parts = splitter.split(file_bytes, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    parts = splitter.split(path, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     assert len(parts) > 1
     for part in parts:

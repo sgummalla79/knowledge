@@ -13,6 +13,12 @@ $FlaskPort = 15100
 $VitePort = 5173
 $SecretKey = "dev-preview-secret"
 $DatabaseUrl = "postgresql://rag:rag@127.0.0.1:$PgPort/rag"
+# UPLOADS_DIR defaults to /data/uploads (the real k8s mount path) -- not writable/meaningful on a
+# dev machine, so this flow overrides it to a local throwaway directory instead (see
+# docs/UPLOAD_STORAGE_REDESIGN.md). Note: dev-preview does not run api/ingestion_worker/ (only
+# Flask + Vite), so an uploaded file lands here and its job stays "queued" -- a pre-existing gap
+# unrelated to this variable, not something this script fixes.
+$UploadsDir = Join-Path $env:TEMP "knowledge-dev-preview-uploads"
 $FlaskPidFile = Join-Path $env:TEMP "workspace-preview.pid"
 $FlaskLogFile = Join-Path $env:TEMP "knowledge-dev-preview-flask.log"
 $VitePidFile = Join-Path $env:TEMP "workspace-preview-vite.pid"
@@ -64,6 +70,7 @@ if (Test-Path $FlaskPidFile) {
 }
 
 if (-not $flaskAlreadyRunning) {
+    $env:UPLOADS_DIR = $UploadsDir
     $proc = Start-Process -FilePath $VenvPy `
         -ArgumentList @("-m", "flask", "--app", "api.wsgi", "run", "--port", "$FlaskPort") `
         -WorkingDirectory $RepoRoot `

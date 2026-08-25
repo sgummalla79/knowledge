@@ -16,11 +16,17 @@ from api.infrastructure.repositories.embedding_settings_repository import Embedd
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.tests.integration.conftest import seed_active_embedding_provider
 
 # Actual ingestion *execution* (upload/retry/crawl, split-PDF, cancellation) is covered by
 # api/ingestion_worker/tests/ now — document_service.py itself only enqueues a queued row and
 # reads/cancels one; that's what this file tests.
+
+
+@pytest.fixture
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
 
 
 def _owner(db_session):
@@ -36,35 +42,41 @@ def _fake_provider():
     return provider
 
 
-def _ingest(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
+def _source(storage, data: bytes, name: str = "upload.bin") -> str:
+    path = f"src/{name}"
+    storage.save_bytes(path, data)
+    return path
+
+
+def _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner_id, filename="notes.txt"):
     ingestion_service = IngestionService(
-        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session), storage
     )
     text = "abcdefghijklmnopqrstuvwxyz" * 3
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = ingestion_service.ingest(org_id, owner_id, filename, text.encode())
+        document = ingestion_service.ingest(org_id, owner_id, filename, _source(storage, text.encode()))
     db_session.commit()
     return document
 
 
-def _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner_id, filename="notes.txt"):
+def _ingest_failing(document_repo, chunk_repo, db_session, storage, org_id, owner_id, filename="notes.txt"):
     ingestion_service = IngestionService(
-        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session), storage
     )
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         with pytest.raises(RuntimeError):
-            ingestion_service.ingest(org_id, owner_id, filename, b"hello world")
+            ingestion_service.ingest(org_id, owner_id, filename, _source(storage, b"hello world"))
     db_session.commit()
     return document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
 
 
-def test_start_ingestion_enqueues_a_queued_row_and_returns_its_id(db_session):
+def test_start_ingestion_enqueues_a_queued_row_and_returns_its_id(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -75,16 +87,22 @@ def test_start_ingestion_enqueues_a_queued_row_and_returns_its_id(db_session):
 
     ingestion_jobs = IngestionJobRepository(db_session)
     service = DocumentService(DocumentRepository(db_session), ChunkRepository(db_session), ingestion_jobs)
-    job_id = service.start_ingestion(org_id, owner.id, "notes.txt", b"hello world", category_id=category.id)
+    job_id_arg = uuid4()
+    payload_path = _source(storage, b"hello world")
+    job_id = service.start_ingestion(
+        org_id, owner.id, "notes.txt", payload_path, job_id=job_id_arg, category_id=category.id
+    )
 
+    assert job_id == str(job_id_arg)
     job = ingestion_jobs.get(UUID(job_id))
     assert job.status == "queued"
     assert job.payload_filename == "notes.txt"
     assert job.category_id == category.id
-    assert ingestion_jobs.get_payload(job.id) == b"hello world"
+    assert job.payload_path == payload_path
+    assert storage.resolve(job.payload_path).read_bytes() == b"hello world"
 
 
-def test_start_retry_enqueues_a_queued_reindex_row(db_session):
+def test_start_retry_enqueues_a_queued_reindex_row(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -92,7 +110,7 @@ def test_start_retry_enqueues_a_queued_reindex_row(db_session):
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
-    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
+    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     ingestion_jobs = IngestionJobRepository(db_session)
     service = DocumentService(document_repo, chunk_repo, ingestion_jobs)
@@ -215,7 +233,7 @@ def test_cancel_job_sets_cancel_requested(db_session):
     assert refreshed.cancel_requested is True
 
 
-def test_delete_document_removes_chunks(db_session):
+def test_delete_document_removes_chunks(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -224,7 +242,7 @@ def test_delete_document_removes_chunks(db_session):
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
     assert chunk_repo.count_for_document(document.id) > 0
 
     DocumentService(document_repo, chunk_repo).delete_document(org_id, document.id)
@@ -234,7 +252,7 @@ def test_delete_document_removes_chunks(db_session):
     assert chunk_repo.count_for_document(document.id) == 0
 
 
-def test_delete_document_from_wrong_org_raises_document_not_found(db_session):
+def test_delete_document_from_wrong_org_raises_document_not_found(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -243,7 +261,7 @@ def test_delete_document_from_wrong_org_raises_document_not_found(db_session):
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
         DocumentService(document_repo, chunk_repo).delete_document(uuid4(), document.id)
@@ -262,7 +280,7 @@ def test_delete_document_missing_document_raises_document_not_found(db_session):
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
-def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_session):
+def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -271,7 +289,7 @@ def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_ses
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)  # indexed
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)  # indexed
     assert document.status == "indexed"
 
     with pytest.raises(ValidationError) as exc_info:
@@ -281,7 +299,7 @@ def test_start_retry_on_non_failed_document_raises_document_not_retryable(db_ses
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_RETRYABLE
 
 
-def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
+def test_start_retry_from_wrong_org_raises_document_not_found(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -290,7 +308,7 @@ def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
     )
     db_session.commit()
 
-    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, org_id, owner.id)
+    failed_document = _ingest_failing(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
         DocumentService(document_repo, chunk_repo, IngestionJobRepository(db_session)).start_retry(
@@ -299,7 +317,7 @@ def test_start_retry_from_wrong_org_raises_document_not_found(db_session):
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
-def test_rename_document_updates_title(db_session):
+def test_rename_document_updates_title(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -308,7 +326,7 @@ def test_rename_document_updates_title(db_session):
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     renamed = DocumentService(document_repo, chunk_repo).rename_document(org_id, document.id, "renamed.txt")
     db_session.commit()
@@ -317,7 +335,7 @@ def test_rename_document_updates_title(db_session):
     assert document_repo.get(document.id).title == "renamed.txt"
 
 
-def test_rename_document_from_wrong_org_raises_document_not_found(db_session):
+def test_rename_document_from_wrong_org_raises_document_not_found(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -326,7 +344,7 @@ def test_rename_document_from_wrong_org_raises_document_not_found(db_session):
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     with pytest.raises(NotFoundError) as exc_info:
         DocumentService(document_repo, chunk_repo).rename_document(uuid4(), document.id, "renamed.txt")
@@ -343,7 +361,7 @@ def test_rename_document_missing_document_raises_document_not_found(db_session):
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_FOUND
 
 
-def test_update_metadata_updates_category_and_type(db_session):
+def test_update_metadata_updates_category_and_type(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -354,7 +372,7 @@ def test_update_metadata_updates_category_and_type(db_session):
     category = category_repo.create(org_id, name="Guides", slug="guides", description=None)
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
     updated = service.update_metadata(org_id, document.id, category.id, "article")
@@ -367,7 +385,7 @@ def test_update_metadata_updates_category_and_type(db_session):
     assert stored.type == "article"
 
 
-def test_update_metadata_can_clear_category(db_session):
+def test_update_metadata_can_clear_category(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -378,7 +396,7 @@ def test_update_metadata_can_clear_category(db_session):
     category = category_repo.create(org_id, name="Guides", slug="guides", description=None)
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
     service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
     service.update_metadata(org_id, document.id, category.id, document.type)
     db_session.commit()
@@ -390,7 +408,7 @@ def test_update_metadata_can_clear_category(db_session):
     assert document_repo.get(document.id).category_id is None
 
 
-def test_update_metadata_from_wrong_org_raises_document_not_found(db_session):
+def test_update_metadata_from_wrong_org_raises_document_not_found(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -400,7 +418,7 @@ def test_update_metadata_from_wrong_org_raises_document_not_found(db_session):
     )
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
     with pytest.raises(NotFoundError) as exc_info:
@@ -409,7 +427,7 @@ def test_update_metadata_from_wrong_org_raises_document_not_found(db_session):
     assert document_repo.get(document.id).type != "article"
 
 
-def test_update_metadata_with_foreign_category_raises_category_not_found(db_session):
+def test_update_metadata_with_foreign_category_raises_category_not_found(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -421,7 +439,7 @@ def test_update_metadata_with_foreign_category_raises_category_not_found(db_sess
     foreign_category = category_repo.create(other_org.id, name="Foreign", slug="foreign", description=None)
     db_session.commit()
 
-    document = _ingest(document_repo, chunk_repo, db_session, org_id, owner.id)
+    document = _ingest(document_repo, chunk_repo, db_session, storage, org_id, owner.id)
 
     service = DocumentService(document_repo, chunk_repo, category_repo=category_repo)
     with pytest.raises(NotFoundError) as exc_info:
@@ -430,7 +448,7 @@ def test_update_metadata_with_foreign_category_raises_category_not_found(db_sess
     assert document_repo.get(document.id).category_id != foreign_category.id
 
 
-def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
+def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session, storage):
     owner = _owner(db_session)
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
@@ -440,14 +458,16 @@ def test_start_retry_allows_a_document_cancelled_mid_ingestion(db_session):
     db_session.commit()
 
     ingestion_service = IngestionService(
-        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session)
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session), storage
     )
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
         with pytest.raises(Exception):
-            ingestion_service.ingest(org_id, owner.id, "notes.txt", b"hello world", should_cancel=lambda: True)
+            ingestion_service.ingest(
+                org_id, owner.id, "notes.txt", _source(storage, b"hello world"), should_cancel=lambda: True
+            )
     db_session.commit()
 
     # No dedicated "cancelled" state exists in the document_status enum — a cancellation is

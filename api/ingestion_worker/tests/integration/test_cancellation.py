@@ -20,23 +20,25 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_cancel_requested_before_claim_marks_job_and_document_failed(db_session, session_factory):
+def test_cancel_requested_before_claim_marks_job_and_document_failed(db_session, session_factory, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     ingestion_jobs = IngestionJobRepository(db_session)
+    payload_path = "org/job/upload.bin"
+    storage.save_bytes(payload_path, b"hello world")
     job = ingestion_jobs.create(
         org_id,
         type="upload",
         triggered_by=owner.id,
-        payload=b"hello world",
+        payload_path=payload_path,
         payload_filename="notes.txt",
         cancel_requested=True,
     )
     db_session.commit()
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve", return_value=_fake_provider()
     ):
@@ -48,7 +50,7 @@ def test_cancel_requested_before_claim_marks_job_and_document_failed(db_session,
     refreshed = IngestionJobRepository(verify_session).get(job.id)
     assert refreshed.status == "failed"
     assert refreshed.error_message == "Cancelled by user."
-    assert IngestionJobRepository(verify_session).get_payload(job.id) is None
+    assert refreshed.payload_path is None
 
     documents = DocumentRepository(verify_session).list_for_org(org_id, limit=10, offset=0, sort="-created_at")
     assert len(documents) == 1

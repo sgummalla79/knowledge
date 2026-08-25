@@ -1306,6 +1306,7 @@ conventions — reuse these exact values every time rather than picking new ones
 | Flask log file | `/tmp/knowledge-dev-preview-flask.log` |
 | Vite PID file | `/tmp/workspace-preview-vite.pid` |
 | Vite log file | `/tmp/knowledge-dev-preview-vite.log` |
+| `UPLOADS_DIR` | `/tmp/knowledge-dev-preview-uploads` (overrides the real k8s mount-path default, `/data/uploads` — see `docs/UPLOAD_STORAGE_REDESIGN.md`) |
 
 **Quirk:** a `.venv`'s console-script shebangs (`pip`, `alembic`, etc.) embed an absolute path —
 after any folder move/rename (this happened for `rag-api` → `knowledge-api`, and again for
@@ -1337,8 +1338,13 @@ cd ..
 # 4. Start Flask, tracking its PID — pure JSON API now (see session history item 34), no HTML/SPA
 # serving of any kind, so no WEBUI_DEV_SERVER or equivalent to set here. Its default CORS allowlist
 # (DEFAULT_WEBUI_ORIGIN, api/constants.py) already matches Vite's fixed 127.0.0.1:5173 above, so no
-# WEBUI_ORIGINS override is needed for this exact port combination either.
+# WEBUI_ORIGINS override is needed for this exact port combination either. UPLOADS_DIR overrides
+# the real k8s mount-path default (/data/uploads, not writable/meaningful on a dev machine) — see
+# docs/UPLOAD_STORAGE_REDESIGN.md. Note: this flow never starts api/ingestion_worker/, so an
+# uploaded file lands in UPLOADS_DIR but its job stays "queued" forever — a pre-existing gap, not
+# something this step fixes.
 DATABASE_URL=postgresql://rag:rag@127.0.0.1:15432/rag SECRET_KEY=dev-preview-secret \
+  UPLOADS_DIR=/tmp/knowledge-dev-preview-uploads \
   nohup api/.venv/bin/python -m flask --app api.wsgi run --port 15100 \
   > /tmp/knowledge-dev-preview-flask.log 2>&1 &
 disown

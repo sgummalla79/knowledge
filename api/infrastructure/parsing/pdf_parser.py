@@ -1,4 +1,4 @@
-from io import BytesIO
+from pathlib import Path
 
 import pdfplumber
 
@@ -12,7 +12,10 @@ class PdfParser(DocumentParser):
     used in pdf_splitter.py, where only page count and a rough per-page character density feed
     split-size math — text fidelity doesn't matter there the way it does for ingested content."""
 
-    def parse(self, file_bytes: bytes) -> str:
+    def parse(self, path: str | Path) -> str:
+        # pdfplumber.open() takes a path directly and reads from disk -- no need to have already
+        # loaded the whole file into memory as bytes first (see docs/UPLOAD_STORAGE_REDESIGN.md).
+        #
         # page.close() flushes pdfplumber's per-page caches (.chars/.rects/.lines/.layout, each a
         # real Python object per glyph/line/rect on that page) right after that page's text is
         # pulled -- without it, every page's cache stays alive for the whole document, since
@@ -22,7 +25,7 @@ class PdfParser(DocumentParser):
         # every page's parsed structure held simultaneously. try/finally so a page that fails to
         # extract still gets its cache released rather than leaking on the error path too.
         texts = []
-        with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+        with pdfplumber.open(path) as pdf:
             for page in pdf.pages:
                 try:
                     texts.append(page.extract_text() or "")

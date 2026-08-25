@@ -1,6 +1,6 @@
 import io
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -66,9 +66,18 @@ def test_upload_without_file_returns_structured_400(client):
 
 
 def test_upload_returns_202_with_job_id(client):
-    with patch(
-        "api.presentation.routes.documents.DocumentService.start_ingestion",
-        return_value="job-123"
+    # HTTP-layer wiring only -- UploadStorage is mocked too, so this never touches a real
+    # filesystem (real streaming-to-disk behavior is covered by
+    # tests/integration/test_ingestion_service.py / test_document_service.py, which use a real
+    # UploadStorage rooted at a pytest tmp_path).
+    fake_storage = MagicMock()
+    fake_storage.path_for_job_upload.return_value = "org/job/upload.bin"
+    with (
+        patch("api.presentation.routes.documents.UploadStorage", return_value=fake_storage),
+        patch(
+            "api.presentation.routes.documents.DocumentService.start_ingestion",
+            return_value="job-123"
+        ) as mock_start_ingestion,
     ):
         response = client.post(
             "/documents",
@@ -77,6 +86,9 @@ def test_upload_returns_202_with_job_id(client):
         )
     assert response.status_code == 202
     assert response.get_json()["job_id"] == "job-123"
+    fake_storage.save_stream.assert_called_once()
+    assert fake_storage.save_stream.call_args[0][0] == "org/job/upload.bin"
+    assert mock_start_ingestion.call_args[0][3] == "org/job/upload.bin"
 
 
 def test_list_documents_sets_total_count_header(client):
