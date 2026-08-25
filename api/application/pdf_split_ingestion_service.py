@@ -59,14 +59,14 @@ class PdfSplitIngestionService:
             return
 
         settings = self._ingestion_service.require_embedding_settings(org_id)
-        parts = self._splitter.split(file_bytes, settings.chunk_size, settings.chunk_overlap)
+        plan = self._splitter.plan_for(file_bytes, settings.chunk_size, settings.chunk_overlap)
 
-        if len(parts) == 1:
+        if plan is None:
             document = self._ingestion_service.ingest(
                 org_id,
                 owner_id,
                 filename,
-                parts[0],
+                file_bytes,
                 category_id=category_id,
                 should_cancel=should_cancel,
                 file_type=PDF_FILE_TYPE,
@@ -75,9 +75,13 @@ class PdfSplitIngestionService:
                 on_part_result(1, 1, document, None)
             return
 
+        # iter_parts() yields one part at a time rather than every part up front (see its own
+        # docstring) -- each part_bytes is only ever referenced by this loop iteration, so it's
+        # free to be garbage-collected as soon as the next part is generated, instead of every
+        # part staying alive in a list for the whole job.
         split_group_id = uuid4()
-        total = len(parts)
-        for index, part_bytes in enumerate(parts, start=1):
+        total = plan.total_parts
+        for index, part_bytes in enumerate(self._splitter.iter_parts(file_bytes, plan), start=1):
             if should_cancel and should_cancel():
                 raise IngestionCancelled("Cancelled by user.")
 

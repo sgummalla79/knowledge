@@ -83,6 +83,22 @@ def test_unknown_job_type_marks_failed_without_dispatching():
     session.commit.assert_called_once()
 
 
+def test_gc_collect_runs_after_a_processed_job_but_not_on_an_empty_queue(monkeypatch):
+    """Regression test for the production OOM investigation: a job's PDF-parsing reference cycles
+    should be forced to collect right after that job finishes, not left to the collector's own
+    thresholds (see worker.py's comment on this gc.collect() call) -- and only when a job was
+    actually processed, not on every empty-queue poll."""
+    calls = []
+    monkeypatch.setattr("api.ingestion_worker.worker.gc.collect", lambda: calls.append(1))
+
+    _claim_and_process(_fake_job("upload"))
+    assert calls == [1]
+
+    calls.clear()
+    _claim_and_process(None)
+    assert calls == []
+
+
 def test_run_forever_sleeps_only_when_nothing_claimed(monkeypatch):
     worker = IngestionJobWorker(session_factory=MagicMock(), poll_interval_s=0.01)
     calls = {"n": 0}

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from io import BytesIO
 from math import ceil, floor
+from typing import Iterator
 
 from pypdf import PdfReader, PdfWriter
 
@@ -84,16 +85,19 @@ class PdfSplitter:
     def should_split(self, file_bytes: bytes) -> bool:
         return len(file_bytes) > self.threshold_bytes
 
-    def split(self, file_bytes: bytes, chunk_size: int, chunk_overlap: int) -> list[bytes]:
-        """Always returns a list — [file_bytes] unchanged when splitting isn't needed or isn't
-        possible (e.g. a single huge page), so callers never special-case the non-split path."""
+    def plan_for(self, file_bytes: bytes, chunk_size: int, chunk_overlap: int) -> SplitPlan | None:
+        """Pure planning: figures out *whether* and *how* to split without building any part
+        bytes. Returns None for every case split() used to return [file_bytes] unchanged for
+        (below threshold, a single huge page, or a plan that only needs one part) — production
+        ingestion (PdfSplitIngestionService) checks this first and, only when it's not None, pulls
+        parts one at a time via iter_parts() instead of materializing every part up front."""
         if not self.should_split(file_bytes):
-            return [file_bytes]
+            return None
 
         reader = PdfReader(BytesIO(file_bytes))
         total_pages = len(reader.pages)
         if total_pages <= 1:
-            return [file_bytes]
+            return None
 
         total_chars = sum(len(page.extract_text() or "") for page in reader.pages)
         avg_chars_per_page = total_chars / total_pages
@@ -107,10 +111,16 @@ class PdfSplitter:
             target_part_bytes=self.target_part_bytes,
             max_parts=self.max_parts,
         )
-        if plan.total_parts <= 1:
-            return [file_bytes]
+        return plan if plan.total_parts > 1 else None
 
-        parts = []
+    def iter_parts(self, file_bytes: bytes, plan: SplitPlan) -> Iterator[bytes]:
+        """Yields one part's PDF bytes at a time from a single shared PdfReader, instead of
+        building every part up front into a list held in memory alongside the original file's
+        bytes — confirmed as a real memory-accumulation source in production for a many-part split
+        of a large PDF. `plan` must be the SplitPlan plan_for() returned for these same
+        file_bytes/chunk_size/chunk_overlap."""
+        reader = PdfReader(BytesIO(file_bytes))
+        total_pages = len(reader.pages)
         for part_index in range(plan.total_parts):
             core_start = part_index * plan.pages_per_part
             core_end = min(core_start + plan.pages_per_part, total_pages)
@@ -124,6 +134,15 @@ class PdfSplitter:
                 writer.add_page(reader.pages[page_number])
             buffer = BytesIO()
             writer.write(buffer)
-            parts.append(buffer.getvalue())
+            yield buffer.getvalue()
 
-        return parts
+    def split(self, file_bytes: bytes, chunk_size: int, chunk_overlap: int) -> list[bytes]:
+        """Always returns a list — [file_bytes] unchanged when splitting isn't needed or isn't
+        possible (e.g. a single huge page), so callers never special-case the non-split path. Kept
+        for callers (including this module's own test suite) that want every part up front;
+        production ingestion uses plan_for()/iter_parts() directly instead — see iter_parts' own
+        docstring for why."""
+        plan = self.plan_for(file_bytes, chunk_size, chunk_overlap)
+        if plan is None:
+            return [file_bytes]
+        return list(self.iter_parts(file_bytes, plan))
