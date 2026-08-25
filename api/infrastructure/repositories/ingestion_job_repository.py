@@ -3,9 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import text
-
-from api.config import config
 from api.domain.entities import IngestionJob as IngestionJobEntity
 from api.infrastructure.orm import IngestionJob as IngestionJobModel
 
@@ -25,6 +22,7 @@ def _to_entity(model: IngestionJobModel) -> IngestionJobEntity:
         started_at=model.started_at,
         finished_at=model.finished_at,
         category_id=model.category_id,
+        payload_path=model.payload_path,
         payload_filename=model.payload_filename,
         crawl_url=model.crawl_url,
         crawl_max_pages=model.crawl_max_pages,
@@ -47,15 +45,6 @@ class IngestionJobRepository:
     def create(self, org_id: UUID, type: str, **fields) -> IngestionJobEntity:
         model = IngestionJobModel(org_id=org_id, type=type, **fields)
         self._session.add(model)
-        if fields.get("payload"):
-            # An upload's raw bytes ride along on this one INSERT (see
-            # DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT's comment for why the connection's
-            # normal statement_timeout is too tight for that specific statement) -- SET LOCAL
-            # scopes the relaxed timeout to this transaction only, reverting automatically once it
-            # commits, so every other query on this connection keeps the tight default.
-            self._session.execute(
-                text(f"SET LOCAL statement_timeout = {int(config.db_statement_timeout_ms_large_payload)}")
-            )
         self._session.flush()
         return _to_entity(model)
 
@@ -136,19 +125,15 @@ class IngestionJobRepository:
         model = self._session.get(IngestionJobModel, job_id)
         return model is not None and model.cancel_requested
 
-    def get_payload(self, job_id: UUID) -> bytes | None:
-        """Explicit accessor for the deferred payload column -- mirrors
-        DocumentRepository.get_raw_bytes, same reasoning: never loaded implicitly by get()/
-        list_by_org(), only when a caller (the worker) actually needs the uploaded bytes."""
-        model = self._session.get(IngestionJobModel, job_id)
-        return model.payload if model is not None else None
-
     def clear_payload(self, job_id: UUID) -> None:
-        """Reclaims the stored upload bytes once the worker has read them -- this table never
-        needs to hold an upload's payload for longer than it takes to process the job."""
+        """Nulls the DB column once the worker no longer needs it -- this table never needs to
+        point at an upload's file for longer than it takes to process the job. DB-only: deleting
+        the physical file itself is the worker's job (it owns storage I/O, using the path it read
+        off this job's entity before calling this), same split as
+        DocumentRepository.update_status's own raw_file_path nulling."""
         model = self._session.get(IngestionJobModel, job_id)
         if model is not None:
-            model.payload = None
+            model.payload_path = None
             self._session.flush()
 
     def set_parts_total(self, job_id: UUID, parts_total: int) -> None:

@@ -20,7 +20,7 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_claim_and_process_crawl_single_page(db_session, session_factory):
+def test_claim_and_process_crawl_single_page(db_session, session_factory, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -40,7 +40,7 @@ def test_claim_and_process_crawl_single_page(db_session, session_factory):
         content=b"<html><body><p>hello crawl page</p></body></html>", final_url="https://example.com/a"
     )
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with (
         patch("api.ingestion_worker.worker.WebPageFetcher", return_value=fake_fetcher),
         patch("api.application.ingestion_service.EmbeddingProviderRegistry.resolve", return_value=_fake_provider()),
@@ -59,7 +59,7 @@ def test_claim_and_process_crawl_single_page(db_session, session_factory):
     verify_session.close()
 
 
-def test_claim_and_process_crawl_page_failure_is_recorded(db_session, session_factory):
+def test_claim_and_process_crawl_page_failure_is_recorded(db_session, session_factory, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -77,7 +77,7 @@ def test_claim_and_process_crawl_page_failure_is_recorded(db_session, session_fa
     fake_fetcher = MagicMock()
     fake_fetcher.fetch.side_effect = RuntimeError("connection refused")
 
-    worker = IngestionJobWorker(session_factory=session_factory)
+    worker = IngestionJobWorker(session_factory=session_factory, storage=storage)
     with patch("api.ingestion_worker.worker.WebPageFetcher", return_value=fake_fetcher):
         claimed = worker.claim_and_process_one()
 

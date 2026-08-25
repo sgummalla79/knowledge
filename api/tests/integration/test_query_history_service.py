@@ -13,6 +13,7 @@ from api.infrastructure.repositories.document_repository import DocumentReposito
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.tests.integration.conftest import seed_active_embedding_provider
 
 
@@ -30,25 +31,34 @@ def owner_id(db_session):
     return IdentityRepository(db_session).get().id
 
 
-def _real_chunks(db_session, org_id, owner_id):
+def _real_chunks(db_session, storage, org_id, owner_id):
     """Ingests one document for real chunk rows to satisfy query_results' FK on chunk_id."""
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    ingestion_service = IngestionService(document_repo, chunk_repo, EmbeddingSettingsRepository(db_session))
+    ingestion_service = IngestionService(
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session), storage
+    )
+    source_path = "src/notes.txt"
+    storage.save_bytes(source_path, ("abc " * 30).encode())
     provider = MagicMock()
     provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * EMBEDDING_DIM for _ in texts]
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve", return_value=provider
     ):
-        document = ingestion_service.ingest(org_id, owner_id, "notes.txt", ("abc " * 30).encode())
+        document = ingestion_service.ingest(org_id, owner_id, "notes.txt", source_path)
     db_session.commit()
     return chunk_repo.list_for_document(document.id, limit=10, offset=0)
 
 
-def test_record_persists_query_and_results(db_session, org_id, owner_id):
+@pytest.fixture()
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
+
+
+def test_record_persists_query_and_results(db_session, storage, org_id, owner_id):
     repo = QueryRepository(db_session)
     service = QueryHistoryService(repo)
-    real_chunks = _real_chunks(db_session, org_id, owner_id)
+    real_chunks = _real_chunks(db_session, storage, org_id, owner_id)
     assert len(real_chunks) > 0
     chunks = [
         ScoredChunk(id=chunk.id, document_id=chunk.document_id, ordinal=chunk.ordinal, content=chunk.content, score=0.9)

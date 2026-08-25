@@ -1,0 +1,22 @@
+# Shared local volume for raw uploaded/ingested file bytes -- see docs/UPLOAD_STORAGE_REDESIGN.md.
+# Same local-path StorageClass as 01-postgres.yaml's own PVC -- node-local, not shared/networked
+# storage. That's fine today (this cluster is single-node) but is a hard requirement, not an
+# implementation detail: RWO allows multiple *pods* to mount this volume concurrently as long as
+# they're all on the same *node* (which knowledge-api and knowledge-ingestion-worker both are), not
+# multiple nodes. Before this cluster ever grows a second node, this volume must become networked
+# storage (MinIO is the leading candidate) or both Deployments must be pinned to the same node via
+# nodeSelector/nodeAffinity as a stopgap -- do not add a second node without addressing this first.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: knowledge-uploads-data
+  namespace: knowledge
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      # Generous relative to a single MAX_REQUEST_BODY_MB (300MB) upload -- this box has ~100GB
+      # disk headroom (see docs/UPLOAD_STORAGE_REDESIGN.md), and a file only lives here transiently
+      # (deleted once its document reaches "indexed", or once a whole split job finishes).
+      storage: 50Gi

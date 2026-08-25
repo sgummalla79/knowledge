@@ -11,7 +11,13 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.identity_repository import IdentityRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.tests.integration.conftest import seed_active_embedding_provider
+
+
+@pytest.fixture
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
 
 
 def _fake_provider():
@@ -20,11 +26,12 @@ def _fake_provider():
     return provider
 
 
-def _make_service(db_session):
+def _make_service(db_session, storage):
     return IngestionService(
         DocumentRepository(db_session),
         ChunkRepository(db_session),
         EmbeddingSettingsRepository(db_session),
+        storage,
     )
 
 
@@ -33,21 +40,30 @@ def _owner(db_session):
     return IdentityRepository(db_session).get()
 
 
-def test_successful_ingest_is_atomic(db_session):
+def _source(storage, data: bytes, name: str = "upload.bin") -> str:
+    """Writes bytes to a path IngestionService.ingest() is free to take ownership of (move) --
+    mirrors how a real caller (the upload route / PdfSplitIngestionService) hands over a
+    standalone file, not bytes already in memory."""
+    path = f"src/{name}"
+    storage.save_bytes(path, data)
+    return path
+
+
+def test_successful_ingest_is_atomic(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     text = "abcdefghijklmnopqrstuvwxyz" * 3
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = service.ingest(org_id, owner.id, "notes.txt", text.encode())
+        document = service.ingest(org_id, owner.id, "notes.txt", _source(storage, text.encode()))
     db_session.commit()
 
     assert document.status == "indexed"
@@ -57,14 +73,14 @@ def test_successful_ingest_is_atomic(db_session):
     assert document.type == "document"
 
 
-def test_ingest_html_defaults_to_article_type(db_session):
+def test_ingest_html_defaults_to_article_type(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
 
     with patch(
@@ -77,7 +93,7 @@ def test_ingest_html_defaults_to_article_type(db_session):
     assert document.type == "article"
 
 
-def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_session):
+def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_session, storage):
     """Regression test for a real incident: a PDF's extracted text contained a NUL byte, which
     Postgres rejects outright when inserting into chunks.content ("A string literal cannot
     contain NUL (0x00) characters") -- and that DB-level failure cascaded into the document never
@@ -90,28 +106,28 @@ def test_ingest_strips_nul_bytes_from_extracted_text_instead_of_failing(db_sessi
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     text_with_nul = "some real content \x00 with an embedded null byte " * 3
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = service.ingest(org_id, owner.id, "notes.txt", text_with_nul.encode())
+        document = service.ingest(org_id, owner.id, "notes.txt", _source(storage, text_with_nul.encode()))
     db_session.commit()
 
     assert document.status == "indexed"
     assert document.chunk_count > 0
 
 
-def test_ingest_with_dimension_mismatch_fails_document_and_creates_no_chunks(db_session):
+def test_ingest_with_dimension_mismatch_fails_document_and_creates_no_chunks(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     wrong_dimension_provider = MagicMock()
     wrong_dimension_provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * (EMBEDDING_DIM // 2) for _ in texts]
 
@@ -120,7 +136,7 @@ def test_ingest_with_dimension_mismatch_fails_document_and_creates_no_chunks(db_
         return_value=wrong_dimension_provider,
     ):
         with pytest.raises(ValidationError) as exc_info:
-            service.ingest(org_id, owner.id, "notes.txt", b"hello world")
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, b"hello world"))
     db_session.commit()
     assert exc_info.value.code == error_codes.EMBEDDING_DIMENSION_MISMATCH
 
@@ -130,21 +146,21 @@ def test_ingest_with_dimension_mismatch_fails_document_and_creates_no_chunks(db_
     assert ChunkRepository(db_session).count_for_document(documents[0].id) == 0
 
 
-def test_failed_embedding_leaves_document_failed_and_creates_no_chunks(db_session):
+def test_failed_embedding_leaves_document_failed_and_creates_no_chunks(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         try:
-            service.ingest(org_id, owner.id, "notes.txt", b"hello world")
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, b"hello world"))
         except RuntimeError:
             pass
     db_session.commit()
@@ -155,15 +171,15 @@ def test_failed_embedding_leaves_document_failed_and_creates_no_chunks(db_sessio
     assert ChunkRepository(db_session).count_for_document(documents[0].id) == 0
 
 
-def test_ingest_without_configured_embeddings_raises(db_session):
+def test_ingest_without_configured_embeddings_raises(db_session, storage):
     owner = _owner(db_session)
     org = bootstrap_default_organization(db_session)
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     with pytest.raises(ValidationError) as exc_info:
-        service.ingest(org.id, owner.id, "notes.txt", b"hello world")
+        service.ingest(org.id, owner.id, "notes.txt", _source(storage, b"hello world"))
     assert exc_info.value.code == error_codes.EMBEDDINGS_NOT_CONFIGURED
 
     # No document row should have been created — the precondition check runs before anything else.
@@ -171,31 +187,31 @@ def test_ingest_without_configured_embeddings_raises(db_session):
     assert documents == []
 
 
-def test_successful_ingest_clears_raw_bytes_after_completion(db_session):
+def test_successful_ingest_clears_raw_file_after_completion(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    document_repo = DocumentRepository(db_session)
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     text = "abcdefghijklmnopqrstuvwxyz" * 3
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = service.ingest(org_id, owner.id, "notes.txt", text.encode())
+        document = service.ingest(org_id, owner.id, "notes.txt", _source(storage, text.encode()))
     db_session.commit()
 
     # The original file is only needed to retry a failed ingestion — once indexed, it's dead
-    # weight and should be reclaimed automatically (DocumentRepository.update_status).
-    assert document_repo.get_raw_bytes(document.id) is None
+    # weight and should be reclaimed automatically: the DB column is nulled
+    # (DocumentRepository.update_status) and the physical file deleted (IngestionService._process).
+    assert document.raw_file_path is None
     assert document.error_message is None
 
 
-def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
+def test_failed_ingest_keeps_raw_file_and_records_error_message(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -203,14 +219,14 @@ def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         with pytest.raises(RuntimeError):
-            service.ingest(org_id, owner.id, "notes.txt", b"hello world")
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, b"hello world"))
     db_session.commit()
 
     documents = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")
@@ -218,14 +234,15 @@ def test_failed_ingest_keeps_raw_bytes_and_records_error_message(db_session):
     failed_document = documents[0]
     assert failed_document.status == "failed"
     assert "embedding API unavailable" in failed_document.error_message
-    assert document_repo.get_raw_bytes(failed_document.id) == b"hello world"
+    assert failed_document.raw_file_path is not None
+    assert storage.resolve(failed_document.raw_file_path).read_bytes() == b"hello world"
     # size_bytes is set at upload time regardless of outcome; chunk_count stays unset ("not
     # available yet") since ingestion never reached indexed.
     assert failed_document.size_bytes == len(b"hello world")
     assert failed_document.chunk_count is None
 
 
-def test_retry_after_failure_succeeds(db_session):
+def test_retry_after_failure_succeeds(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -233,7 +250,7 @@ def test_retry_after_failure_succeeds(db_session):
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     text = "abcdefghijklmnopqrstuvwxyz" * 3
 
     with patch(
@@ -241,7 +258,7 @@ def test_retry_after_failure_succeeds(db_session):
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         with pytest.raises(RuntimeError):
-            service.ingest(org_id, owner.id, "notes.txt", text.encode())
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, text.encode()))
     db_session.commit()
 
     failed_document = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
@@ -257,18 +274,18 @@ def test_retry_after_failure_succeeds(db_session):
     assert retried_document.status == "indexed"
     assert retried_document.error_message is None
     assert retried_document.chunk_count > 0
-    assert document_repo.get_raw_bytes(retried_document.id) is None
+    assert retried_document.raw_file_path is None
 
 
-def test_retry_without_stored_bytes_raises_document_not_retryable(db_session):
+def test_retry_without_stored_file_raises_document_not_retryable(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    # Simulates a document that predates raw-bytes storage (or whose bytes were already cleared) —
-    # created directly via the repository, bypassing IngestionService.ingest(), so raw_file_bytes
+    # Simulates a document that predates raw-file storage (or whose file was already cleared) —
+    # created directly via the repository, bypassing IngestionService.ingest(), so raw_file_path
     # stays NULL.
     document_repo = DocumentRepository(db_session)
     document = document_repo.create(
@@ -282,13 +299,13 @@ def test_retry_without_stored_bytes_raises_document_not_retryable(db_session):
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     with pytest.raises(ValidationError) as exc_info:
         service.retry(document)
     assert exc_info.value.code == error_codes.DOCUMENT_NOT_RETRYABLE
 
 
-def test_retry_without_configured_embeddings_raises(db_session):
+def test_retry_without_configured_embeddings_raises(db_session, storage):
     owner = _owner(db_session)
     org = bootstrap_default_organization(db_session)
     db_session.commit()
@@ -302,24 +319,26 @@ def test_retry_without_configured_embeddings_raises(db_session):
         file_type="txt",
         content_hash="deadbeef",
         status="failed",
-        raw_file_bytes=b"hello world",
+        # Never actually read — require_embedding_settings raises before retry() touches this —
+        # so it doesn't need to point at a real file on disk.
+        raw_file_path="src/unused.bin",
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     with pytest.raises(ValidationError) as exc_info:
         service.retry(document)
     assert exc_info.value.code == error_codes.EMBEDDINGS_NOT_CONFIGURED
 
 
-def test_ingest_html_creates_html_typed_document_and_completes(db_session):
+def test_ingest_html_creates_html_typed_document_and_completes(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
 
     with patch(
@@ -336,7 +355,7 @@ def test_ingest_html_creates_html_typed_document_and_completes(db_session):
     assert document.chunk_count > 0
 
 
-def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
+def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
@@ -344,7 +363,7 @@ def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     html = b"<html><body><p>" + b"hello world " * 20 + b"</p></body></html>"
 
     with patch(
@@ -370,7 +389,7 @@ def test_retry_of_a_failed_crawled_page_uses_the_html_parser(db_session):
     assert retried_document.chunk_count > 0
 
 
-def test_rename_does_not_break_retry_parser_resolution(db_session):
+def test_rename_does_not_break_retry_parser_resolution(db_session, storage):
     """Regression test: parser selection on retry used to re-derive the extension from the
     display title on every call, so renaming a document to something without a matching extension
     would silently break retry. _resolve_parser now keys off the stored, immutable file_type
@@ -383,14 +402,14 @@ def test_rename_does_not_break_retry_parser_resolution(db_session):
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         side_effect=RuntimeError("embedding API unavailable"),
     ):
         with pytest.raises(RuntimeError):
-            service.ingest(org_id, owner.id, "notes.txt", b"hello world")
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, b"hello world"))
     db_session.commit()
 
     failed_document = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
@@ -414,21 +433,23 @@ def test_rename_does_not_break_retry_parser_resolution(db_session):
     assert retried_document.chunk_count > 0
 
 
-def test_ingest_cancelled_immediately_marks_document_failed_with_cancellation_message(db_session):
+def test_ingest_cancelled_immediately_marks_document_failed_with_cancellation_message(db_session, storage):
     owner = _owner(db_session)
     org_id = seed_active_embedding_provider(
         db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
     )
     db_session.commit()
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
         with pytest.raises(IngestionCancelled):
-            service.ingest(org_id, owner.id, "notes.txt", b"hello world", should_cancel=lambda: True)
+            service.ingest(
+                org_id, owner.id, "notes.txt", _source(storage, b"hello world"), should_cancel=lambda: True
+            )
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)
@@ -440,7 +461,7 @@ def test_ingest_cancelled_immediately_marks_document_failed_with_cancellation_me
     assert "Cancelled by user" in cancelled_document.error_message
 
 
-def test_multi_batch_document_persists_all_chunks_with_no_duplicates(db_session, monkeypatch):
+def test_multi_batch_document_persists_all_chunks_with_no_duplicates(db_session, storage, monkeypatch):
     """Regression test for the production OOM fix: chunks are now embedded/persisted in batches
     (INGESTION_EMBED_BATCH_SIZE) instead of all at once, so a real multi-chunk document must still
     end up with exactly one chunk per ordinal, not gaps or duplicates from crossing a batch
@@ -459,12 +480,12 @@ def test_multi_batch_document_persists_all_chunks_with_no_duplicates(db_session,
     expected_piece_count = len(TextChunker(chunk_size=5, chunk_overlap=0).split(text))
     assert expected_piece_count > 4  # must span at least 3 batches of 2 to be a real test
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
     with patch(
         "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
         return_value=_fake_provider(),
     ):
-        document = service.ingest(org_id, owner.id, "notes.txt", text.encode())
+        document = service.ingest(org_id, owner.id, "notes.txt", _source(storage, text.encode()))
     db_session.commit()
 
     chunks = ChunkRepository(db_session).list_for_document(document.id, limit=1000, offset=0)
@@ -474,7 +495,7 @@ def test_multi_batch_document_persists_all_chunks_with_no_duplicates(db_session,
     assert sorted(c.ordinal for c in chunks) == list(range(expected_piece_count))  # no gaps, no dupes
 
 
-def test_retry_after_partial_batch_failure_leaves_no_duplicate_or_stale_chunks(db_session, monkeypatch):
+def test_retry_after_partial_batch_failure_leaves_no_duplicate_or_stale_chunks(db_session, storage, monkeypatch):
     """A batch already embedded and persisted before a later batch fails is now committed along
     with the rest of the failed job (matching the real worker's commit-on-failure behavior) --
     ChunkRepository.delete_for_document() at the start of every attempt is what makes a retry safe
@@ -493,7 +514,7 @@ def test_retry_after_partial_batch_failure_leaves_no_duplicate_or_stale_chunks(d
     expected_piece_count = len(TextChunker(chunk_size=5, chunk_overlap=0).split(text))
     assert expected_piece_count > 4
 
-    service = _make_service(db_session)
+    service = _make_service(db_session, storage)
 
     # First batch (pieces 0-1) succeeds; second batch (pieces 2-3) fails -- simulating a real
     # transient embedding-API failure partway through a multi-batch document.
@@ -513,7 +534,7 @@ def test_retry_after_partial_batch_failure_leaves_no_duplicate_or_stale_chunks(d
         return_value=flaky_provider,
     ):
         with pytest.raises(RuntimeError):
-            service.ingest(org_id, owner.id, "notes.txt", text.encode())
+            service.ingest(org_id, owner.id, "notes.txt", _source(storage, text.encode()))
     db_session.commit()
 
     document_repo = DocumentRepository(db_session)

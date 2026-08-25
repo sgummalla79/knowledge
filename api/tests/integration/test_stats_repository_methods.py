@@ -16,6 +16,7 @@ from api.infrastructure.repositories.embedding_provider_settings_repository impo
 from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.organization_repository import OrganizationRepository
 from api.infrastructure.repositories.query_repository import QueryRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.tests.integration.conftest import seed_active_embedding_provider
 
 # Real-DB coverage for the aggregate SQL these repository methods run (joins, group-by, org
@@ -36,19 +37,28 @@ def owner_id(db_session):
     return IdentityRepository(db_session).get().id
 
 
-def _ingest_document(db_session, org_id, owner_id, filename="notes.txt"):
+@pytest.fixture()
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
+
+
+def _ingest_document(db_session, storage, org_id, owner_id, filename="notes.txt"):
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
-    ingestion_service = IngestionService(document_repo, chunk_repo, EmbeddingSettingsRepository(db_session))
+    ingestion_service = IngestionService(
+        document_repo, chunk_repo, EmbeddingSettingsRepository(db_session), storage
+    )
+    source_path = f"src/{filename}"
+    storage.save_bytes(source_path, ("abc " * 30).encode())
     provider = MagicMock()
     provider.embed_documents.side_effect = lambda texts, should_cancel=None: [[0.0] * EMBEDDING_DIM for _ in texts]
     with patch("api.application.ingestion_service.EmbeddingProviderRegistry.resolve", return_value=provider):
-        document = ingestion_service.ingest(org_id, owner_id, filename, ("abc " * 30).encode())
+        document = ingestion_service.ingest(org_id, owner_id, filename, source_path)
     db_session.commit()
     return document, chunk_repo.list_for_document(document.id, limit=10, offset=0)
 
 
-def test_chunk_count_for_org_does_not_leak_other_orgs(db_session, org_id, owner_id):
+def test_chunk_count_for_org_does_not_leak_other_orgs(db_session, storage, org_id, owner_id):
     # seed_active_embedding_provider always resolves to the idempotent default org (see its own
     # docstring) — a genuinely separate second org needs its own explicit creation + config.
     other_org = OrganizationRepository(db_session).create("Other Org", "other-org")
@@ -57,8 +67,10 @@ def test_chunk_count_for_org_does_not_leak_other_orgs(db_session, org_id, owner_
     embedding_settings.set_enabled(other_org.id, "voyage", True)
     db_session.commit()
 
-    _document, chunks = _ingest_document(db_session, org_id, owner_id)
-    _other_document, other_chunks = _ingest_document(db_session, other_org.id, owner_id, filename="other-org-notes.txt")
+    _document, chunks = _ingest_document(db_session, storage, org_id, owner_id)
+    _other_document, other_chunks = _ingest_document(
+        db_session, storage, other_org.id, owner_id, filename="other-org-notes.txt"
+    )
 
     chunk_repo = ChunkRepository(db_session)
     assert chunk_repo.count_for_org(org_id) == len(chunks)
@@ -66,8 +78,8 @@ def test_chunk_count_for_org_does_not_leak_other_orgs(db_session, org_id, owner_
     assert chunk_repo.count_for_org(uuid4()) == 0
 
 
-def test_count_since_and_avg_latency_since(db_session, org_id, owner_id):
-    _document, chunks = _ingest_document(db_session, org_id, owner_id)
+def test_count_since_and_avg_latency_since(db_session, storage, org_id, owner_id):
+    _document, chunks = _ingest_document(db_session, storage, org_id, owner_id)
     query_repo = QueryRepository(db_session)
     history = QueryHistoryService(query_repo)
     scored = [ScoredChunk(id=chunk.id, document_id=chunk.document_id, ordinal=chunk.ordinal, content=chunk.content, score=0.9) for chunk in chunks]
@@ -85,9 +97,9 @@ def test_count_since_and_avg_latency_since(db_session, org_id, owner_id):
     assert query_repo.avg_latency_since(org_id, future) is None
 
 
-def test_most_retrieved_documents_ranks_by_retrieval_count(db_session, org_id, owner_id):
-    popular_doc, popular_chunks = _ingest_document(db_session, org_id, owner_id, filename="popular.txt")
-    quiet_doc, quiet_chunks = _ingest_document(db_session, org_id, owner_id, filename="quiet.txt")
+def test_most_retrieved_documents_ranks_by_retrieval_count(db_session, storage, org_id, owner_id):
+    popular_doc, popular_chunks = _ingest_document(db_session, storage, org_id, owner_id, filename="popular.txt")
+    quiet_doc, quiet_chunks = _ingest_document(db_session, storage, org_id, owner_id, filename="quiet.txt")
     query_repo = QueryRepository(db_session)
     history = QueryHistoryService(query_repo)
 
@@ -108,8 +120,8 @@ def test_most_retrieved_documents_ranks_by_retrieval_count(db_session, org_id, o
     assert ranked[1][2] == len(quiet_chunks)
 
 
-def test_retrieval_stats_for_document(db_session, org_id, owner_id):
-    document, chunks = _ingest_document(db_session, org_id, owner_id)
+def test_retrieval_stats_for_document(db_session, storage, org_id, owner_id):
+    document, chunks = _ingest_document(db_session, storage, org_id, owner_id)
     query_repo = QueryRepository(db_session)
     history = QueryHistoryService(query_repo)
     scored = [ScoredChunk(id=c.id, document_id=c.document_id, ordinal=c.ordinal, content=c.content, score=0.8) for c in chunks]

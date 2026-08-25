@@ -62,3 +62,17 @@ spec:
             # this long an "idle" stretch would be a real bug there, not expected behavior.
             - name: DB_IDLE_IN_TRANSACTION_TIMEOUT_MS
               value: "900000"
+            # Matches the code default (UPLOADS_DIR_DEFAULT, api/constants.py) -- spelled out
+            # explicitly here anyway, same style every other env var in this file uses. Mounted
+            # below from the same PVC knowledge-api mounts (01b-uploads-pvc.yaml) -- this worker
+            # reads the file the API streamed to disk, and both pods run on this cluster's one
+            # node today (see that PVC's own comment on why that matters) -- see
+            # docs/UPLOAD_STORAGE_REDESIGN.md.
+            - name: UPLOADS_DIR
+              value: /data/uploads
+          volumeMounts:
+            - name: uploads
+              mountPath: /data/uploads
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: { claimName: knowledge-uploads-data }

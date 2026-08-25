@@ -32,6 +32,7 @@ def _to_entity(model: DocumentModel) -> DocumentEntity:
         created_at=model.created_at,
         last_modified_at=model.last_modified_at,
         indexed_at=model.indexed_at,
+        raw_file_path=model.raw_file_path,
     )
 
 
@@ -103,15 +104,14 @@ class DocumentRepository:
         if status == "indexed":
             # The original file is only ever needed to retry a failed ingestion — once a document
             # is fully indexed, its content lives in `chunks` and the raw upload is dead weight.
-            # Reclaiming it here (not left to callers to remember) keeps storage bounded by
-            # currently-processing-or-failed documents, not total historical upload volume.
-            model.raw_file_bytes = None
+            # Nulling the DB column here (not left to callers to remember) keeps this bounded by
+            # currently-processing-or-failed documents, not total historical upload volume. The
+            # physical file itself is deleted by the caller (IngestionService._process(), which
+            # owns storage I/O -- this repository stays DB-only) using the path returned by the
+            # entity this update_status() call replaces, before it's gone from here.
+            model.raw_file_path = None
         self._session.flush()
         return _to_entity(model)
-
-    def get_raw_bytes(self, document_id) -> bytes | None:
-        model = self._session.get(DocumentModel, document_id)
-        return model.raw_file_bytes if model is not None else None
 
     def rename(self, document_id, new_title: str) -> DocumentEntity:
         model = self._session.get(DocumentModel, document_id)

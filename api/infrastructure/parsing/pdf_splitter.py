@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from io import BytesIO
 from math import ceil, floor
+from pathlib import Path
 from typing import Iterator
 
 from pypdf import PdfReader, PdfWriter
@@ -82,19 +83,23 @@ class PdfSplitter:
         self.target_part_bytes = target_part_bytes
         self.max_parts = max_parts
 
-    def should_split(self, file_bytes: bytes) -> bool:
-        return len(file_bytes) > self.threshold_bytes
+    def should_split(self, size_bytes: int) -> bool:
+        return size_bytes > self.threshold_bytes
 
-    def plan_for(self, file_bytes: bytes, chunk_size: int, chunk_overlap: int) -> SplitPlan | None:
+    def plan_for(self, path: str | Path, size_bytes: int, chunk_size: int, chunk_overlap: int) -> SplitPlan | None:
         """Pure planning: figures out *whether* and *how* to split without building any part
         bytes. Returns None for every case split() used to return [file_bytes] unchanged for
         (below threshold, a single huge page, or a plan that only needs one part) — production
         ingestion (PdfSplitIngestionService) checks this first and, only when it's not None, pulls
-        parts one at a time via iter_parts() instead of materializing every part up front."""
-        if not self.should_split(file_bytes):
+        parts one at a time via iter_parts() instead of materializing every part up front.
+
+        Takes a path (PdfReader opens it directly, streaming rather than requiring the caller to
+        have already loaded the whole file into memory as file_bytes) plus that file's size, which
+        the caller already knows without needing this method to stat it again."""
+        if not self.should_split(size_bytes):
             return None
 
-        reader = PdfReader(BytesIO(file_bytes))
+        reader = PdfReader(path)
         total_pages = len(reader.pages)
         if total_pages <= 1:
             return None
@@ -104,7 +109,7 @@ class PdfSplitter:
 
         plan = plan_split(
             total_pages=total_pages,
-            total_bytes=len(file_bytes),
+            total_bytes=size_bytes,
             avg_chars_per_page=avg_chars_per_page,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -113,13 +118,13 @@ class PdfSplitter:
         )
         return plan if plan.total_parts > 1 else None
 
-    def iter_parts(self, file_bytes: bytes, plan: SplitPlan) -> Iterator[bytes]:
+    def iter_parts(self, path: str | Path, plan: SplitPlan) -> Iterator[bytes]:
         """Yields one part's PDF bytes at a time from a single shared PdfReader, instead of
         building every part up front into a list held in memory alongside the original file's
         bytes — confirmed as a real memory-accumulation source in production for a many-part split
-        of a large PDF. `plan` must be the SplitPlan plan_for() returned for these same
-        file_bytes/chunk_size/chunk_overlap."""
-        reader = PdfReader(BytesIO(file_bytes))
+        of a large PDF. `plan` must be the SplitPlan plan_for() returned for this same
+        path/chunk_size/chunk_overlap."""
+        reader = PdfReader(path)
         total_pages = len(reader.pages)
         for part_index in range(plan.total_parts):
             core_start = part_index * plan.pages_per_part
@@ -136,13 +141,14 @@ class PdfSplitter:
             writer.write(buffer)
             yield buffer.getvalue()
 
-    def split(self, file_bytes: bytes, chunk_size: int, chunk_overlap: int) -> list[bytes]:
-        """Always returns a list — [file_bytes] unchanged when splitting isn't needed or isn't
-        possible (e.g. a single huge page), so callers never special-case the non-split path. Kept
-        for callers (including this module's own test suite) that want every part up front;
-        production ingestion uses plan_for()/iter_parts() directly instead — see iter_parts' own
-        docstring for why."""
-        plan = self.plan_for(file_bytes, chunk_size, chunk_overlap)
+    def split(self, path: str | Path, chunk_size: int, chunk_overlap: int) -> list[bytes]:
+        """Always returns a list — [the whole file's bytes] unchanged when splitting isn't needed
+        or isn't possible (e.g. a single huge page), so callers never special-case the non-split
+        path. Kept for callers (including this module's own test suite) that want every part up
+        front; production ingestion uses plan_for()/iter_parts() directly instead — see
+        iter_parts' own docstring for why."""
+        size_bytes = Path(path).stat().st_size
+        plan = self.plan_for(path, size_bytes, chunk_size, chunk_overlap)
         if plan is None:
-            return [file_bytes]
-        return list(self.iter_parts(file_bytes, plan))
+            return [Path(path).read_bytes()]
+        return list(self.iter_parts(path, plan))
