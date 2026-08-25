@@ -13,5 +13,19 @@ class PdfParser(DocumentParser):
     split-size math — text fidelity doesn't matter there the way it does for ingested content."""
 
     def parse(self, file_bytes: bytes) -> str:
+        # page.close() flushes pdfplumber's per-page caches (.chars/.rects/.lines/.layout, each a
+        # real Python object per glyph/line/rect on that page) right after that page's text is
+        # pulled -- without it, every page's cache stays alive for the whole document, since
+        # PDF.close() (the outer context manager) only releases them at the very end, after the
+        # peak has already happened. Confirmed in production: a 41.5MB, page/layout-dense PDF
+        # OOM-killed a 4Gi worker process during parsing alone, before chunking ever started, with
+        # every page's parsed structure held simultaneously. try/finally so a page that fails to
+        # extract still gets its cache released rather than leaking on the error path too.
+        texts = []
         with pdfplumber.open(BytesIO(file_bytes)) as pdf:
-            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+            for page in pdf.pages:
+                try:
+                    texts.append(page.extract_text() or "")
+                finally:
+                    page.close()
+        return "\n".join(texts)
