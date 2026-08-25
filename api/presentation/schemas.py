@@ -126,6 +126,16 @@ class CategoryUpdateRequest(BaseModel):
     description: str | None = None
 
 
+class CategoryDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Default (cascade=False) is a plain unlink -- matches this route's existing behavior exactly.
+    # cascade=True additionally, permanently deletes every document currently in this category (and
+    # their chunks, via the DB's own ON DELETE CASCADE) -- see CategoryService.delete_category.
+    cascade: bool = False
+    current_password: str | None = None
+
+
 class PaginationQuery(BaseModel):
     """Shared shape for every paginated list endpoint (documents, ...)."""
 
@@ -409,6 +419,14 @@ class ShelfUpdateRequest(BaseModel):
 
     name: str = Field(min_length=1)
     description: str | None = None
+
+
+class ShelfDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Same cascade contract as CategoryDeleteRequest -- see ShelfService.delete_shelf.
+    cascade: bool = False
+    current_password: str | None = None
 
 
 class ShelfDocumentRequest(BaseModel):

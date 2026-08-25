@@ -6,7 +6,7 @@ import pytest
 
 from api import create_app
 from api.domain.entities import Shelf
-from api.domain.errors import ConflictError, NotFoundError, ValidationError
+from api.domain.errors import AuthenticationError, ConflictError, NotFoundError, ValidationError
 
 # HTTP-layer wiring only (status codes, headers, error envelope) — ShelfService is mocked.
 # Real DB behavior (slug uniqueness, document/member counts) belongs in an integration suite.
@@ -116,11 +116,44 @@ def test_update_shelf_returns_updated_shelf(client):
     assert response.get_json()["name"] == "renamed"
 
 
-def test_delete_shelf_returns_204(client):
-    with patch("api.presentation.routes.shelves.ShelfService.delete_shelf", return_value=None):
+def test_delete_shelf_returns_documents_deleted_count(client):
+    with patch(
+        "api.presentation.routes.shelves.ShelfService.delete_shelf", return_value=0
+    ) as mock_delete:
         response = client.delete(f"/shelves/{uuid4()}")
 
-    assert response.status_code == 204
+    assert response.status_code == 200
+    assert response.get_json()["documents_deleted"] == 0
+    # Default body (no JSON sent at all) must still resolve to a plain, non-cascade delete.
+    assert mock_delete.call_args.kwargs["cascade"] is False
+    assert mock_delete.call_args.kwargs["current_password"] is None
+
+
+def test_delete_shelf_passes_cascade_and_password_through(client):
+    with patch(
+        "api.presentation.routes.shelves.ShelfService.delete_shelf", return_value=3
+    ) as mock_delete:
+        response = client.delete(f"/shelves/{uuid4()}", json={"cascade": True, "current_password": "hunter2"})
+
+    assert response.status_code == 200
+    assert response.get_json()["documents_deleted"] == 3
+    assert mock_delete.call_args.kwargs["cascade"] is True
+    assert mock_delete.call_args.kwargs["current_password"] == "hunter2"
+
+
+def test_delete_shelf_cascade_wrong_password_returns_structured_401(client):
+    with patch(
+        "api.presentation.routes.shelves.ShelfService.delete_shelf",
+        side_effect=AuthenticationError("Incorrect password.", code="incorrect_password"),
+    ):
+        response = client.delete(f"/shelves/{uuid4()}", json={"cascade": True, "current_password": "wrong"})
+
+    assert response.status_code == 401
+    body = response.get_json()
+    assert body["error"]["message"] == "Incorrect password."
+    # The webui client (client.ts) keys off this exact code to avoid forcing a sign-out/redirect
+    # on a simple wrong-password retry -- see that file's own note.
+    assert body["error"]["code"] == "incorrect_password"
 
 
 def test_delete_default_shelf_returns_structured_400(client):
