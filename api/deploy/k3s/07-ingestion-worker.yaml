@@ -32,11 +32,13 @@ spec:
           command: ["python", "-m", "api.ingestion_worker.main"]
           resources:
             requests: { cpu: 100m, memory: 256Mi }
-            # Matches 02-api.yaml's own bump -- this process parses/chunks/embeds the same large
-            # file the API held in memory when 1Gi turned out too tight for it (see that file's
-            # comment); no reason this side of the pipeline would need less headroom for the same
-            # payload.
-            limits: { cpu: "1", memory: 2Gi }
+            # 2Gi (matched to 02-api.yaml's own bump) still wasn't enough once this process
+            # actually got to parsing/chunking/embedding a large PDF, not just holding its raw
+            # bytes -- OOM-killed at anon-rss ~2.04GB (confirmed via `dmesg`'s cgroup OOM report)
+            # processing a real ~80MB file. 4Gi gives ~2x headroom over that measured usage rather
+            # than another guess; a much larger file nearer MAX_REQUEST_BODY_MB (300MB) could still
+            # exceed this and would need revisiting rather than assuming this scales linearly.
+            limits: { cpu: "1", memory: 4Gi }
           env:
             - name: DATABASE_URL
               valueFrom:
