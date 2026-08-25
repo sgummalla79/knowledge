@@ -29,6 +29,15 @@ class ChunkRepository:
     def count_for_org(self, org_id) -> int:
         return self._session.query(Chunk).filter(Chunk.org_id == org_id).count()
 
+    def delete_for_document(self, document_id) -> None:
+        """Called at the start of IngestionService._process() (every attempt, not just a retry) so
+        a retry after a partial failure can't leave duplicate chunks behind. Now that chunks are
+        persisted in batches as they're embedded (see INGESTION_EMBED_BATCH_SIZE) rather than all
+        at once at the end, a failure partway through a document can leave some batches already
+        committed -- a no-op the first time any given document is ingested, since there's nothing
+        to delete yet."""
+        self._session.query(Chunk).filter(Chunk.document_id == document_id).delete()
+
     def list_for_document(self, document_id, limit: int, offset: int) -> list[ChunkEntity]:
         models = (
             self._session.query(Chunk)

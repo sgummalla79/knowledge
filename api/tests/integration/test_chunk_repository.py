@@ -54,3 +54,50 @@ def test_bulk_create_failure_does_not_poison_the_session(db_session):
 
     assert updated.status == "failed"
     assert document_repo.get(document.id).status == "failed"
+
+
+def test_delete_for_document_removes_only_that_documents_chunks(db_session):
+    bootstrap_default_identity(db_session)
+    owner = IdentityRepository(db_session).get()
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    embedding_model_id = EmbeddingSettingsRepository(db_session).get(org_id).id
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+
+    target = document_repo.create(
+        org_id=org_id, owner_id=owner.id, title="a.txt", type="article", file_type="txt",
+        content_hash="a", status="processing",
+    )
+    other = document_repo.create(
+        org_id=org_id, owner_id=owner.id, title="b.txt", type="article", file_type="txt",
+        content_hash="b", status="processing",
+    )
+    db_session.commit()
+
+    chunk_repo.bulk_create(target.id, org_id, embedding_model_id, [(0, "keep me gone", 3, [0.0] * EMBEDDING_DIM)])
+    chunk_repo.bulk_create(other.id, org_id, embedding_model_id, [(0, "keep me", 2, [0.0] * EMBEDDING_DIM)])
+    db_session.commit()
+
+    chunk_repo.delete_for_document(target.id)
+    db_session.commit()
+
+    assert chunk_repo.count_for_document(target.id) == 0
+    assert chunk_repo.count_for_document(other.id) == 1
+
+
+def test_delete_for_document_is_a_no_op_when_none_exist(db_session):
+    bootstrap_default_identity(db_session)
+    owner = IdentityRepository(db_session).get()
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    document = DocumentRepository(db_session).create(
+        org_id=org_id, owner_id=owner.id, title="a.txt", type="article", file_type="txt",
+        content_hash="a", status="processing",
+    )
+    db_session.commit()
+
+    ChunkRepository(db_session).delete_for_document(document.id)  # must not raise
+    db_session.commit()

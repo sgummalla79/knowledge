@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Callable
 from uuid import UUID
 
+from api.constants import INGESTION_EMBED_BATCH_SIZE
 from api.domain import error_codes
 from api.domain.entities import Document
 from api.domain.errors import IngestionCancelled, ValidationError
@@ -196,6 +197,7 @@ class IngestionService:
 
             chunker = TextChunker(chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap)
             pieces = chunker.split(text)
+            del text  # the raw extracted text can be sizeable and isn't needed past this point
             logger.info(
                 "Chunked document", extra={"document_id": str(document.id), "chunk_count": len(pieces)}
             )
@@ -207,25 +209,45 @@ class IngestionService:
                 "Embedding chunks",
                 extra={"provider": settings.provider, "model": settings.model, "chunk_count": len(pieces)},
             )
-            vectors = provider.embed_documents(pieces, should_cancel=should_cancel)
-            if vectors and len(vectors[0]) != settings.dimensions:
-                raise ValidationError(
-                    error_codes.EMBEDDING_DIMENSION_MISMATCH,
-                    f"Embedding provider '{settings.provider}' model '{settings.model}' produced a "
-                    f"{len(vectors[0])}-dimension vector, not the configured {settings.dimensions}.",
-                )
 
-            chunks = [
-                (ordinal, piece, _estimate_token_count(piece), vector)
-                for ordinal, (piece, vector) in enumerate(zip(pieces, vectors))
-            ]
-            self._chunks.bulk_create(document.id, org_id, settings.id, chunks)
+            # A prior attempt at this same document may have already persisted some batches before
+            # failing partway through (see the batched loop below) -- clearing first makes every
+            # attempt, retry or not, safe to re-run without leaving duplicate chunks behind. A
+            # no-op the first time this document is ever ingested.
+            self._chunks.delete_for_document(document.id)
+
+            # Embedded and persisted in batches, not all at once for the whole document: holding
+            # every chunk's text AND every chunk's embedding vector in memory simultaneously for a
+            # document with thousands of chunks is a real, confirmed-in-production OOM cause (a
+            # vector alone is hundreds of floats; thousands of them at once is a large peak). Each
+            # batch's pieces/vectors are only referenced by that loop iteration, so they're free to
+            # be garbage-collected once the next batch starts.
+            chunk_count = 0
+            checked_dimensions = False
+            for batch_start in range(0, len(pieces), INGESTION_EMBED_BATCH_SIZE):
+                batch_pieces = pieces[batch_start : batch_start + INGESTION_EMBED_BATCH_SIZE]
+                batch_vectors = provider.embed_documents(batch_pieces, should_cancel=should_cancel)
+                if not checked_dimensions:
+                    if batch_vectors and len(batch_vectors[0]) != settings.dimensions:
+                        raise ValidationError(
+                            error_codes.EMBEDDING_DIMENSION_MISMATCH,
+                            f"Embedding provider '{settings.provider}' model '{settings.model}' produced a "
+                            f"{len(batch_vectors[0])}-dimension vector, not the configured {settings.dimensions}.",
+                        )
+                    checked_dimensions = True
+
+                batch_chunks = [
+                    (batch_start + offset, piece, _estimate_token_count(piece), vector)
+                    for offset, (piece, vector) in enumerate(zip(batch_pieces, batch_vectors))
+                ]
+                self._chunks.bulk_create(document.id, org_id, settings.id, batch_chunks)
+                chunk_count += len(batch_chunks)
 
             document = self._documents.update_status(
-                document.id, "indexed", indexed_at=datetime.now(timezone.utc), chunk_count=len(chunks)
+                document.id, "indexed", indexed_at=datetime.now(timezone.utc), chunk_count=chunk_count
             )
             logger.info(
-                "Ingestion persisted", extra={"document_id": str(document.id), "chunk_count": len(chunks)}
+                "Ingestion persisted", extra={"document_id": str(document.id), "chunk_count": chunk_count}
             )
         except IngestionCancelled as error:
             # Distinct from "failed" — this document didn't error out, a user stopped it. Kept
