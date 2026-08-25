@@ -71,6 +71,23 @@ def test_list_ingestion_jobs_includes_payload_filename(client):
     assert body[1]["payload_filename"] is None
 
 
+def test_list_ingestion_jobs_includes_size_bytes_from_linked_document(client):
+    document_id = uuid4()
+    jobs = [_job(document_id=document_id), _job(type="crawl", document_id=None)]
+    with (
+        patch("api.presentation.routes.ingestion_jobs.IngestionJobService.list_jobs", return_value=jobs),
+        patch(
+            "api.presentation.routes.ingestion_jobs.IngestionJobService.document_sizes_by_job",
+            return_value={jobs[0].id: 4096},
+        ),
+    ):
+        response = client.get("/ingestion-jobs")
+
+    body = response.get_json()
+    assert body[0]["size_bytes"] == 4096
+    assert body[1]["size_bytes"] is None
+
+
 def test_list_ingestion_jobs_passes_limit_offset(client):
     with patch(
         "api.presentation.routes.ingestion_jobs.IngestionJobService.list_jobs", return_value=[]
