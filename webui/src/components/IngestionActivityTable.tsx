@@ -9,6 +9,12 @@ const TYPE_LABELS: Record<string, string> = {
   resync: 'Resync',
 }
 
+// An upload job's real filename is far more useful than the generic "Upload" type label; crawl/
+// reindex/resync jobs have no filename, so they keep falling back to their type label.
+function jobLabel(job: IngestionJob): string {
+  return job.payload_filename ?? TYPE_LABELS[job.type] ?? job.type
+}
+
 export function IngestionActivityTable({ jobs }: { jobs: IngestionJob[] }) {
   if (jobs.length === 0) {
     return <p className="text-sm text-muted-foreground">No ingestion activity yet.</p>
@@ -28,7 +34,7 @@ export function IngestionActivityTable({ jobs }: { jobs: IngestionJob[] }) {
         <tbody>
           {jobs.map((job) => (
             <tr key={job.id} className="border-t border-border">
-              <td className="py-3 pr-4 text-foreground">{TYPE_LABELS[job.type] ?? job.type}</td>
+              <td className="max-w-xs truncate py-3 pr-4 text-foreground">{jobLabel(job)}</td>
               <td className="py-3 pr-4">
                 <StatusBadge status={job.status} />
               </td>

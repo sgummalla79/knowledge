@@ -501,6 +501,9 @@ class IngestionJobResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    # Populated for an "upload" job (the source file's original name) -- None for every other job
+    # type. Lets a client show what was actually uploaded instead of just the generic job type.
+    payload_filename: str | None
 
     @classmethod
     def from_entity(cls, job: IngestionJob) -> "IngestionJobResponse":
@@ -517,6 +520,7 @@ class IngestionJobResponse(BaseModel):
             created_at=job.created_at,
             started_at=job.started_at,
             finished_at=job.finished_at,
+            payload_filename=job.payload_filename,
         )
 
 
