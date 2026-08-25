@@ -41,6 +41,16 @@ EMBEDDING_PROVIDER_DISPLAY_NAMES = {
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 100
 
+# IngestionService._process() embeds and persists a document's chunks in groups of this size,
+# instead of holding every chunk's text AND every chunk's embedding vector in memory at once for
+# the whole document -- confirmed in production as a real OOM cause for a single dense document
+# with thousands of chunks (a vector alone is hundreds of floats; thousands of them held
+# simultaneously is a large peak). Sized as a small multiple of each embedding provider's own
+# internal per-request batch size (Voyage's SDK-defined batch, 100 for the OpenAI-compatible
+# provider) so this doesn't fragment into an excessive number of small DB writes, while still
+# bounding how many chunks' worth of vectors are ever resident at once.
+INGESTION_EMBED_BATCH_SIZE = 500
+
 DEFAULT_TOP_K = 5
 
 # Hybrid retrieval defaults, used when no `search_settings` row exists yet (an absent row is not
