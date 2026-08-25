@@ -1,8 +1,10 @@
+import sys
 from io import BytesIO
 from pathlib import Path
 
 import pytest
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, NameObject, NumberObject
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -174,3 +176,75 @@ def test_split_produces_multiple_independently_parseable_parts_with_overlap(tmp_
     all_text = " ".join(text for part in parts for text in _page_texts(part))
     for i in range(10):
         assert f"marker {i:03d}" in all_text
+
+
+# --- iter_parts: recursion-limit headroom for deeply-nested page object graphs -----------------
+
+
+_DEEP_NESTING_DEPTH = 2000  # exceeds Python's default 1000-frame limit; fits under PDF_CLONE_RECURSION_LIMIT (10_000)
+
+
+def _deeply_nested_array(depth: int) -> ArrayObject:
+    """A pypdf ArrayObject nested `depth` levels deep -- stands in for the kind of dense,
+    deeply-nested annotation/form-field structure a real PDF caused a production RecursionError
+    on (PdfWriter.add_page -> PageObject.clone recurses once per nested indirect object with no
+    depth cap of its own). Depth calibrated empirically against the installed pypdf version, not
+    a guess: 2000 reliably exceeds the default recursion limit (995 already does; 990 does not)."""
+    array = ArrayObject([NumberObject(1)])
+    for _ in range(depth):
+        array = ArrayObject([array])
+    return array
+
+
+def test_deeply_nested_page_object_graph_exceeds_default_recursion_limit_uncontained():
+    """Sanity check that this fixture actually reproduces the real bug (pypdf's own
+    PdfWriter.add_page -> PageObject.clone, with no recursion-limit help) before trusting the
+    "PdfSplitter works around it" test below."""
+    reader = PdfReader(BytesIO(make_pdf_bytes(["only page"])))
+    reader.pages[0][NameObject("/CustomDeep")] = _deeply_nested_array(_DEEP_NESTING_DEPTH)
+
+    previous_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(1000)
+    try:
+        with pytest.raises(RecursionError):
+            PdfWriter().add_page(reader.pages[0])
+    finally:
+        sys.setrecursionlimit(previous_limit)
+
+
+def test_split_survives_a_page_deep_enough_to_exceed_default_recursion_limit(tmp_path, monkeypatch):
+    """End-to-end: PdfSplitter.iter_parts() must still produce every part even when one page's
+    object graph is deep enough that pypdf's own add_page/clone would blow the default recursion
+    limit (see the sanity check above) -- PDF_CLONE_RECURSION_LIMIT is what makes that possible.
+    The reader construction itself is faked (rather than round-tripped through a real
+    write-then-reread) since serializing/reparsing collapses the artificial nesting this fixture
+    relies on; PdfSplitter always asks for a fresh PdfReader(path), so faking that call is enough
+    to hand it the same already-mutated, already-deep page object the sanity check above used."""
+    # Same page count/chunk_size/chunk_overlap as
+    # test_split_produces_multiple_independently_parseable_parts_with_overlap above -- with fewer
+    # pages, PDF_SPLIT_MAX_OVERLAP_PAGES's clamp forces pages_per_part past total_pages and
+    # plan_for() collapses back to a single part, unrelated to the recursion fix under test here.
+    pages = [f"page {i} unique marker {i:03d}" for i in range(10)]
+    file_bytes = make_pdf_bytes(pages)
+    path = tmp_path / "upload.pdf"
+    path.write_bytes(file_bytes)
+
+    def fake_pdf_reader(*args, **kwargs):
+        reader = PdfReader(BytesIO(file_bytes))
+        reader.pages[5][NameObject("/CustomDeep")] = _deeply_nested_array(_DEEP_NESTING_DEPTH)
+        return reader
+
+    monkeypatch.setattr("api.infrastructure.parsing.pdf_splitter.PdfReader", fake_pdf_reader)
+    splitter = PdfSplitter(threshold_bytes=10, target_part_bytes=len(file_bytes) // 5, max_parts=20)
+
+    previous_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(1000)
+    try:
+        parts = splitter.split(path, chunk_size=10, chunk_overlap=1)
+    finally:
+        assert sys.getrecursionlimit() == 1000  # restored, not left elevated for later code
+        sys.setrecursionlimit(previous_limit)
+
+    assert len(parts) > 1
+    for part in parts:
+        assert PdfReader(BytesIO(part)).pages
