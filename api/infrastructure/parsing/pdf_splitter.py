@@ -1,3 +1,4 @@
+import sys
 from dataclasses import dataclass
 from io import BytesIO
 from math import ceil, floor
@@ -8,6 +9,7 @@ from pypdf import PdfReader, PdfWriter
 
 from api.constants import (
     MAX_UPLOAD_MB,
+    PDF_CLONE_RECURSION_LIMIT,
     PDF_SPLIT_MAX_OVERLAP_PAGES,
     PDF_SPLIT_MAX_PARTS,
     PDF_SPLIT_MIN_OVERLAP_PAGES,
@@ -135,10 +137,15 @@ class PdfSplitter:
             part_start = core_start if part_index == 0 else max(core_start - plan.overlap_pages, 0)
 
             writer = PdfWriter()
-            for page_number in range(part_start, core_end):
-                writer.add_page(reader.pages[page_number])
-            buffer = BytesIO()
-            writer.write(buffer)
+            previous_limit = sys.getrecursionlimit()
+            sys.setrecursionlimit(max(previous_limit, PDF_CLONE_RECURSION_LIMIT))
+            try:
+                for page_number in range(part_start, core_end):
+                    writer.add_page(reader.pages[page_number])
+                buffer = BytesIO()
+                writer.write(buffer)
+            finally:
+                sys.setrecursionlimit(previous_limit)
             yield buffer.getvalue()
 
     def split(self, path: str | Path, chunk_size: int, chunk_overlap: int) -> list[bytes]:
