@@ -48,3 +48,15 @@ spec:
                 secretKeyRef: { name: knowledge-secrets, key: secret-key }
             - name: LOG_LEVEL
               value: INFO
+            # DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT (30s, api/constants.py) exists to catch a
+            # web request's session stalling mid-transaction unexpectedly -- a real incident there.
+            # This process's own ingest pipeline legitimately holds one transaction open across
+            # PDF parsing, chunking, and calling the embedding provider once per chunk, none of
+            # which touch the DB -- for a large document with many chunks that "idle" stretch alone
+            # can exceed 30s, and Postgres was confirmed force-closing the connection mid-job
+            # (psycopg2.OperationalError: server closed the connection unexpectedly, crashing the
+            # whole worker process) well before anything was actually stuck. Overridden here, not
+            # in the default, since the API's own web-request sessions should keep the tight 30s --
+            # this long an "idle" stretch would be a real bug there, not expected behavior.
+            - name: DB_IDLE_IN_TRANSACTION_TIMEOUT_MS
+              value: "900000"
