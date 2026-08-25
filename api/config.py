@@ -6,6 +6,7 @@ from api.constants import (
     DB_MAX_OVERFLOW_DEFAULT,
     DB_POOL_SIZE_DEFAULT,
     DB_STATEMENT_TIMEOUT_MS_DEFAULT,
+    DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT,
     DEFAULT_WEBUI_ORIGIN,
 )
 
@@ -43,6 +44,11 @@ class Config:
         )
         self.db_idle_in_transaction_timeout_ms = int(
             os.environ.get("DB_IDLE_IN_TRANSACTION_TIMEOUT_MS", DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT)
+        )
+        # See DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT's own comment — scoped via SET LOCAL to
+        # just the one INSERT that writes an upload's raw bytes, not applied to the connection at large.
+        self.db_statement_timeout_ms_large_payload = int(
+            os.environ.get("DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD", DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT)
         )
         # Per-process pool sizing — see the constants module for why this had to shrink once
         # multiple processes (gunicorn workers x k8s replicas x the ingestion worker) started
