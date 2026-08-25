@@ -8,11 +8,13 @@ from api.domain import error_codes
 from api.domain.entities import Shelf
 from api.domain.errors import NotFoundError
 from api.infrastructure.repositories.document_repository import DocumentRepository
+from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.infrastructure.repositories.shelf_repository import ShelfRepository
 from api.presentation.routes.app_auth import require_permission
 from api.presentation.schemas import (
     ShelfAccessRequest,
     ShelfCreateRequest,
+    ShelfDeleteRequest,
     ShelfDocumentRequest,
     ShelfResponse,
     ShelfUpdateRequest,
@@ -22,7 +24,8 @@ shelves_bp = Blueprint("shelves", __name__)
 
 
 def _service() -> ShelfService:
-    return ShelfService(ShelfRepository(get_session()))
+    session = get_session()
+    return ShelfService(ShelfRepository(session), DocumentRepository(session), IdentityRepository(session))
 
 
 def _verify_document_ownership(org_id: UUID, document_id: UUID) -> None:
@@ -77,8 +80,11 @@ def update_shelf(shelf_id: UUID):
 @shelves_bp.delete("/shelves/<uuid:shelf_id>")
 @require_permission("shelves:write")
 def delete_shelf(shelf_id: UUID):
-    _service().delete_shelf(g.org_id, shelf_id)
-    return "", 204
+    dto = ShelfDeleteRequest.model_validate(request.get_json(silent=True) or {})
+    documents_deleted = _service().delete_shelf(
+        g.org_id, shelf_id, g.user_id, cascade=dto.cascade, current_password=dto.current_password
+    )
+    return jsonify({"documents_deleted": documents_deleted})
 
 
 @shelves_bp.post("/shelves/<uuid:shelf_id>/documents")

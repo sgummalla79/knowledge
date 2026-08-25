@@ -4,6 +4,7 @@ from uuid import UUID
 from api.application.org_name_validation import validate_org_slug
 from api.application.profile_service import ProfileService
 from api.application.username_validation import validate_username_format
+from api.domain import error_codes
 from api.domain.entities import Identity, OrgMember, Organization
 from api.domain.errors import AuthenticationError, ForbiddenError
 from api.domain.ports import (
@@ -87,7 +88,7 @@ class OrgMembershipService:
         address just by holding the cookie."""
         identity = self._identities.get_by_id(acting_identity_id)
         if identity is None or not verify_password(current_password, identity.password_hash):
-            raise AuthenticationError("Incorrect password.")
+            raise AuthenticationError("Incorrect password.", code=error_codes.INCORRECT_PASSWORD)
         validate_org_slug(new_name)
         return self._organizations.update_name(org_id, new_name)
 

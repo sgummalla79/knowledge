@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from api.application.username_validation import validate_email_format, validate_username_format
+from api.domain import error_codes
 from api.domain.entities import Identity
 from api.domain.errors import AuthenticationError
 from api.domain.ports import IdentityRepositoryPort, IdentityVerifierPort, OrgMemberRepositoryPort
@@ -46,6 +47,6 @@ class AuthService:
         right now."""
         identity = self._repository.get_by_id(identity_id)
         if identity is None or not verify_password(current_password, identity.password_hash):
-            raise AuthenticationError("Incorrect password.")
+            raise AuthenticationError("Incorrect password.", code=error_codes.INCORRECT_PASSWORD)
         validate_username_format(new_username)
         return self._repository.update_username(identity_id, new_username)

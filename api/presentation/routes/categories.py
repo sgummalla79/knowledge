@@ -5,16 +5,23 @@ from flask import Blueprint, g, jsonify, request
 from api.application.category_service import CategoryService
 from api.container import get_session
 from api.infrastructure.repositories.category_repository import CategoryRepository
+from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
+from api.infrastructure.repositories.identity_repository import IdentityRepository
 from api.presentation.routes.app_auth import require_permission
-from api.presentation.schemas import CategoryCreateRequest, CategoryResponse, CategoryUpdateRequest
+from api.presentation.schemas import CategoryCreateRequest, CategoryDeleteRequest, CategoryResponse, CategoryUpdateRequest
 
 categories_bp = Blueprint("categories", __name__, url_prefix="/categories")
 
 
 def _service() -> CategoryService:
     session = get_session()
-    return CategoryService(CategoryRepository(session), EmbeddingSettingsRepository(session))
+    return CategoryService(
+        CategoryRepository(session),
+        EmbeddingSettingsRepository(session),
+        DocumentRepository(session),
+        IdentityRepository(session),
+    )
 
 
 @categories_bp.post("")
@@ -53,5 +60,8 @@ def update_category(category_id: UUID):
 @categories_bp.delete("/<uuid:category_id>")
 @require_permission("categories:write")
 def delete_category(category_id: UUID):
-    _service().delete_category(g.org_id, category_id)
-    return "", 204
+    dto = CategoryDeleteRequest.model_validate(request.get_json(silent=True) or {})
+    documents_deleted = _service().delete_category(
+        g.org_id, category_id, g.user_id, cascade=dto.cascade, current_password=dto.current_password
+    )
+    return jsonify({"documents_deleted": documents_deleted})

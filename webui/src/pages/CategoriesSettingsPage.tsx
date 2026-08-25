@@ -1,19 +1,53 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/client'
 import { useCategories } from '../api/queries'
 import type { Category } from '../api/types'
 import { CategoryFormModal } from '../components/CategoryFormModal'
+import { DeleteWithDocumentsModal } from '../components/DeleteWithDocumentsModal'
+import { useToast } from '../components/toastContext'
 
 export function CategoriesSettingsPage() {
+  const { showToast } = useToast()
   const categories = useCategories()
   const queryClient = useQueryClient()
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [creating, setCreating] = useState(false)
+  const [countingDeleteId, setCountingDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<{ category: Category; documentCount: number } | null>(null)
 
   function handleSaved() {
     void queryClient.invalidateQueries({ queryKey: ['categories'] })
     setEditingCategory(null)
     setCreating(false)
+  }
+
+  async function handleDeleteClick(category: Category) {
+    setCountingDeleteId(category.id)
+    try {
+      // Category has no document_count of its own (unlike Shelf) -- the total-count header off
+      // the existing documents list endpoint gives an accurate number without a backend change,
+      // fetched only once the user actually asks to delete, not for every row up front.
+      const { total } = await api.getPaginated(`/documents?category_id=${category.id}&limit=1`)
+      setDeleting({ category, documentCount: total })
+    } catch {
+      showToast("Couldn't check this category's documents — please try again.", 'error')
+    } finally {
+      setCountingDeleteId(null)
+    }
+  }
+
+  function handleDeleted(documentsDeleted: number) {
+    void queryClient.invalidateQueries({ queryKey: ['categories'] })
+    if (documentsDeleted > 0) {
+      void queryClient.invalidateQueries({ queryKey: ['documents'] })
+    }
+    showToast(
+      documentsDeleted > 0
+        ? `Category deleted — ${documentsDeleted} document${documentsDeleted === 1 ? '' : 's'} permanently deleted.`
+        : 'Category deleted.',
+    )
+    setDeleting(null)
   }
 
   return (
@@ -61,6 +95,14 @@ export function CategoriesSettingsPage() {
                     >
                       Edit
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteClick(category)}
+                      disabled={countingDeleteId === category.id}
+                      className="ml-4 text-[13px] text-destructive hover:underline disabled:opacity-60"
+                    >
+                      {countingDeleteId === category.id ? 'Checking…' : 'Delete'}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -80,6 +122,17 @@ export function CategoriesSettingsPage() {
             setEditingCategory(null)
           }}
           onSaved={handleSaved}
+        />
+      )}
+
+      {deleting && (
+        <DeleteWithDocumentsModal
+          kind="category"
+          name={deleting.category.name}
+          documentCount={deleting.documentCount}
+          deletePath={`/categories/${deleting.category.id}`}
+          onClose={() => setDeleting(null)}
+          onDeleted={handleDeleted}
         />
       )}
     </div>

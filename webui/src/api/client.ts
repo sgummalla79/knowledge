@@ -9,6 +9,14 @@ import { csrfToken } from './shell'
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
+// A 401 with this specific code means "you're validly signed in, but the password you just typed
+// to confirm a sensitive action was wrong" (AuthenticationError(code=INCORRECT_PASSWORD) in
+// api/domain/error_codes.py) — not "your session is invalid." Every other 401 this app returns
+// really does mean the session itself needs re-establishing, so those still force the sign-in
+// redirect below; this one code is deliberately exempted so a wrong-password retry just shows an
+// inline error in whatever modal asked for it, instead of yanking the user off the page entirely.
+const INCORRECT_PASSWORD_CODE = 'incorrect_password'
+
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase()
   const headers = new Headers(init.headers)
@@ -18,13 +26,13 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, method, headers, credentials: 'include' })
   if (!response.ok) {
-    if (response.status === 401) {
+    const { message, code, field } = await parseErrorBody(response)
+    if (response.status === 401 && code !== INCORRECT_PASSWORD_CODE) {
       // Session expired mid-use (every page load is already server-gated, so this only fires
       // once a previously-valid session lapses) — same full navigation login.tsx would do, so a
       // fresh CSRF token and shell globals load with the sign-in page.
       window.location.href = '/sign-in'
     }
-    const { message, code, field } = await parseErrorBody(response)
     throw new ApiError(message, response.status, code, field)
   }
   return response
@@ -59,7 +67,8 @@ export const api = {
   put: <T>(path: string, body?: unknown) =>
     requestJson<T>(path, { method: 'PUT', body: body === undefined ? undefined : JSON.stringify(body) }),
 
-  delete: <T>(path: string) => requestJson<T>(path, { method: 'DELETE' }),
+  delete: <T>(path: string, body?: unknown) =>
+    requestJson<T>(path, { method: 'DELETE', body: body === undefined ? undefined : JSON.stringify(body) }),
 
   upload: <T>(path: string, formData: FormData) => requestJson<T>(path, { method: 'POST', body: formData }),
 
@@ -84,10 +93,10 @@ export const api = {
             resolve(xhr.responseText ? (JSON.parse(xhr.responseText) as T) : (undefined as T))
             return
           }
-          if (xhr.status === 401) {
+          const { message, code, field } = await parseErrorBody(new Response(xhr.responseText, { status: xhr.status }))
+          if (xhr.status === 401 && code !== INCORRECT_PASSWORD_CODE) {
             window.location.href = '/sign-in'
           }
-          const { message, code, field } = await parseErrorBody(new Response(xhr.responseText, { status: xhr.status }))
           reject(new ApiError(message, xhr.status, code, field))
         })()
       }
