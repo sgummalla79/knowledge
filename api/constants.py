@@ -101,6 +101,14 @@ PDF_SPLIT_OVERLAP_SAFETY_FACTOR = 3
 PDF_SPLIT_MIN_OVERLAP_PAGES = 1
 PDF_SPLIT_MAX_OVERLAP_PAGES = 5
 
+# pypdf's PageObject.clone() (invoked by PdfWriter.add_page, see PdfSplitter.iter_parts) recurses
+# once per nested indirect object in a page's own object graph (annotations, form fields, nested
+# arrays...) with no depth cap of its own. A real-world dense-form PDF hit Python's default
+# 1000-frame recursion limit here and failed outright (confirmed via prod traceback). Raised well
+# within an 8MB thread stack's headroom -- each clone() frame is small -- rather than left to fail
+# on documents that would otherwise split and ingest fine.
+PDF_CLONE_RECURSION_LIMIT = 10_000
+
 # flask-limiter's rate-string format ("N per interval") is a library-imposed literal, not a
 # value that varies by environment for this local, single-user tool.
 RATE_LIMIT_DEFAULT = "200 per minute"
