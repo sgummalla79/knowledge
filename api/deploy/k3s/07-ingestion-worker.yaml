@@ -23,7 +23,7 @@ spec:
         - name: knowledge-ingestion-worker
           # Same published image as knowledge-api (02-api.yaml) -- keep these two tags in sync on
           # every bump, since both run from the exact same source tree.
-          image: sgummalla/knowledge:4.8.0
+          image: sgummalla/knowledge:4.9.0
           # Bypasses api/deploy/entrypoint.sh (and its `alembic upgrade head` step) entirely --
           # migrations stay owned by the API Deployment only. If both Deployments' entrypoints ran
           # `alembic upgrade head` and were applied together, nothing stops two concurrent alembic
