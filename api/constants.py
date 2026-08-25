@@ -323,6 +323,17 @@ DB_LOCK_TIMEOUT_MS_DEFAULT = 10_000
 DB_STATEMENT_TIMEOUT_MS_DEFAULT = 15_000
 DB_IDLE_IN_TRANSACTION_TIMEOUT_MS_DEFAULT = 30_000
 
+# IngestionJobRepository.create() writes an upload's raw bytes into ingestion_jobs.payload as one
+# INSERT -- a real MAX_REQUEST_BODY_MB-sized (300MB) file can take well over
+# DB_STATEMENT_TIMEOUT_MS_DEFAULT's 15s just for that single statement (a real ~80MB upload alone
+# measured >15s), so the blanket statement_timeout above -- correctly tight for every other query,
+# and not something this one bulk-payload insert should get to weaken globally -- is raised only
+# for the duration of that one INSERT (SET LOCAL, scoped to the transaction) rather than raised for
+# every query on the connection. Sized generously past what even the 300MB ceiling should
+# plausibly need, since the cost of this timeout firing (a failed upload) is much higher than the
+# cost of a genuinely stuck insert taking a few extra minutes to be noticed.
+DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT = 180_000
+
 # PostgreSQL SQLSTATE codes classified by api/infrastructure/orm/db_fault_logging.py's
 # handle_error listener, so a lock/timeout fault is a searchable, alertable log line instead of a
 # silent stall discovered only once it becomes a user-visible outage (see the incident note above).

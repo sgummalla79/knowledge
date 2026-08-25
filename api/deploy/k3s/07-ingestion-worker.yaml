@@ -32,7 +32,11 @@ spec:
           command: ["python", "-m", "api.ingestion_worker.main"]
           resources:
             requests: { cpu: 100m, memory: 256Mi }
-            limits: { cpu: "1", memory: 1Gi }
+            # Matches 02-api.yaml's own bump -- this process parses/chunks/embeds the same large
+            # file the API held in memory when 1Gi turned out too tight for it (see that file's
+            # comment); no reason this side of the pipeline would need less headroom for the same
+            # payload.
+            limits: { cpu: "1", memory: 2Gi }
           env:
             - name: DATABASE_URL
               valueFrom:
