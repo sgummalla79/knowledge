@@ -32,13 +32,15 @@ spec:
           command: ["python", "-m", "api.ingestion_worker.main"]
           resources:
             requests: { cpu: 100m, memory: 256Mi }
-            # 2Gi (matched to 02-api.yaml's own bump) still wasn't enough once this process
-            # actually got to parsing/chunking/embedding a large PDF, not just holding its raw
-            # bytes -- OOM-killed at anon-rss ~2.04GB (confirmed via `dmesg`'s cgroup OOM report)
-            # processing a real ~80MB file. 4Gi gives ~2x headroom over that measured usage rather
-            # than another guess; a much larger file nearer MAX_REQUEST_BODY_MB (300MB) could still
-            # exceed this and would need revisiting rather than assuming this scales linearly.
-            limits: { cpu: "1", memory: 4Gi }
+            # 2Gi, then 4Gi, both still weren't enough once this process actually got to
+            # parsing/chunking/embedding a large or page-dense PDF -- OOM-killed repeatedly even at
+            # 4Gi (confirmed via `dmesg`'s cgroup OOM reports) despite three separate root causes
+            # already fixed (lazy PDF-split part generation, batched embed/persist, per-page
+            # pdfplumber cache release). Rather than keep chasing this file-by-file, raised to 7Gi
+            # -- this box has 7.8Gi total (`free -h`); 7Gi leaves headroom for the OS/kubelet plus
+            # the other pods' own limits (this is a ceiling this one process can grow into when it
+            # actually needs it, not a reservation -- it costs nothing at idle, same as today).
+            limits: { cpu: "1", memory: 7Gi }
           env:
             - name: DATABASE_URL
               valueFrom:
