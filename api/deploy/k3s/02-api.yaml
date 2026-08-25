@@ -29,7 +29,13 @@ spec:
             - containerPort: 13102
           resources:
             requests: { cpu: 100m, memory: 256Mi }
-            limits: { cpu: "1", memory: 1Gi }
+            # 1Gi was too tight for a large file upload -- the raw bytes are held in memory
+            # multiple times over across one request (WSGI body buffer, the parsed multipart file,
+            # the route handler's own read(), and the DB bind parameter) across 3 gunicorn workers
+            # sharing this one limit; a real ~80MB upload OOM-killed the container at 1Gi
+            # (confirmed via `kubectl describe pod`, exit code 137) -- see this repo's CLAUDE.md
+            # session history for the investigation that found it.
+            limits: { cpu: "1", memory: 2Gi }
           env:
             - name: DATABASE_URL
               valueFrom:

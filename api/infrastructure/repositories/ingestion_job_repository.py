@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import text
+
+from api.config import config
 from api.domain.entities import IngestionJob as IngestionJobEntity
 from api.infrastructure.orm import IngestionJob as IngestionJobModel
 
@@ -44,6 +47,15 @@ class IngestionJobRepository:
     def create(self, org_id: UUID, type: str, **fields) -> IngestionJobEntity:
         model = IngestionJobModel(org_id=org_id, type=type, **fields)
         self._session.add(model)
+        if fields.get("payload"):
+            # An upload's raw bytes ride along on this one INSERT (see
+            # DB_STATEMENT_TIMEOUT_MS_LARGE_PAYLOAD_DEFAULT's comment for why the connection's
+            # normal statement_timeout is too tight for that specific statement) -- SET LOCAL
+            # scopes the relaxed timeout to this transaction only, reverting automatically once it
+            # commits, so every other query on this connection keeps the tight default.
+            self._session.execute(
+                text(f"SET LOCAL statement_timeout = {int(config.db_statement_timeout_ms_large_payload)}")
+            )
         self._session.flush()
         return _to_entity(model)
 
