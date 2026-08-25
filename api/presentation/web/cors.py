@@ -26,6 +26,14 @@ def register_cors(app: Flask, allowed_origins: frozenset[str]) -> None:
         response.headers["Access-Control-Allow-Credentials"] = "true"
         existing_vary = response.headers.get("Vary")
         response.headers["Vary"] = f"{existing_vary}, Origin" if existing_vary else "Origin"
+        # Custom response headers are invisible to a cross-origin fetch()'s JS (response.headers.get(...))
+        # unless explicitly allowlisted here — unlike Allow-Headers/-Methods below, this applies to the
+        # real response, not just the OPTIONS preflight. GET /documents's X-Total-Count (documents.py) is
+        # the one custom header any frontend code actually reads (webui/src/api/client.ts's
+        # getPaginated()) — without this, that read silently returned null, getPaginated() fell back to
+        # items.length, and pagination always looked like exactly one page no matter how many documents
+        # actually existed.
+        response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
         if request.method == "OPTIONS":
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-CSRF-Token"
