@@ -14,6 +14,12 @@ FLASK_PORT=15100
 VITE_PORT=5173
 SECRET_KEY=dev-preview-secret
 DATABASE_URL="postgresql://rag:rag@127.0.0.1:${PG_PORT}/rag"
+# UPLOADS_DIR defaults to /data/uploads (the real k8s mount path) -- not writable/meaningful on a
+# dev machine, so this flow overrides it to a local throwaway directory instead (see
+# docs/UPLOAD_STORAGE_REDESIGN.md). Note: dev-preview does not run api/ingestion_worker/ (only
+# Flask + Vite), so an uploaded file lands here and its job stays "queued" -- a pre-existing gap
+# unrelated to this variable, not something this script fixes.
+UPLOADS_DIR=/tmp/knowledge-dev-preview-uploads
 FLASK_PID_FILE=/tmp/workspace-preview.pid
 FLASK_LOG_FILE=/tmp/knowledge-dev-preview-flask.log
 VITE_PID_FILE=/tmp/workspace-preview-vite.pid
@@ -56,7 +62,7 @@ echo "==> backend"
 if [ -f "$FLASK_PID_FILE" ] && kill -0 "$(cat "$FLASK_PID_FILE")" 2>/dev/null; then
   echo "already running (pid $(cat "$FLASK_PID_FILE"))"
 else
-  DATABASE_URL="$DATABASE_URL" SECRET_KEY="$SECRET_KEY" \
+  DATABASE_URL="$DATABASE_URL" SECRET_KEY="$SECRET_KEY" UPLOADS_DIR="$UPLOADS_DIR" \
     nohup "$VENV_PY" -m flask --app api.wsgi run --port "$FLASK_PORT" \
     > "$FLASK_LOG_FILE" 2>&1 &
   disown

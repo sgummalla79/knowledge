@@ -20,6 +20,7 @@ from typing import Callable
 from api.application.ingestion_service import IngestionService
 from api.application.pdf_split_ingestion_service import PdfSplitIngestionService
 from api.application.web_crawl_service import WebCrawlService
+from api.config import config
 from api.constants import DEFAULT_WEB_CRAWL_USER_AGENT
 from api.domain.entities import IngestionJob
 from api.domain.errors import IngestionCancelled
@@ -29,6 +30,7 @@ from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
 from api.infrastructure.repositories.embedding_settings_repository import EmbeddingSettingsRepository
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.infrastructure.web.fetcher import WebPageFetcher
 from api.logging_config import clear_job_id, set_job_id
 
@@ -46,6 +48,7 @@ class IngestionJobWorker:
         worker_id: str | None = None,
         poll_interval_s: float = 2.0,
         pdf_splitter: PdfSplitter | None = None,
+        storage: UploadStorage | None = None,
     ):
         self._session_factory = session_factory
         self._worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
@@ -55,6 +58,11 @@ class IngestionJobWorker:
         # PdfSplitIngestionService's own test suite already uses (see
         # api/tests/integration/test_pdf_split_ingestion.py's _make_split_service).
         self._pdf_splitter = pdf_splitter
+        # One instance shared across every job this worker processes -- stateless beyond the
+        # storage root path, so there's no reason to recreate it per job. Injectable (same
+        # reasoning as pdf_splitter above) so tests can point it at a throwaway tmp_path instead
+        # of the real UPLOADS_DIR.
+        self._storage = storage or UploadStorage(config.uploads_dir)
 
     def run_forever(self, should_stop: Callable[[], bool] = lambda: False) -> None:
         logger.info("Ingestion worker started", extra={})
@@ -108,12 +116,15 @@ class IngestionJobWorker:
         logger.info(
             "Ingestion job started", extra={"org_id": str(job.org_id), "source_filename": job.payload_filename}
         )
+        # Captured up front, before any processing -- clear_payload() below only nulls the DB
+        # column, so this is the only chance to still have the path once cleanup needs it.
+        payload_path = job.payload_path
         try:
-            payload = ingestion_jobs.get_payload(job.id)
             ingestion_service = IngestionService(
-                DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
+                DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session),
+                self._storage,
             )
-            split_service = PdfSplitIngestionService(ingestion_service, self._pdf_splitter)
+            split_service = PdfSplitIngestionService(ingestion_service, self._storage, self._pdf_splitter)
 
             # Commits after every part -- both the document/chunks split_service.ingest() just
             # wrote AND this callback's own progress-tracking update -- so a part that ingests
@@ -139,8 +150,9 @@ class IngestionJobWorker:
             split_service.ingest(
                 job.org_id,
                 job.triggered_by,
+                job.id,
                 job.payload_filename,
-                payload,
+                payload_path,
                 category_id=job.category_id,
                 should_cancel=lambda: ingestion_jobs.is_cancellation_requested(job.id),
                 on_part_result=on_part_result,
@@ -170,11 +182,17 @@ class IngestionJobWorker:
                     job.id, "failed", error_message="Every part of this PDF failed to ingest.", finished_at=_now()
                 )
                 logger.error("Ingestion job failed: every split part failed", extra={"parts_failed": refreshed.parts_failed})
+            # No-op if the file was already moved away (the non-split case -- see
+            # PdfSplitIngestionService.ingest()'s own docstring); a real delete of the now-dead
+            # original PDF in the split case, where each part's own file is what documents.
+            # raw_file_path points at instead.
+            self._storage.delete(payload_path)
             ingestion_jobs.clear_payload(job.id)
             session.commit()
         except IngestionCancelled:
             session.commit()
             ingestion_jobs.update_status(job.id, "failed", error_message="Cancelled by user.", finished_at=_now())
+            self._storage.delete(payload_path)
             ingestion_jobs.clear_payload(job.id)
             session.commit()
             logger.info(
@@ -183,6 +201,7 @@ class IngestionJobWorker:
         except Exception as error:
             session.commit()
             ingestion_jobs.update_status(job.id, "failed", error_message=str(error), finished_at=_now())
+            self._storage.delete(payload_path)
             ingestion_jobs.clear_payload(job.id)
             session.commit()
             logger.exception(
@@ -195,7 +214,7 @@ class IngestionJobWorker:
             document_repo = DocumentRepository(session)
             document = document_repo.get(job.document_id)
             ingestion_service = IngestionService(
-                document_repo, ChunkRepository(session), EmbeddingSettingsRepository(session)
+                document_repo, ChunkRepository(session), EmbeddingSettingsRepository(session), self._storage
             )
             document = ingestion_service.retry(
                 document, should_cancel=lambda: ingestion_jobs.is_cancellation_requested(job.id)
@@ -223,7 +242,8 @@ class IngestionJobWorker:
         pages_completed = 0
         try:
             ingestion_service = IngestionService(
-                DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session)
+                DocumentRepository(session), ChunkRepository(session), EmbeddingSettingsRepository(session),
+                self._storage,
             )
             crawl_service = WebCrawlService(ingestion_service, WebPageFetcher(user_agent=DEFAULT_WEB_CRAWL_USER_AGENT))
 

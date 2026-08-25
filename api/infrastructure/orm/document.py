@@ -1,8 +1,7 @@
 import uuid
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, LargeBinary, String, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import ENUM, UUID
-from sqlalchemy.orm import deferred
 
 from api.infrastructure.orm.base import Base
 
@@ -32,7 +31,8 @@ class Document(Base):
     # once one exists, rather than keeping a label with nothing real behind it.
     type = Column(document_type, nullable=False)
     # Pointer to blob storage — nullable and unpopulated for now, no blob storage exists yet.
-    # Uploads live in raw_file_bytes below instead (see migration 0001's docstring).
+    # Uploads live in raw_file_path below instead (see migration 0001's docstring and migration
+    # 0019, which moved that column from a bytea value to a path on disk).
     content_uri = Column(String, nullable=True)
     description = Column(String, nullable=True)
     status = Column(document_status, nullable=False, default="processing")
@@ -40,10 +40,12 @@ class Document(Base):
     # splitting, chunk-count reporting — real features the spec's author wasn't accounting for.
     file_type = Column(String, nullable=False)
     content_hash = Column(String, nullable=False)
-    # Deferred: only loaded when explicitly accessed (DocumentRepository.get_raw_bytes), not on
-    # every plain get()/list_for_org() query — those don't need this column and it can be up to
-    # MAX_UPLOAD_MB per row, so loading it unconditionally on every list call would be wasteful.
-    raw_file_bytes = deferred(Column(LargeBinary, nullable=True))
+    # Path (relative to UPLOADS_DIR) to the exact bytes this document (or, for a split PDF, one
+    # part) was created from — see api/infrastructure/storage/upload_storage.py and
+    # docs/UPLOAD_STORAGE_REDESIGN.md. Kept only until this document reaches "indexed" (a failed
+    # ingestion can be retried without the client re-sending the file), same lifetime the old
+    # bytea `raw_file_bytes` column had. A plain string, so no deferred-loading trick is needed.
+    raw_file_path = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
     # Set once at upload time (IngestionService.ingest) — the byte count is already in hand then,
     # no extra work needed.

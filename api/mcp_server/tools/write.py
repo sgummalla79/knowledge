@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -7,6 +7,7 @@ from api.application.category_service import CategoryService
 from api.application.document_service import DocumentService
 from api.application.shelf_service import ShelfService
 from api.application.tag_service import TagService
+from api.config import config
 from api.infrastructure.repositories.category_repository import CategoryRepository
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
@@ -14,6 +15,7 @@ from api.infrastructure.repositories.embedding_settings_repository import Embedd
 from api.infrastructure.repositories.ingestion_job_repository import IngestionJobRepository
 from api.infrastructure.repositories.shelf_repository import ShelfRepository
 from api.infrastructure.repositories.tag_repository import TagRepository
+from api.infrastructure.storage.upload_storage import UploadStorage
 from api.mcp_server.db import session_scope, set_rls_session_vars
 from api.mcp_server.permissions import require_tier_permission
 
@@ -62,11 +64,20 @@ def register(mcp: FastMCP) -> None:
         with session_scope() as session:
             caller = require_tier_permission(session, _TIER, "documents:write")
             set_rls_session_vars(session, caller["org_id"], caller["identity_id"])
+            # Same streaming-to-disk storage the HTTP upload route uses (see
+            # api/presentation/routes/documents.py) instead of a bytea payload column -- content
+            # here is always small inline text/markdown, so a plain save_bytes() is fine (mirrors
+            # IngestionService.ingest_html()'s same reasoning for crawled HTML).
+            job_id_arg = uuid4()
+            storage = UploadStorage(config.uploads_dir)
+            payload_path = storage.path_for_job_upload(caller["org_id"], job_id_arg)
+            storage.save_bytes(payload_path, content.encode("utf-8"))
             job_id = _document_service(session).start_ingestion(
                 caller["org_id"],
                 caller["identity_id"],
                 f"{title}.md",
-                content.encode("utf-8"),
+                payload_path,
+                job_id=job_id_arg,
                 category_id=UUID(category_id) if category_id else None,
             )
             return {"job_id": job_id}

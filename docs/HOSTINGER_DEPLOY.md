@@ -15,6 +15,7 @@ box (see step 2), and are applied in order (the number prefixes reflect real dep
 |---|---|---|
 | `00-namespace.yaml` | `deploy/k3s/` | The `knowledge` namespace everything else lives in |
 | `01-postgres.yaml` | `api/deploy/k3s/` | Postgres/pgvector — PVC (`local-path` StorageClass), Deployment, Service |
+| `01b-uploads-pvc.yaml` | `api/deploy/k3s/` | Shared local volume for raw uploaded/ingested file bytes (`local-path` StorageClass, mounted by both the API and the ingestion worker) — see docs/UPLOAD_STORAGE_REDESIGN.md and the "Known limitation" note below |
 | `02-api.yaml` | `api/deploy/k3s/` | The API — Deployment (pulls the published `sgummalla/knowledge` image straight from Docker Hub, no build needed), Service |
 | `03-webui.yaml` | `deploy/k3s/` | webui — Deployment (a locally-built image, see step 4 below), Service |
 | `04-middleware.yaml` | `api/deploy/k3s/` | Traefik `Middleware` that strips `/knowledge` before forwarding to the API |
@@ -22,7 +23,7 @@ box (see step 2), and are applied in order (the number prefixes reflect real dep
 | `06-cluster-issuer.yaml` | `deploy/k3s/` | cert-manager `ClusterIssuer` for Let's Encrypt — cluster-wide, not `knowledge`-namespaced, applied once regardless of how many apps this cluster ends up running |
 | `07-ingestion-worker.yaml` | `api/deploy/k3s/` | Standalone ingestion-job worker — same published image as the API, different command, no Service/Ingress (not HTTP). Ships at `replicas: 0` — see this repo's ingestion-worker Release 1 plan for why it's not live yet |
 
-## Known limitation
+## Known limitations
 
 `GET /.well-known/oauth-authorization-server` (RFC 8414 discovery) is required by spec to live at
 the domain root, but `api.sgummallaworks.com` is shared across multiple APIs each wanting their own
@@ -30,6 +31,18 @@ issuer identity — genuinely incompatible with path-based sharing. No `Ingress`
 (404s externally) rather than faking it. Nothing currently depends on it: MCP clients authenticate
 with a pasted personal access token, not OAuth auto-discovery. Revisit only if a future integration
 actually needs live discovery.
+
+**The uploads volume (`knowledge-uploads-data`, `01b-uploads-pvc.yaml`) is node-local and only
+works because this cluster is single-node today.** `local-path` PVCs allow multiple *pods* to mount
+the same volume as long as they're all on the same *node* (which `knowledge-api` and
+`knowledge-ingestion-worker` both are) — it does not allow multiple *nodes*. The moment this
+cluster ever grows a second node, this volume stops working correctly for any pod scheduled onto
+the other node. Before adding a second node, either replace this volume with networked storage
+(MinIO is the leading candidate — speaks the S3 API, self-hostable, minimal new operational
+surface vs. real cloud object storage) or pin both Deployments to the same node via
+`nodeSelector`/`nodeAffinity` as a stopgap. Don't let this get discovered the hard way — see
+docs/UPLOAD_STORAGE_REDESIGN.md for the full reasoning behind choosing local disk over networked
+storage in the first place.
 
 ## One-time setup
 
@@ -81,6 +94,7 @@ DNS resolves it automatically within the `knowledge` namespace, no IP to hardcod
 
 ```bash
 kubectl apply -f k3s/01-postgres.yaml
+kubectl apply -f k3s/01b-uploads-pvc.yaml
 kubectl apply -f k3s/02-api.yaml
 kubectl -n knowledge get pods -w
 ```

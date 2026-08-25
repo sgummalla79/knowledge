@@ -34,7 +34,11 @@ spec:
             # the route handler's own read(), and the DB bind parameter) across 3 gunicorn workers
             # sharing this one limit; a real ~80MB upload OOM-killed the container at 1Gi
             # (confirmed via `kubectl describe pod`, exit code 137) -- see this repo's CLAUDE.md
-            # session history for the investigation that found it.
+            # session history for the investigation that found it. This specific multiple-copies
+            # reasoning is now stale (docs/UPLOAD_STORAGE_REDESIGN.md: the route streams straight
+            # to disk, never holding the whole upload in memory) -- kept at 2Gi anyway pending a
+            # real re-test at a lower limit against this new code path (that doc's own guidance:
+            # re-test with kubectl top pod, don't assume), not lowered as part of this change.
             limits: { cpu: "1", memory: 2Gi }
           env:
             - name: DATABASE_URL
@@ -51,6 +55,15 @@ spec:
               value: "true"
             - name: WEBUI_ORIGINS
               value: https://knowledge.sgummallaworks.com
+            # Matches the code default (UPLOADS_DIR_DEFAULT, api/constants.py) -- spelled out
+            # explicitly here anyway, same style every other env var in this file uses. Mounted
+            # below from the same PVC knowledge-ingestion-worker mounts (01b-uploads-pvc.yaml) --
+            # see docs/UPLOAD_STORAGE_REDESIGN.md.
+            - name: UPLOADS_DIR
+              value: /data/uploads
+          volumeMounts:
+            - name: uploads
+              mountPath: /data/uploads
           readinessProbe:
             httpGet: { path: /health, port: 13102 }
             initialDelaySeconds: 10
@@ -59,6 +72,9 @@ spec:
             httpGet: { path: /health, port: 13102 }
             initialDelaySeconds: 15
             periodSeconds: 10
+      volumes:
+        - name: uploads
+          persistentVolumeClaim: { claimName: knowledge-uploads-data }
 ---
 apiVersion: v1
 kind: Service

@@ -5,6 +5,8 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 from testcontainers.postgres import PostgresContainer
 
+from api.infrastructure.storage.upload_storage import UploadStorage
+
 # Duplicated from api/tests/integration/conftest.py rather than imported — api/tests/ has no
 # __init__.py (pytest doesn't need one for collection), so there's no clean package path to import
 # its fixtures from. Same precedent api/mcp_server/tests/integration/conftest.py already
@@ -48,6 +50,11 @@ def seed_active_embedding_provider(
     repo.upsert_config(org_id, provider, model, api_key, base_url, dimensions, chunk_size, chunk_overlap)
     repo.set_enabled(org_id, provider, True)
     return org_id
+
+
+@pytest.fixture()
+def storage(tmp_path):
+    return UploadStorage(tmp_path)
 
 
 @pytest.fixture()
