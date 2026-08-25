@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { signIn } from '../api/auth'
 import { ApiError } from '../api/errors'
 import { AuthCard } from '../components/AuthCard'
@@ -29,14 +28,9 @@ export function SignInPage() {
       eyebrow="Welcome back"
       title="Sign in"
       subtitle="Access your org's knowledge library."
-      footer={
-        <>
-          Don&apos;t have an account?{' '}
-          <Link to="/sign-up" className="text-primary hover:underline">
-            Create one
-          </Link>
-        </>
-      }
+      // Self-serve sign-up is hidden for now -- no link out to it from here. The /sign-up route
+      // itself and its backend are untouched; this only removes the discoverable entry point.
+      footer={null}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error && (
