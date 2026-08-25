@@ -62,4 +62,37 @@ export const api = {
   delete: <T>(path: string) => requestJson<T>(path, { method: 'DELETE' }),
 
   upload: <T>(path: string, formData: FormData) => requestJson<T>(path, { method: 'POST', body: formData }),
+
+  // fetch() has no upload-progress event at all (only XMLHttpRequest does, via xhr.upload) --
+  // needed here specifically because the backend streams a large upload straight to disk over one
+  // request (see docs/UPLOAD_STORAGE_REDESIGN.md), so that transfer alone can take real,
+  // noticeable time for a large file, well before any server-side job status even exists to poll.
+  uploadWithProgress: <T>(path: string, formData: FormData, onProgress: (fraction: number) => void): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${API_BASE_URL}${path}`)
+      xhr.withCredentials = true
+      xhr.setRequestHeader('X-CSRF-Token', csrfToken())
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(event.loaded / event.total)
+      }
+
+      xhr.onload = () => {
+        void (async () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(xhr.responseText ? (JSON.parse(xhr.responseText) as T) : (undefined as T))
+            return
+          }
+          if (xhr.status === 401) {
+            window.location.href = '/sign-in'
+          }
+          const { message, code, field } = await parseErrorBody(new Response(xhr.responseText, { status: xhr.status }))
+          reject(new ApiError(message, xhr.status, code, field))
+        })()
+      }
+      xhr.onerror = () => reject(new ApiError('Network error — please check your connection and try again.', 0))
+
+      xhr.send(formData)
+    }),
 }
