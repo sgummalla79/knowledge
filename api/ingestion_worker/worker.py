@@ -9,6 +9,7 @@ ingestion work itself and has no JobStore/CrawlJobStore to coordinate with. This
 entire "how a queued job actually gets processed" responsibility on its own.
 """
 
+import gc
 import logging
 import os
 import socket
@@ -91,6 +92,16 @@ class IngestionJobWorker:
                 clear_job_id()
         finally:
             session.close()
+        # PDF parsing (pdfplumber/pdfminer) builds a large per-page object graph full of
+        # parent-child back-references -- reference cycles that need Python's generational
+        # collector, not plain refcounting, to reclaim. Left to the collector's own thresholds,
+        # this process can carry unreclaimed heap from one job into the next; a long-lived worker
+        # processing several large documents back-to-back was confirmed OOM-killed in production
+        # by memory that ratcheted up job-over-job even though no single job's data outlived it.
+        # Forcing a collection right after a job finishes (not on every empty poll -- this line is
+        # only reached once a job was actually claimed and processed) reclaims those cycles before
+        # the next job's peak usage stacks on top of them.
+        gc.collect()
         return True
 
     def _process_upload(self, session, ingestion_jobs: IngestionJobRepository, job: IngestionJob) -> None:
