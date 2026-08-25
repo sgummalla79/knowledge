@@ -7,6 +7,12 @@ UNSUPPORTED_FILE_TYPE = "unsupported_file_type"
 UNSUPPORTED_EMBEDDING_PROVIDER = "unsupported_embedding_provider"
 RATE_LIMITED = "rate_limited"
 UNAUTHORIZED = "unauthorized"
+# Distinct from UNAUTHORIZED -- a re-verification failure (the caller IS validly signed in, they
+# just typed the wrong current password to confirm a sensitive action) is not a signal that the
+# session itself is invalid, unlike every other AuthenticationError use in this app. Kept separate
+# so a client can tell the two apart (see webui/src/api/client.ts's request()) instead of forcing
+# a sign-out/redirect on a simple wrong-password retry.
+INCORRECT_PASSWORD = "incorrect_password"
 FORBIDDEN = "forbidden"
 INTERNAL_ERROR = "internal_error"
 HTTP_ERROR = "http_error"

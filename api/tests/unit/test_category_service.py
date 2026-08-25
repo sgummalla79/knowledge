@@ -7,7 +7,7 @@ import pytest
 from api.application.category_service import CategoryService
 from api.domain import error_codes
 from api.domain.entities import Category, EmbeddingSettings
-from api.domain.errors import NotFoundError
+from api.domain.errors import AuthenticationError, NotFoundError, ValidationError
 
 
 def _category(**overrides):
@@ -191,9 +191,102 @@ def test_delete_category_deletes_when_found():
     repository.get.return_value = category
     service = CategoryService(repository, MagicMock())
 
-    service.delete_category(org_id, category.id)
+    result = service.delete_category(org_id, category.id)
 
     repository.delete.assert_called_once_with(category.id)
+    assert result == 0
+
+
+def test_delete_category_non_cascade_never_touches_documents():
+    org_id = uuid4()
+    category = _category(org_id=org_id)
+    repository = MagicMock()
+    repository.get.return_value = category
+    document_repo = MagicMock()
+    service = CategoryService(repository, MagicMock(), document_repo, MagicMock())
+
+    service.delete_category(org_id, category.id, cascade=False)
+
+    document_repo.count_for_org.assert_not_called()
+    document_repo.list_for_org.assert_not_called()
+    document_repo.delete.assert_not_called()
+    repository.delete.assert_called_once_with(category.id)
+
+
+def test_delete_category_cascade_without_password_raises_validation_error():
+    org_id = uuid4()
+    category = _category(org_id=org_id)
+    repository = MagicMock()
+    repository.get.return_value = category
+    service = CategoryService(repository, MagicMock(), MagicMock(), MagicMock())
+
+    with pytest.raises(ValidationError) as exc_info:
+        service.delete_category(org_id, category.id, uuid4(), cascade=True, current_password=None)
+
+    assert exc_info.value.field == "current_password"
+    repository.delete.assert_not_called()
+
+
+def test_delete_category_cascade_with_wrong_password_raises_authentication_error():
+    org_id = uuid4()
+    category = _category(org_id=org_id)
+    repository = MagicMock()
+    repository.get.return_value = category
+    identity_repo = MagicMock()
+    identity_repo.get_by_id.return_value = MagicMock(password_hash="hashed")
+    service = CategoryService(repository, MagicMock(), MagicMock(), identity_repo)
+
+    with patch("api.application.category_service.verify_password", return_value=False):
+        with pytest.raises(AuthenticationError) as exc_info:
+            service.delete_category(org_id, category.id, uuid4(), cascade=True, current_password="wrong")
+
+    # Distinct from the generic UNAUTHORIZED code -- see webui/src/api/client.ts's own note on
+    # why this matters (a wrong password here must not force a sign-out/redirect).
+    assert exc_info.value.code == error_codes.INCORRECT_PASSWORD
+
+    repository.delete.assert_not_called()
+
+
+def test_delete_category_cascade_deletes_every_document_in_the_category_then_the_category():
+    org_id = uuid4()
+    category = _category(org_id=org_id)
+    acting_identity_id = uuid4()
+    repository = MagicMock()
+    repository.get.return_value = category
+    identity_repo = MagicMock()
+    identity_repo.get_by_id.return_value = MagicMock(password_hash="hashed")
+    document_repo = MagicMock()
+    document_repo.count_for_org.return_value = 2
+    doc_a, doc_b = MagicMock(id=uuid4()), MagicMock(id=uuid4())
+    document_repo.list_for_org.return_value = [doc_a, doc_b]
+    service = CategoryService(repository, MagicMock(), document_repo, identity_repo)
+
+    with patch("api.application.category_service.verify_password", return_value=True):
+        deleted_count = service.delete_category(org_id, category.id, acting_identity_id, cascade=True, current_password="correct")
+
+    document_repo.count_for_org.assert_called_once_with(org_id, category_id=category.id)
+    document_repo.list_for_org.assert_called_once_with(org_id, 2, 0, "created_at", category_id=category.id)
+    assert document_repo.delete.call_args_list == [((doc_a.id,),), ((doc_b.id,),)]
+    repository.delete.assert_called_once_with(category.id)
+    assert deleted_count == 2
+
+
+def test_delete_category_cascade_with_no_documents_skips_document_lookup():
+    org_id = uuid4()
+    category = _category(org_id=org_id)
+    repository = MagicMock()
+    repository.get.return_value = category
+    identity_repo = MagicMock()
+    identity_repo.get_by_id.return_value = MagicMock(password_hash="hashed")
+    document_repo = MagicMock()
+    document_repo.count_for_org.return_value = 0
+    service = CategoryService(repository, MagicMock(), document_repo, identity_repo)
+
+    with patch("api.application.category_service.verify_password", return_value=True):
+        deleted_count = service.delete_category(org_id, category.id, uuid4(), cascade=True, current_password="correct")
+
+    document_repo.list_for_org.assert_not_called()
+    assert deleted_count == 0
 
 
 def test_list_categories_delegates_to_repository():

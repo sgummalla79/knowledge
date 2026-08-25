@@ -1,6 +1,7 @@
 import pytest
 
 from api.application.auth_service import AuthService
+from api.domain import error_codes
 from api.domain.errors import AuthenticationError, ConflictError, ValidationError
 from api.infrastructure.auth.password_identity_verifier import PasswordIdentityVerifier
 from api.infrastructure.auth.passwords import hash_password
@@ -48,12 +49,17 @@ def test_change_username_succeeds_with_correct_password(db_session):
 
 
 def test_change_username_rejects_wrong_password(db_session):
+    """Regression test: a wrong re-verification password must carry the distinct
+    INCORRECT_PASSWORD code, not the generic UNAUTHORIZED one -- the frontend client
+    (webui/src/api/client.ts) uses this to avoid forcing a sign-out/redirect on a simple
+    wrong-password retry, which UNAUTHORIZED would otherwise trigger for any 401."""
     identity = _identity(db_session, password="correct-password")
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError) as exc_info:
         _auth_service(db_session).change_username(identity.id, "wrong-password", "new-username@acme.com")
     db_session.commit()
 
+    assert exc_info.value.code == error_codes.INCORRECT_PASSWORD
     assert identity.username == IdentityRepository(db_session).get_by_id(identity.id).username
 
 

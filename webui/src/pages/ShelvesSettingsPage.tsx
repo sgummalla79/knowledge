@@ -2,18 +2,35 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useShelves } from '../api/queries'
 import type { Shelf } from '../api/types'
+import { DeleteWithDocumentsModal } from '../components/DeleteWithDocumentsModal'
 import { ShelfFormModal } from '../components/ShelfFormModal'
+import { useToast } from '../components/toastContext'
 
 export function ShelvesSettingsPage() {
+  const { showToast } = useToast()
   const shelves = useShelves()
   const queryClient = useQueryClient()
   const [editingShelf, setEditingShelf] = useState<Shelf | null>(null)
   const [creating, setCreating] = useState(false)
+  const [deletingShelf, setDeletingShelf] = useState<Shelf | null>(null)
 
   function handleSaved() {
     void queryClient.invalidateQueries({ queryKey: ['shelves'] })
     setEditingShelf(null)
     setCreating(false)
+  }
+
+  function handleDeleted(documentsDeleted: number) {
+    void queryClient.invalidateQueries({ queryKey: ['shelves'] })
+    if (documentsDeleted > 0) {
+      void queryClient.invalidateQueries({ queryKey: ['documents'] })
+    }
+    showToast(
+      documentsDeleted > 0
+        ? `Shelf deleted — ${documentsDeleted} document${documentsDeleted === 1 ? '' : 's'} permanently deleted.`
+        : 'Shelf deleted.',
+    )
+    setDeletingShelf(null)
   }
 
   return (
@@ -67,6 +84,15 @@ export function ShelvesSettingsPage() {
                     >
                       Edit
                     </button>
+                    {!shelf.is_default && (
+                      <button
+                        type="button"
+                        onClick={() => setDeletingShelf(shelf)}
+                        className="ml-4 text-[13px] text-destructive hover:underline"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -83,6 +109,17 @@ export function ShelvesSettingsPage() {
             setEditingShelf(null)
           }}
           onSaved={handleSaved}
+        />
+      )}
+
+      {deletingShelf && (
+        <DeleteWithDocumentsModal
+          kind="shelf"
+          name={deletingShelf.name}
+          documentCount={deletingShelf.document_count}
+          deletePath={`/shelves/${deletingShelf.id}`}
+          onClose={() => setDeletingShelf(null)}
+          onDeleted={handleDeleted}
         />
       )}
     </div>

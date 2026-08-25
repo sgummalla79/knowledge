@@ -33,8 +33,8 @@ class RateLimitedError(DomainError):
 class AuthenticationError(DomainError):
     http_status = 401
 
-    def __init__(self, message: str = "Invalid or missing API key."):
-        super().__init__(error_codes.UNAUTHORIZED, message)
+    def __init__(self, message: str = "Invalid or missing API key.", code: str = error_codes.UNAUTHORIZED):
+        super().__init__(code, message)
 
 
 class ForbiddenError(DomainError):

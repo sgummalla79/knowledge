@@ -1,6 +1,7 @@
 import pytest
 
 from api.application.org_membership_service import OrgMembershipService
+from api.domain import error_codes
 from api.domain.errors import AuthenticationError, ConflictError, ForbiddenError, ValidationError
 from api.infrastructure.auth.passwords import hash_password
 from api.infrastructure.repositories.identity_repository import IdentityRepository
@@ -131,13 +132,17 @@ def test_change_organization_name_succeeds_with_correct_password(db_session):
 
 
 def test_change_organization_name_rejects_wrong_password(db_session):
+    """Regression test: a wrong re-verification password must carry the distinct
+    INCORRECT_PASSWORD code, not the generic UNAUTHORIZED one -- see
+    test_auth_service.py::test_change_username_rejects_wrong_password's own note for why."""
     service = _service(db_session)
     organization, owner = _org_with_admin_password(db_session, service, "acme-rename-wrongpw", "correct-password")
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError) as exc_info:
         service.change_organization_name(organization.id, owner.id, "wrong-password", "acme-renamed-wrongpw")
     db_session.commit()
 
+    assert exc_info.value.code == error_codes.INCORRECT_PASSWORD
     assert OrganizationRepository(db_session).get(organization.id).slug == "acme-rename-wrongpw"
 
 
