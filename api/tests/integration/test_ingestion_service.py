@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from api.application.ingestion_service import IngestionService
-from api.constants import EMBEDDING_DIM
+from api.constants import EMBEDDING_DIM, INGESTION_EMBED_BATCH_SIZE
 from api.domain import error_codes
 from api.domain.errors import IngestionCancelled, ValidationError
 from api.infrastructure.auth.bootstrap import bootstrap_default_identity, bootstrap_default_organization
@@ -438,6 +438,105 @@ def test_ingest_cancelled_immediately_marks_document_failed_with_cancellation_me
     # error_message so a caller can still tell the two apart (see IngestionService._process).
     assert cancelled_document.status == "failed"
     assert "Cancelled by user" in cancelled_document.error_message
+
+
+def test_multi_batch_document_persists_all_chunks_with_no_duplicates(db_session, monkeypatch):
+    """Regression test for the production OOM fix: chunks are now embedded/persisted in batches
+    (INGESTION_EMBED_BATCH_SIZE) instead of all at once, so a real multi-chunk document must still
+    end up with exactly one chunk per ordinal, not gaps or duplicates from crossing a batch
+    boundary."""
+    monkeypatch.setattr("api.application.ingestion_service.INGESTION_EMBED_BATCH_SIZE", 2)
+
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=5, chunk_overlap=0
+    )
+    db_session.commit()
+
+    from api.infrastructure.chunking.chunker import TextChunker
+
+    text = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    expected_piece_count = len(TextChunker(chunk_size=5, chunk_overlap=0).split(text))
+    assert expected_piece_count > 4  # must span at least 3 batches of 2 to be a real test
+
+    service = _make_service(db_session)
+    with patch(
+        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        document = service.ingest(org_id, owner.id, "notes.txt", text.encode())
+    db_session.commit()
+
+    chunks = ChunkRepository(db_session).list_for_document(document.id, limit=1000, offset=0)
+    assert document.status == "indexed"
+    assert document.chunk_count == expected_piece_count
+    assert len(chunks) == expected_piece_count
+    assert sorted(c.ordinal for c in chunks) == list(range(expected_piece_count))  # no gaps, no dupes
+
+
+def test_retry_after_partial_batch_failure_leaves_no_duplicate_or_stale_chunks(db_session, monkeypatch):
+    """A batch already embedded and persisted before a later batch fails is now committed along
+    with the rest of the failed job (matching the real worker's commit-on-failure behavior) --
+    ChunkRepository.delete_for_document() at the start of every attempt is what makes a retry safe
+    to re-run without ending up with duplicate ordinals from that earlier partial attempt."""
+    monkeypatch.setattr("api.application.ingestion_service.INGESTION_EMBED_BATCH_SIZE", 2)
+
+    owner = _owner(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=5, chunk_overlap=0
+    )
+    db_session.commit()
+
+    from api.infrastructure.chunking.chunker import TextChunker
+
+    text = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    expected_piece_count = len(TextChunker(chunk_size=5, chunk_overlap=0).split(text))
+    assert expected_piece_count > 4
+
+    service = _make_service(db_session)
+
+    # First batch (pieces 0-1) succeeds; second batch (pieces 2-3) fails -- simulating a real
+    # transient embedding-API failure partway through a multi-batch document.
+    call_count = {"n": 0}
+
+    def flaky_embed(texts, should_cancel=None):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("embedding API unavailable")
+        return [[0.0] * EMBEDDING_DIM for _ in texts]
+
+    flaky_provider = MagicMock()
+    flaky_provider.embed_documents.side_effect = flaky_embed
+
+    with patch(
+        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=flaky_provider,
+    ):
+        with pytest.raises(RuntimeError):
+            service.ingest(org_id, owner.id, "notes.txt", text.encode())
+    db_session.commit()
+
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    failed_document = document_repo.list_for_org(org_id, limit=10, offset=0, sort="-created_at")[0]
+    assert failed_document.status == "failed"
+    # The first batch's 2 chunks were already committed before the second batch failed -- this
+    # documents that real, intentional tradeoff (see INGESTION_EMBED_BATCH_SIZE's own comment),
+    # not an assertion that nothing was written.
+    assert chunk_repo.count_for_document(failed_document.id) == 2
+
+    with patch(
+        "api.application.ingestion_service.EmbeddingProviderRegistry.resolve",
+        return_value=_fake_provider(),
+    ):
+        retried_document = service.retry(failed_document)
+    db_session.commit()
+
+    chunks = chunk_repo.list_for_document(retried_document.id, limit=1000, offset=0)
+    assert retried_document.status == "indexed"
+    assert retried_document.chunk_count == expected_piece_count
+    assert len(chunks) == expected_piece_count  # not expected_piece_count + 2 stale leftovers
+    assert sorted(c.ordinal for c in chunks) == list(range(expected_piece_count))
 
 
 def test_embedding_settings_repository_reflects_whichever_provider_is_enabled(db_session):
