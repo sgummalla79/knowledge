@@ -11,6 +11,7 @@ from api.domain.errors import IngestionCancelled, ValidationError
 from api.domain.ports import ChunkRepositoryPort, DocumentRepositoryPort, EmbeddingSettingsRepositoryPort
 from api.infrastructure.chunking.chunker import TextChunker
 from api.infrastructure.embeddings.registry import EmbeddingProviderRegistry
+from api.infrastructure.orm.db_fault_logging import safe_error_message
 from api.infrastructure.parsing.html_parser import HtmlParser
 from api.infrastructure.parsing.registry import ParserRegistry
 from api.infrastructure.storage.upload_storage import UploadStorage
@@ -281,13 +282,13 @@ class IngestionService:
             # "cancelled" state in the target document_status enum (processing/indexed/failed/
             # archived) — "failed" is the closest fit, with the cancellation reason preserved in
             # error_message so a caller can still tell the two apart if needed.
-            self._documents.update_status(document.id, "failed", error_message=str(error))
+            self._documents.update_status(document.id, "failed", error_message=safe_error_message(error))
             raise
         except Exception as error:
             # No exception logging here — document_service._run_ingestion_job's outer catch is
             # the single place this failure gets logged (with full traceback), to avoid logging
             # the same exception twice at two layers. This except block's only job is cleanup.
-            self._documents.update_status(document.id, "failed", error_message=str(error))
+            self._documents.update_status(document.id, "failed", error_message=safe_error_message(error))
             raise
 
         return document

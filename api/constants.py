@@ -51,6 +51,16 @@ DEFAULT_CHUNK_OVERLAP = 100
 # bounding how many chunks' worth of vectors are ever resident at once.
 INGESTION_EMBED_BATCH_SIZE = 500
 
+# ChunkRepository.bulk_create retries a batch insert that Postgres cancelled for exceeding
+# statement_timeout (SQLSTATE_QUERY_CANCELED) before letting the whole ingestion job fail --
+# confirmed in production (2026-08-25) that this can be a transient DB I/O stall (a checkpoint
+# write took 146s on the same instance at the time) rather than a permanent failure, and a brief
+# retry is far cheaper than re-embedding and re-uploading the whole document. Linear backoff
+# (attempt number x the base delay), not exponential -- three attempts total is already a short
+# ceiling, so the extra complexity of exponential growth buys nothing here.
+INGESTION_BULK_INSERT_MAX_ATTEMPTS = 3
+INGESTION_BULK_INSERT_RETRY_BACKOFF_S = 2
+
 DEFAULT_TOP_K = 5
 
 # Hybrid retrieval defaults, used when no `search_settings` row exists yet (an absent row is not
