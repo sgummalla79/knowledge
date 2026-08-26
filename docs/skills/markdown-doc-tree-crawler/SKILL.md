@@ -123,6 +123,12 @@ title page plus a linked, paginated table of contents:
 python3 ~/.claude/skills/markdown-doc-tree-crawler/scripts/render_pdf.py tree.json \
   --output book.pdf --title "Some Doc Site"
 ```
+`--output` always lands in `~/Downloads` — a bare filename or any relative path is resolved against
+`~/Downloads` (created if it doesn't exist yet), not the current working directory; pass an
+absolute path only if the user explicitly wants the PDF saved somewhere else. The script prints the
+real, final path it wrote to — report that path back to the user rather than assuming it matches
+whatever was passed to `--output`.
+
 Requires `pip install markdown weasyprint`, plus a native `pango` install
 (`brew install pango` on macOS). On macOS, WeasyPrint's native libs (libpango/libgobject, via
 Homebrew) aren't found by `dlopen()` unless `DYLD_FALLBACK_LIBRARY_PATH` points at the Homebrew
