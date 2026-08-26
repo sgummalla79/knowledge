@@ -1,8 +1,17 @@
-from sqlalchemy import func, text
+import time
 
+from sqlalchemy import func, text
+from sqlalchemy.exc import OperationalError
+
+from api.constants import (
+    INGESTION_BULK_INSERT_MAX_ATTEMPTS,
+    INGESTION_BULK_INSERT_RETRY_BACKOFF_S,
+    SQLSTATE_QUERY_CANCELED,
+)
 from api.domain.entities import Chunk as ChunkEntity
 from api.domain.entities import ScoredChunk
 from api.infrastructure.orm import Chunk, Document
+from api.infrastructure.orm.db_fault_logging import sqlstate_of_error
 
 
 def _to_entity(model: Chunk) -> ChunkEntity:
@@ -70,31 +79,46 @@ class ChunkRepository:
     def bulk_create(
         self, document_id, org_id, embedding_model_id, chunks: list[tuple[int, str, int, list[float]]]
     ) -> None:
-        models = [
-            Chunk(
-                document_id=document_id,
-                org_id=org_id,
-                embedding_model_id=embedding_model_id,
-                ordinal=ordinal,
-                content=content,
-                token_count=token_count,
-                embedding=embedding,
-            )
-            for ordinal, content, token_count, embedding in chunks
-        ]
-        # A SAVEPOINT, not the outer transaction directly. A flush failure here (e.g. content
-        # Postgres rejects outright, like an embedded NUL byte) otherwise poisons the *entire*
-        # session — every later statement on it raises PendingRollbackError until an explicit
-        # rollback(), including IngestionService._process()'s own except block trying to mark the
-        # document "failed". That's a real incident this fixed: the document row (already flushed
-        # earlier in the same uncommitted transaction) got silently wiped by the eventual rollback,
-        # and the ingestion job never reached completed *or* failed — it just hung forever from the
-        # client's point of view. Scoping the insert to a nested transaction means a failure here
-        # only rolls back this savepoint, leaving the rest of the job's work intact and the session
-        # perfectly usable for the "mark failed" write that follows.
-        with self._session.begin_nested():
-            self._session.add_all(models)
-            self._session.flush()
+        # Retried up to INGESTION_BULK_INSERT_MAX_ATTEMPTS times when Postgres cancels the insert
+        # for exceeding statement_timeout (SQLSTATE_QUERY_CANCELED) -- confirmed in production
+        # (2026-08-25) to be a transient DB I/O stall (a checkpoint write took 146s on the same
+        # instance at the time), not a permanent failure, and far cheaper to retry than to force
+        # the whole document to be re-embedded and re-uploaded. Any other error (e.g. a NUL byte
+        # Postgres rejects outright) isn't retried -- it will just fail the same way again.
+        for attempt in range(1, INGESTION_BULK_INSERT_MAX_ATTEMPTS + 1):
+            models = [
+                Chunk(
+                    document_id=document_id,
+                    org_id=org_id,
+                    embedding_model_id=embedding_model_id,
+                    ordinal=ordinal,
+                    content=content,
+                    token_count=token_count,
+                    embedding=embedding,
+                )
+                for ordinal, content, token_count, embedding in chunks
+            ]
+            try:
+                # A SAVEPOINT, not the outer transaction directly. A flush failure here (e.g.
+                # content Postgres rejects outright, like an embedded NUL byte) otherwise poisons
+                # the *entire* session — every later statement on it raises PendingRollbackError
+                # until an explicit rollback(), including IngestionService._process()'s own except
+                # block trying to mark the document "failed". That's a real incident this fixed:
+                # the document row (already flushed earlier in the same uncommitted transaction)
+                # got silently wiped by the eventual rollback, and the ingestion job never reached
+                # completed *or* failed — it just hung forever from the client's point of view.
+                # Scoping the insert to a nested transaction means a failure here only rolls back
+                # this savepoint, leaving the rest of the job's work (and the session itself)
+                # intact and usable both for a retry and for the "mark failed" write that follows
+                # if every attempt is exhausted.
+                with self._session.begin_nested():
+                    self._session.add_all(models)
+                    self._session.flush()
+                return
+            except OperationalError as error:
+                if sqlstate_of_error(error) != SQLSTATE_QUERY_CANCELED or attempt == INGESTION_BULK_INSERT_MAX_ATTEMPTS:
+                    raise
+                time.sleep(INGESTION_BULK_INSERT_RETRY_BACKOFF_S * attempt)
 
     def similarity_search(
         self, org_id, query_embedding: list[float], top_k: int, category_id=None

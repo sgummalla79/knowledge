@@ -1,8 +1,15 @@
 import logging
 
 import pytest
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from api.infrastructure.orm.db_fault_logging import _handle_error, _operation_keyword, _sqlstate_of
+from api.infrastructure.orm.db_fault_logging import (
+    _handle_error,
+    _operation_keyword,
+    _sqlstate_of,
+    safe_error_message,
+    sqlstate_of_error,
+)
 
 
 class _FakeOriginalException:
@@ -71,3 +78,42 @@ def test_handle_error_ignores_non_dbapi_errors(caplog):
     with caplog.at_level(logging.WARNING, logger="api.infrastructure.orm.db_fault_logging"):
         _handle_error(ctx)
     assert caplog.records == []
+
+
+def test_sqlstate_of_error_reads_raw_dbapi_exception():
+    assert sqlstate_of_error(_FakeOriginalException(pgcode="57014")) == "57014"
+
+
+def test_sqlstate_of_error_unwraps_statement_error_orig():
+    error = OperationalError("INSERT ...", {}, _FakeOriginalException(pgcode="57014"))
+    assert sqlstate_of_error(error) == "57014"
+
+
+def test_sqlstate_of_error_none_for_none():
+    assert sqlstate_of_error(None) is None
+
+
+def test_safe_error_message_passes_through_non_statement_errors():
+    assert safe_error_message(ValueError("bad input")) == "bad input"
+
+
+def test_safe_error_message_hides_sql_and_params_for_query_canceled():
+    # The real-world shape this guards against: a SQLAlchemy StatementError's own str() embeds
+    # the full failed SQL and every bound parameter (a bulk chunk insert's embedding vectors, in
+    # production) -- neither may ever leak into the returned message.
+    error = OperationalError(
+        "INSERT INTO chunks (embedding) VALUES (%(embedding)s)",
+        {"embedding": "[0.1, 0.2, 0.3]"},
+        _FakeOriginalException(pgcode="57014"),
+    )
+    message = safe_error_message(error)
+    assert "INSERT" not in message
+    assert "0.1" not in message
+    assert "retry" in message.lower()
+
+
+def test_safe_error_message_generic_for_other_statement_errors():
+    error = IntegrityError("INSERT ...", {}, _FakeOriginalException(pgcode="23505"))
+    message = safe_error_message(error)
+    assert "INSERT" not in message
+    assert message == "A database error occurred while saving this document. Please retry the upload."

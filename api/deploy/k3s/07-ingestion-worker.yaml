@@ -23,7 +23,7 @@ spec:
         - name: knowledge-ingestion-worker
           # Same published image as knowledge-api (02-api.yaml) -- keep these two tags in sync on
           # every bump, since both run from the exact same source tree.
-          image: sgummalla/knowledge:4.10.1
+          image: sgummalla/knowledge:4.10.2
           # Bypasses api/deploy/entrypoint.sh (and its `alembic upgrade head` step) entirely --
           # migrations stay owned by the API Deployment only. If both Deployments' entrypoints ran
           # `alembic upgrade head` and were applied together, nothing stops two concurrent alembic
@@ -62,6 +62,20 @@ spec:
             # this long an "idle" stretch would be a real bug there, not expected behavior.
             - name: DB_IDLE_IN_TRANSACTION_TIMEOUT_MS
               value: "900000"
+            # DB_STATEMENT_TIMEOUT_MS_DEFAULT (15s, api/constants.py) is tuned for the API's own
+            # interactive web requests, where a query still executing after 15s is almost always a
+            # bug worth killing fast. This worker's bulk chunk inserts
+            # (ChunkRepository.bulk_create -- up to INGESTION_EMBED_BATCH_SIZE rows per statement,
+            # each carrying a full embedding vector) are legitimate, heavier work that can
+            # occasionally exceed 15s under momentary DB I/O pressure -- confirmed in production
+            # (2026-08-25: a batch insert was cancelled mid-execution while a checkpoint write took
+            # 146s on the same instance), failing the whole ingestion job outright even though
+            # bulk_create's own retry (INGESTION_BULK_INSERT_MAX_ATTEMPTS) would otherwise have
+            # ridden out a transient stall like that. Overridden here, not in the default, for the
+            # same reason DB_IDLE_IN_TRANSACTION_TIMEOUT_MS is above -- the API's own web-request
+            # sessions should keep the tight 15s.
+            - name: DB_STATEMENT_TIMEOUT_MS
+              value: "60000"
             # Matches the code default (UPLOADS_DIR_DEFAULT, api/constants.py) -- spelled out
             # explicitly here anyway, same style every other env var in this file uses. Mounted
             # below from the same PVC knowledge-api mounts (01b-uploads-pvc.yaml) -- this worker

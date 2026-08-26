@@ -25,6 +25,7 @@ from api.constants import DEFAULT_WEB_CRAWL_USER_AGENT
 from api.domain.entities import IngestionJob
 from api.domain.errors import IngestionCancelled
 from api.infrastructure.orm import SessionLocal
+from api.infrastructure.orm.db_fault_logging import safe_error_message
 from api.infrastructure.parsing.pdf_splitter import PdfSplitter
 from api.infrastructure.repositories.chunk_repository import ChunkRepository
 from api.infrastructure.repositories.document_repository import DocumentRepository
@@ -200,7 +201,7 @@ class IngestionJobWorker:
             )
         except Exception as error:
             session.commit()
-            ingestion_jobs.update_status(job.id, "failed", error_message=str(error), finished_at=_now())
+            ingestion_jobs.update_status(job.id, "failed", error_message=safe_error_message(error), finished_at=_now())
             self._storage.delete(payload_path)
             ingestion_jobs.clear_payload(job.id)
             session.commit()
@@ -230,7 +231,7 @@ class IngestionJobWorker:
             logger.info("Retry job cancelled", extra={"org_id": str(job.org_id), "document_id": str(job.document_id)})
         except Exception as error:
             session.commit()
-            ingestion_jobs.update_status(job.id, "failed", error_message=str(error), finished_at=_now())
+            ingestion_jobs.update_status(job.id, "failed", error_message=safe_error_message(error), finished_at=_now())
             session.commit()
             logger.exception("Retry job failed", extra={"org_id": str(job.org_id), "document_id": str(job.document_id)})
 
@@ -277,7 +278,11 @@ class IngestionJobWorker:
         except Exception as error:
             session.commit()
             ingestion_jobs.update_status(
-                job.id, "failed", error_message=str(error), items_processed=pages_completed, finished_at=_now()
+                job.id,
+                "failed",
+                error_message=safe_error_message(error),
+                items_processed=pages_completed,
+                finished_at=_now(),
             )
             session.commit()
             logger.exception("Crawl job failed", extra={"org_id": str(job.org_id), "seed_url": job.crawl_url})
