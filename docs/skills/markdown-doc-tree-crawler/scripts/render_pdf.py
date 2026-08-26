@@ -269,15 +269,25 @@ def main():
     parser.add_argument(
         "tree_json", help="Path to tree.json produced by discover_tree_playwright.py or build_doc_tree.py"
     )
-    parser.add_argument("--output", required=True, help="Output PDF path")
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output PDF filename or path. A bare filename (or any relative path) is placed "
+        "under ~/Downloads; pass an absolute path to save elsewhere instead.",
+    )
     parser.add_argument("--title", default="Documentation", help="Title-page heading")
     parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS, help="Seconds between fetches")
     args = parser.parse_args()
 
-    build_pdf(args.tree_json, args.output, args.title, args.user_agent, args.timeout, args.delay)
-    print(f"wrote {args.output}")
+    output_path = Path(args.output).expanduser()
+    if not output_path.is_absolute():
+        output_path = Path.home() / "Downloads" / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    build_pdf(args.tree_json, str(output_path), args.title, args.user_agent, args.timeout, args.delay)
+    print(f"wrote {output_path}")
 
 
 if __name__ == "__main__":
