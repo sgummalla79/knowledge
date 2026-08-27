@@ -62,6 +62,13 @@ spec:
             # (api/constants.py).
             - name: MCP_ALLOWED_HOSTS
               value: api.sgummallaworks.com
+            # This app can't see its own true scheme/path prefix behind Traefik's TLS termination +
+            # /knowledge stripPrefix -- request.url_root would otherwise build OAuth discovery URLs
+            # (GET /.well-known/oauth-authorization-server) as http://api.sgummallaworks.com/... ,
+            # wrong on both scheme and prefix. See DEFAULT_EXTERNAL_BASE_URL's own comment
+            # (api/constants.py).
+            - name: EXTERNAL_BASE_URL
+              value: https://api.sgummallaworks.com/knowledge
             # Matches the code default (UPLOADS_DIR_DEFAULT, api/constants.py) -- spelled out
             # explicitly here anyway, same style every other env var in this file uses. Mounted
             # below from the same PVC knowledge-ingestion-worker mounts (01b-uploads-pvc.yaml) --
