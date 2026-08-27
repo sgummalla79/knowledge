@@ -1,8 +1,26 @@
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
+from api.config import config
 from api.mcp_server.tools import read as read_tools
 from api.mcp_server.tools import search as search_tools
 from api.mcp_server.tools import write as write_tools
+
+# FastMCP only auto-enables its DNS-rebinding Host/Origin check when constructed with
+# host="127.0.0.1"/"localhost"/"::1" (its own default, unrelated to where this app actually runs)
+# — and when it does, it hardcodes allowed_hosts to localhost/127.0.0.1 wildcards only. Behind a
+# reverse proxy (e.g. this repo's Hostinger Traefik ingress) the Host header the container
+# actually receives is the real external domain, which never matches those wildcards, so every
+# request 421s with "Invalid Host header". Build the settings explicitly instead so the same
+# localhost wildcards still apply for local dev/testing, plus whatever real host(s)
+# MCP_ALLOWED_HOSTS configures for a given deployment (api/config.py, api/constants.py).
+_LOCALHOST_HOSTS = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+_LOCALHOST_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+_TRANSPORT_SECURITY = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[*_LOCALHOST_HOSTS, *config.mcp_allowed_hosts],
+    allowed_origins=[*_LOCALHOST_ORIGINS, *(f"https://{host}" for host in config.mcp_allowed_hosts)],
+)
 
 # Three non-overlapping tool tiers, each its own FastMCP instance (own tool registry) — none of
 # them do their own auth (see _create_tier_server's docstring below); auth resolution is identical
@@ -32,6 +50,7 @@ def _create_tier_server(tier: str, register, instructions: str) -> FastMCP:
         # auth_context_var itself (mirroring what mcp.server.auth's own AuthContextMiddleware would
         # have done) so mcp_server/permissions.py's current_caller() keeps working unchanged.
         streamable_http_path=f"/mcp/{tier}",
+        transport_security=_TRANSPORT_SECURITY,
     )
     register(mcp)
     return mcp

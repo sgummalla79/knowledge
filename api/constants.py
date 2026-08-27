@@ -207,6 +207,14 @@ USERNAME_MAX_LENGTH = 254
 # via WEBUI_ORIGINS (comma-separated) to whatever origin the built webui/ is actually served from.
 DEFAULT_WEBUI_ORIGIN = "http://127.0.0.1:5173"
 
+# Extra Host header values the MCP tiers' DNS-rebinding protection (mcp SDK's
+# TransportSecurityMiddleware, api/mcp_server/server.py) accepts, beyond the
+# 127.0.0.1/localhost/[::1] wildcards it always allows for local dev/testing. Empty by default —
+# a real deployment fronted by a reverse proxy (e.g. the Hostinger Traefik ingress) must set
+# MCP_ALLOWED_HOSTS (comma-separated) to its own external Host header value(s), or every MCP
+# request 421s with "Invalid Host header" once it reaches this app with that proxy's Host intact.
+DEFAULT_MCP_ALLOWED_HOSTS = ""
+
 # Reserved so a user-chosen org slug can never collide with a real top-level route, present or
 # future — sourced from this app's actual Flask blueprint url_prefixes and the SPA's top-level
 # React Router paths, not an arbitrary list.

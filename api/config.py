@@ -6,6 +6,7 @@ from api.constants import (
     DB_MAX_OVERFLOW_DEFAULT,
     DB_POOL_SIZE_DEFAULT,
     DB_STATEMENT_TIMEOUT_MS_DEFAULT,
+    DEFAULT_MCP_ALLOWED_HOSTS,
     DEFAULT_WEBUI_ORIGIN,
     UPLOADS_DIR_DEFAULT,
 )
@@ -35,6 +36,14 @@ class Config:
             origin.strip()
             for origin in os.environ.get("WEBUI_ORIGINS", DEFAULT_WEBUI_ORIGIN).split(",")
             if origin.strip()
+        )
+        # Extra Host header values the MCP tiers' DNS-rebinding protection accepts — see
+        # DEFAULT_MCP_ALLOWED_HOSTS's own comment. Empty by default (only the built-in
+        # localhost/127.0.0.1 wildcards apply); a reverse-proxied deployment must set this.
+        self.mcp_allowed_hosts = frozenset(
+            host.strip()
+            for host in os.environ.get("MCP_ALLOWED_HOSTS", DEFAULT_MCP_ALLOWED_HOSTS).split(",")
+            if host.strip()
         )
         # Per-connection Postgres session timeouts — see the constants module for why all three
         # are needed together. Env-overridable since these are operational tuning, not code.
