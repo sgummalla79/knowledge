@@ -1297,7 +1297,47 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     https://api.sgummallaworks.com/knowledge/.well-known/oauth-authorization-server` returns
     correctly-prefixed `https://` URLs (was `http://api.sgummallaworks.com/oauth/...`, no prefix).
 
-Current test suite: **691 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+44. **Fixed a third, more fundamental MCP connectivity bug: sessions randomly 404'd with "Session
+    not found" once the client tried a real multi-request flow** (`initialize` succeeding, then
+    roughly 5 out of every 6 follow-up calls on that same session failing) — found by reproducing
+    it directly against production with curl (capture the `Mcp-Session-Id` header from a real
+    `initialize`, replay it on repeated `tools/list` calls) after the user reported connecting via
+    `claude mcp add` still didn't work, once items 38/43's fixes had already ruled out the simpler
+    explanations.
+
+    Root cause: `mcp` SDK's default streamable-http mode is stateful — each tier's
+    `StreamableHTTPSessionManager` tracks live sessions in an in-memory dict scoped to one process.
+    That was fine when this app ran a single process, but item 42's k3s move to `replicas: 2`
+    (`api/deploy/k3s/02-api.yaml`) combined with `deploy/entrypoint.sh`'s existing `--workers 3`
+    means 6 independent session stores in production, and nothing pins a client's follow-up
+    requests to the same one. `deploy/entrypoint.sh`'s own comment had already reasoned about this
+    exact risk when `--workers` went from 1 to 3 (item 9-era) and concluded it was safe — "a
+    gunicorn worker owns whichever persistent connections it accepted for their entire lifetime,
+    the same way a k8s Service pins a live connection to one pod" — **which is true only for a
+    direct client-to-pod connection, and silently false the moment Traefik sits in between**:
+    Traefik pools its own backend connections to the Service independently of the client's
+    connection to Traefik itself, so a session minted on one backend process has no guarantee of
+    landing back there on the next request. That assumption was never revisited when `replicas`
+    went from 1 to 2 in item 42, which is what actually made the gap load-bearing.
+
+    Fixed by setting `stateless_http=True` on every tier's `FastMCP(...)` construction
+    (`api/mcp_server/server.py`) — makes each request a fresh, self-contained transport with no
+    session id at all, so there's nothing for worker/replica count to fragment. Deliberately not
+    "add sticky routing" or "add a shared session store (Redis)": this MCP surface has no actual
+    need for server-held per-session state in the first place (every tool call's org/auth context
+    is already resolved fresh per HTTP request by `MCPOrgScopingMiddleware`, item 23 — never tied to
+    the MCP protocol's own session concept), so statelessness is the simpler fix, not a workaround.
+    Trades away SSE resumability and idle-session cleanup, neither of which this deployment uses.
+    `entrypoint.sh`'s comment corrected to stop citing the now-disproven k8s-Service-pins-a-connection
+    reasoning. New regression test (`api/mcp_server/tests/unit/test_server.py`) asserts
+    `stateless_http is True` on all three built servers, since nothing else in the existing suite
+    exercised `build_mcp_servers()`/`_create_tier_server` at all.
+
+    Verified the fix the same way the bug was found: the exact repro script (initialize, capture
+    session id, replay `tools/list` five times) against real production returned `200` for all five
+    follow-ups post-deploy, versus the pre-fix run's `404/200/404/200/404` flip-flop.
+
+Current test suite: **692 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
