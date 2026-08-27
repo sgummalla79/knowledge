@@ -51,6 +51,21 @@ def _create_tier_server(tier: str, register, instructions: str) -> FastMCP:
         # have done) so mcp_server/permissions.py's current_caller() keeps working unchanged.
         streamable_http_path=f"/mcp/{tier}",
         transport_security=_TRANSPORT_SECURITY,
+        # Stateful streamable-http (the default) tracks each session's transport in an in-memory
+        # dict scoped to one process — fine for a single worker/replica, broken the moment there's
+        # more than one (this deployment runs 3 gunicorn workers x 2 k8s replicas, api/deploy/
+        # entrypoint.sh/api/deploy/k3s/02-api.yaml). A follow-up request carrying a session id
+        # minted by one process has no guarantee of landing back on that same process — Traefik's
+        # own connection pooling to the backend Service doesn't preserve per-client affinity across
+        # requests even when the client reuses one connection to Traefik itself — so roughly 5 out
+        # of 6 follow-up calls hit a process that never saw the session and reject it with a 404
+        # "Session not found" (confirmed empirically: repeated tools/list calls against a real
+        # initialize'd session flip-flopped 200/404 in production). stateless_http=True makes every
+        # request self-contained (a fresh transport per request, no session id required at all),
+        # trading away SSE resumability and idle-session cleanup — neither in use here — for
+        # correctness under this multi-process topology with no sticky routing or shared session
+        # store configured.
+        stateless_http=True,
     )
     register(mcp)
     return mcp
