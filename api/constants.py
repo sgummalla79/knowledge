@@ -215,6 +215,19 @@ DEFAULT_WEBUI_ORIGIN = "http://127.0.0.1:5173"
 # request 421s with "Invalid Host header" once it reaches this app with that proxy's Host intact.
 DEFAULT_MCP_ALLOWED_HOSTS = ""
 
+# Canonical external base URL for this deployment, used only to build the absolute URLs in
+# GET /.well-known/oauth-authorization-server (issuer/authorization_endpoint/token_endpoint —
+# api/presentation/routes/oauth.py's discovery()). Empty by default, which falls back to
+# request.url_root — correct for a deployment reachable at its own origin root (local dev preview,
+# the isolated test image). A reverse proxy that both terminates TLS *and* mounts this app under a
+# path prefix (e.g. the Hostinger Traefik ingress: api.sgummallaworks.com/knowledge, TLS-terminated
+# in front of a plain-HTTP backend) breaks request.url_root two ways at once — wrong scheme (http,
+# not https) and missing prefix — since neither is visible to this app from the request it actually
+# receives. EXTERNAL_BASE_URL lets a real deployment state its own true external address directly,
+# the same way WEBUI_ORIGINS/MCP_ALLOWED_HOSTS already do for their own reverse-proxy-visibility
+# gaps, rather than trying to reconstruct it from proxy headers this ingress doesn't set.
+DEFAULT_EXTERNAL_BASE_URL = ""
+
 # Reserved so a user-chosen org slug can never collide with a real top-level route, present or
 # future — sourced from this app's actual Flask blueprint url_prefixes and the SPA's top-level
 # React Router paths, not an arbitrary list.

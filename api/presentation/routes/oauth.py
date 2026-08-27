@@ -4,6 +4,7 @@ from uuid import UUID
 from flask import Blueprint, jsonify, request, session
 
 from api.application.oauth_authorization_service import OAuthAuthorizationService
+from api.config import config
 from api.constants import ACCESS_TOKEN_TTL_MINUTES
 from api.container import get_session
 from api.domain import error_codes
@@ -245,7 +246,10 @@ def authorize_submit():
 
 @well_known_bp.get("/.well-known/oauth-authorization-server")
 def discovery():
-    base = request.url_root.rstrip("/")
+    # config.external_base_url (EXTERNAL_BASE_URL) overrides request.url_root for a reverse-proxied
+    # deployment where this app can't see its own true scheme/path prefix — see
+    # DEFAULT_EXTERNAL_BASE_URL's own comment (api/constants.py).
+    base = config.external_base_url or request.url_root.rstrip("/")
     return jsonify(
         {
             "issuer": base,

@@ -430,3 +430,17 @@ def test_discovery_endpoint(client):
     assert body["authorization_endpoint"].endswith("/oauth/authorize")
     assert body["code_challenge_methods_supported"] == ["S256"]
     assert "authorization_code" in body["grant_types_supported"]
+
+
+def test_discovery_endpoint_honors_external_base_url_override(client):
+    # A reverse proxy that terminates TLS and mounts this app under a path prefix (e.g. this
+    # repo's Hostinger Traefik ingress) makes request.url_root wrong on both counts — see
+    # DEFAULT_EXTERNAL_BASE_URL's own comment (api/constants.py).
+    with patch("api.presentation.routes.oauth.config.external_base_url", "https://api.example.com/knowledge"):
+        response = client.get("/.well-known/oauth-authorization-server")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["issuer"] == "https://api.example.com/knowledge"
+    assert body["token_endpoint"] == "https://api.example.com/knowledge/oauth/token"
+    assert body["authorization_endpoint"] == "https://api.example.com/knowledge/oauth/authorize"

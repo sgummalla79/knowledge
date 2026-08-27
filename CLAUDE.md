@@ -1236,7 +1236,68 @@ description of it as bundled/co-served, which predates that change. Bundles an M
     the repo root throughout (frozen historical entries, accurately describing what was built at
     the time — not corrected retroactively, this repo's own established convention).
 
-Current test suite: **608 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
+43. **Fixed two real bugs that broke connecting an MCP client to the Hostinger deployment**, found
+    via a live user report ("Invalid Host header" then, after the first fix, "Dynamic Client
+    Registration rejected (HTTP 404)") rather than anything the test suite could have caught — both
+    are reverse-proxy-visibility gaps in the same family as `WEBUI_ORIGINS`/`MCP_ALLOWED_HOSTS`
+    above: this app can't see its own true external address from a request that's already been
+    TLS-terminated and path-stripped by Traefik before it arrives.
+
+    - **421 Invalid Host header on every MCP request.** `FastMCP` (the `mcp` SDK) auto-enables its
+      DNS-rebinding-protection `TransportSecurityMiddleware` whenever constructed with its own
+      default `host="127.0.0.1"` — which `api/mcp_server/server.py`'s `_create_tier_server` never
+      overrode — and when it does, it hardcodes `allowed_hosts` to `127.0.0.1`/`localhost`/`[::1]`
+      wildcards only, regardless of where the app is actually deployed. Traefik forwards the real
+      `Host: api.sgummallaworks.com` straight through (no host-rewrite middleware), so every MCP
+      request behind the ingress 421'd. Fixed by building `TransportSecuritySettings` explicitly in
+      `server.py` — same localhost wildcards for local dev/testing, plus a new `MCP_ALLOWED_HOSTS`
+      env var (`api/config.py`/`api/constants.py`'s `DEFAULT_MCP_ALLOWED_HOSTS`, comma-separated,
+      empty by default) for real deployments, set to `api.sgummallaworks.com` in
+      `api/deploy/k3s/02-api.yaml`.
+    - **DCR ("Authenticate") failing with a raw Traefik 404, not a clean client-side refusal.**
+      `GET /.well-known/oauth-authorization-server` (`oauth.py`'s `discovery()`) built its
+      `issuer`/`authorization_endpoint`/`token_endpoint` from `request.url_root` — which is wrong on
+      *two* counts under this reverse proxy: wrong scheme (`http`, since TLS terminates at Traefik
+      and this app never runs behind `ProxyFix` or equivalent) and missing the `/knowledge` prefix
+      (Traefik's `stripPrefix` middleware removes it before the request ever reaches this app, and
+      nothing tells the app it happened). An MCP client's "Authenticate" action fetched this metadata
+      successfully (unlike the root-level, unrouted `/.well-known/oauth-authorization-server` item
+      40 already flagged as 404ing externally — this app's *own* well-known route **is** reachable,
+      just at `/knowledge/.well-known/oauth-authorization-server`, since Traefik strips the prefix
+      the same way for every path under that Ingress), saw no `registration_endpoint` field (this
+      app deliberately has none — no `/oauth/register` route exists at all; see item 4's
+      privilege-escalation rationale, unchanged by this item), and fell back to guessing
+      `<issuer>/register` — which, built from the broken `issuer`, came out as a bare-root URL with
+      no Ingress route at all, so it hit Traefik's own default-backend 404 (`"404 page not found"`,
+      confirmed byte-for-byte against a direct curl reproduction) instead of this app's own JSON 404
+      or a clean client-side "no registration_endpoint" refusal. **This item's fix does not add DCR
+      support** (still deliberately absent) — it fixes the metadata itself to be correct, which is a
+      real, independent bug regardless of the DCR question (any client attempting a *real*
+      `authorization_code`+PKCE flow against this discovery document would have hit the same
+      wrong-scheme/wrong-prefix URLs). New `EXTERNAL_BASE_URL` env var
+      (`api/config.py`/`api/constants.py`'s `DEFAULT_EXTERNAL_BASE_URL`, empty by default — falls
+      back to `request.url_root`, correct for a deployment reachable at its own origin root, e.g.
+      local dev preview or the isolated test image) overrides `discovery()`'s base URL directly,
+      rather than trying to reconstruct it from proxy headers Traefik doesn't set. Set to
+      `https://api.sgummallaworks.com/knowledge` in `api/deploy/k3s/02-api.yaml`. Confirmed via a
+      full grep of `api/` that `discovery()` was the *only* place in this codebase building a
+      self-referential absolute URL from the incoming request — nothing else needed the same fix.
+      **The actual, supported way to connect an MCP client to this app remains a pasted personal
+      access token / static `Authorization: Bearer` header (item 22), never the "Authenticate"/OAuth
+      discovery path** — item 40's "nothing currently depends on live OAuth auto-discovery" is now
+      known to be false for at least one real client (this is the corrected understanding, not a
+      retroactive edit to that frozen entry), but the fix here is a correctness fix for whichever
+      clients do attempt discovery, not a shift in the recommended connection method.
+
+    Both fixed and deployed in the same session, following the standard release workflow twice in a
+    row (`releases/v4-fix-mcp-invalid-host-header` → `4.10.3`, then a second fix on top → `4.10.4`),
+    each verified against the real production URLs post-deploy — a real MCP `initialize` POST to
+    `https://api.sgummallaworks.com/knowledge/research/mcp/search` with the user's actual bearer
+    token returned `200` (was `421`), and `GET
+    https://api.sgummallaworks.com/knowledge/.well-known/oauth-authorization-server` returns
+    correctly-prefixed `https://` URLs (was `http://api.sgummallaworks.com/oauth/...`, no prefix).
+
+Current test suite: **691 tests passing** (`python -m pytest api/tests/ api/mcp_server/tests/`).
 
 ## Not yet done / next steps
 
