@@ -55,6 +55,13 @@ spec:
               value: "true"
             - name: WEBUI_ORIGINS
               value: https://knowledge.sgummallaworks.com
+            # The MCP tiers' DNS-rebinding protection (api/mcp_server/server.py) only trusts
+            # 127.0.0.1/localhost by default -- this app is reachable behind Traefik at
+            # api.sgummallaworks.com, so an MCP client hitting that host would otherwise get a 421
+            # "Invalid Host header" on every request. See DEFAULT_MCP_ALLOWED_HOSTS's own comment
+            # (api/constants.py).
+            - name: MCP_ALLOWED_HOSTS
+              value: api.sgummallaworks.com
             # Matches the code default (UPLOADS_DIR_DEFAULT, api/constants.py) -- spelled out
             # explicitly here anyway, same style every other env var in this file uses. Mounted
             # below from the same PVC knowledge-ingestion-worker mounts (01b-uploads-pvc.yaml) --
