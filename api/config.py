@@ -6,6 +6,7 @@ from api.constants import (
     DB_MAX_OVERFLOW_DEFAULT,
     DB_POOL_SIZE_DEFAULT,
     DB_STATEMENT_TIMEOUT_MS_DEFAULT,
+    DEFAULT_EXTERNAL_BASE_URL,
     DEFAULT_MCP_ALLOWED_HOSTS,
     DEFAULT_WEBUI_ORIGIN,
     UPLOADS_DIR_DEFAULT,
@@ -45,6 +46,9 @@ class Config:
             for host in os.environ.get("MCP_ALLOWED_HOSTS", DEFAULT_MCP_ALLOWED_HOSTS).split(",")
             if host.strip()
         )
+        # This deployment's true external base URL, for OAuth discovery's self-referential URLs —
+        # see DEFAULT_EXTERNAL_BASE_URL's own comment. Empty falls back to request.url_root.
+        self.external_base_url = os.environ.get("EXTERNAL_BASE_URL", DEFAULT_EXTERNAL_BASE_URL).rstrip("/")
         # Per-connection Postgres session timeouts — see the constants module for why all three
         # are needed together. Env-overridable since these are operational tuning, not code.
         self.db_lock_timeout_ms = int(os.environ.get("DB_LOCK_TIMEOUT_MS", DB_LOCK_TIMEOUT_MS_DEFAULT))
