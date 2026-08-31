@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { DocumentCard } from '../components/DocumentCard'
 import { FilterSidebar } from '../components/FilterSidebar'
@@ -7,6 +7,7 @@ import { Select } from '../components/Select'
 import { useCategories, useDocuments, useShelves } from '../api/queries'
 
 const PAGE_SIZE = 12
+const SEARCH_DEBOUNCE_MS = 300
 
 const SORT_OPTIONS = [
   { value: '-created_at', label: 'Recently updated' },
@@ -19,6 +20,16 @@ export function BrowsePage() {
   const [shelfId, setShelfId] = useState<string | null>(null)
   const [sort, setSort] = useState('-created_at')
   const [offset, setOffset] = useState(0)
+  const [titleQueryInput, setTitleQueryInput] = useState('')
+  const [titleQuery, setTitleQuery] = useState('')
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setTitleQuery(titleQueryInput.trim())
+      setOffset(0)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timeout)
+  }, [titleQueryInput])
 
   const categories = useCategories()
   const shelves = useShelves()
@@ -28,6 +39,7 @@ export function BrowsePage() {
     sort,
     limit: PAGE_SIZE,
     offset,
+    q: titleQuery || undefined,
   })
 
   function updateFilter(setter: (value: string | null) => void, value: string | null) {
@@ -53,7 +65,13 @@ export function BrowsePage() {
         />
 
         <div className="flex-1">
-          <div className="mb-5 flex justify-end">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <input
+              value={titleQueryInput}
+              onChange={(event) => setTitleQueryInput(event.target.value)}
+              placeholder="Search by document title…"
+              className="w-full max-w-sm rounded-sm border border-border bg-secondary px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
             <Select value={sort} onChange={setSort} options={SORT_OPTIONS} className="px-3 py-1.5 text-[13px]" />
           </div>
 

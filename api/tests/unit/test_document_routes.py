@@ -132,6 +132,28 @@ def test_list_documents_passes_type_filter_through(client):
     assert mock_list.call_args.kwargs["document_type"] == "document"
 
 
+def test_list_documents_passes_title_search_through(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_documents",
+        return_value=([], 0)
+    ) as mock_list:
+        response = client.get("/documents?q=quarterly")
+
+    assert response.status_code == 200
+    assert mock_list.call_args.kwargs["title_contains"] == "quarterly"
+
+
+def test_list_documents_omits_title_search_when_absent(client):
+    with patch(
+        "api.presentation.routes.documents.DocumentService.list_documents",
+        return_value=([], 0)
+    ) as mock_list:
+        response = client.get("/documents")
+
+    assert response.status_code == 200
+    assert mock_list.call_args.kwargs["title_contains"] is None
+
+
 def test_get_document_returns_document(client):
     document = _document()
     with (
