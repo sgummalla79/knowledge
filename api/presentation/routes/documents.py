@@ -105,6 +105,7 @@ def list_documents():
         category_id=query.category_id,
         shelf_id=query.shelf_id,
         document_type=query.type,
+        title_contains=query.q,
     )
     response = jsonify([DocumentResponse.from_entity(document).model_dump(mode="json") for document in documents])
     response.headers["X-Total-Count"] = str(total)

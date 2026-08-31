@@ -43,7 +43,7 @@ def _apply_sort(query, sort: str):
     return query.order_by(column.desc() if descending else column.asc())
 
 
-def _apply_filters(query, category_id, shelf_id, document_type=None):
+def _apply_filters(query, category_id, shelf_id, document_type=None, title_contains=None):
     if category_id is not None:
         query = query.filter(DocumentModel.category_id == category_id)
     if shelf_id is not None:
@@ -54,6 +54,8 @@ def _apply_filters(query, category_id, shelf_id, document_type=None):
         )
     if document_type is not None:
         query = query.filter(DocumentModel.type == document_type)
+    if title_contains is not None:
+        query = query.filter(DocumentModel.title.ilike(f"%{title_contains}%"))
     return query
 
 
@@ -78,17 +80,25 @@ class DocumentRepository:
         return [_to_entity(model) for model in models]
 
     def list_for_org(
-        self, org_id, limit: int, offset: int, sort: str, category_id=None, shelf_id=None, document_type=None
+        self,
+        org_id,
+        limit: int,
+        offset: int,
+        sort: str,
+        category_id=None,
+        shelf_id=None,
+        document_type=None,
+        title_contains=None,
     ) -> list[DocumentEntity]:
         query = self._session.query(DocumentModel).filter(DocumentModel.org_id == org_id)
-        query = _apply_filters(query, category_id, shelf_id, document_type)
+        query = _apply_filters(query, category_id, shelf_id, document_type, title_contains)
         query = _apply_sort(query, sort)
         models = query.offset(offset).limit(limit).all()
         return [_to_entity(model) for model in models]
 
-    def count_for_org(self, org_id, category_id=None, shelf_id=None, document_type=None) -> int:
+    def count_for_org(self, org_id, category_id=None, shelf_id=None, document_type=None, title_contains=None) -> int:
         query = self._session.query(DocumentModel).filter(DocumentModel.org_id == org_id)
-        query = _apply_filters(query, category_id, shelf_id, document_type)
+        query = _apply_filters(query, category_id, shelf_id, document_type, title_contains)
         return query.count()
 
     def update_status(
