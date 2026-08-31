@@ -70,9 +70,9 @@ export function BrowsePage() {
               value={titleQueryInput}
               onChange={(event) => setTitleQueryInput(event.target.value)}
               placeholder="Search by document title…"
-              className="w-full max-w-sm rounded-sm border border-border bg-secondary px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex-1 rounded-sm border border-border bg-secondary px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <Select value={sort} onChange={setSort} options={SORT_OPTIONS} className="px-3 py-1.5 text-[13px]" />
+            <Select value={sort} onChange={setSort} options={SORT_OPTIONS} className="shrink-0 px-3 py-1.5 text-[13px]" />
           </div>
 
           {documents.isLoading && <p className="text-sm text-muted-foreground">Loading documents…</p>}
