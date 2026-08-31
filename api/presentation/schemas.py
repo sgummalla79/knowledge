@@ -145,6 +145,10 @@ class PaginationQuery(BaseModel):
     category_id: UUID | None = None
     shelf_id: UUID | None = None
     type: str | None = None
+    # Case-insensitive substring match against documents.title -- the Browse page's document
+    # search box. Not a full-text/relevance search: title filtering is a different feature from
+    # the chunk-content hybrid search under /search (api/application/rrf.py).
+    q: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class LimitOffsetQuery(BaseModel):

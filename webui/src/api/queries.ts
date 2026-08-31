@@ -137,6 +137,7 @@ export interface DocumentFilters {
   sort?: string
   limit?: number
   offset?: number
+  q?: string
 }
 
 function buildDocumentsPath(filters: DocumentFilters): string {
@@ -147,6 +148,7 @@ function buildDocumentsPath(filters: DocumentFilters): string {
   if (filters.sort) params.set('sort', filters.sort)
   if (filters.limit !== undefined) params.set('limit', String(filters.limit))
   if (filters.offset !== undefined) params.set('offset', String(filters.offset))
+  if (filters.q) params.set('q', filters.q)
   const query = params.toString()
   return query ? `/documents?${query}` : '/documents'
 }

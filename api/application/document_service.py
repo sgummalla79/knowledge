@@ -59,12 +59,22 @@ class DocumentService:
         category_id: UUID | None = None,
         shelf_id: UUID | None = None,
         document_type: str | None = None,
+        title_contains: str | None = None,
     ) -> tuple[list[Document], int]:
         return (
             self._documents.list_for_org(
-                org_id, limit, offset, sort, category_id=category_id, shelf_id=shelf_id, document_type=document_type
+                org_id,
+                limit,
+                offset,
+                sort,
+                category_id=category_id,
+                shelf_id=shelf_id,
+                document_type=document_type,
+                title_contains=title_contains,
             ),
-            self._documents.count_for_org(org_id, category_id=category_id, shelf_id=shelf_id, document_type=document_type),
+            self._documents.count_for_org(
+                org_id, category_id=category_id, shelf_id=shelf_id, document_type=document_type, title_contains=title_contains
+            ),
         )
 
     def get_document(self, org_id: UUID, document_id: UUID) -> Document:

@@ -50,6 +50,7 @@ class DocumentRepositoryPort(Protocol):
         category_id: UUID | None = None,
         shelf_id: UUID | None = None,
         document_type: str | None = None,
+        title_contains: str | None = None,
     ) -> list[Document]: ...
 
     def count_for_org(
@@ -58,6 +59,7 @@ class DocumentRepositoryPort(Protocol):
         category_id: UUID | None = None,
         shelf_id: UUID | None = None,
         document_type: str | None = None,
+        title_contains: str | None = None,
     ) -> int: ...
 
     def update_status(

@@ -352,6 +352,43 @@ def test_rename_document_from_wrong_org_raises_document_not_found(db_session, st
     assert document_repo.get(document.id).title != "renamed.txt"
 
 
+def test_list_documents_filters_by_title_substring_case_insensitively(db_session, storage):
+    owner = _owner(db_session)
+    document_repo = DocumentRepository(db_session)
+    chunk_repo = ChunkRepository(db_session)
+    org_id = seed_active_embedding_provider(
+        db_session, "voyage", "voyage-3", "test-key", dimensions=EMBEDDING_DIM, chunk_size=20, chunk_overlap=5
+    )
+    db_session.commit()
+
+    document_repo.create(
+        org_id=org_id,
+        owner_id=owner.id,
+        title="Quarterly Report.pdf",
+        type="document",
+        file_type="pdf",
+        content_hash="hash-1",
+        status="indexed",
+    )
+    document_repo.create(
+        org_id=org_id,
+        owner_id=owner.id,
+        title="meeting notes.txt",
+        type="article",
+        file_type="txt",
+        content_hash="hash-2",
+        status="indexed",
+    )
+    db_session.commit()
+
+    documents, total = DocumentService(document_repo, chunk_repo).list_documents(
+        org_id, 100, 0, "-created_at", title_contains="quarterly"
+    )
+
+    assert total == 1
+    assert [document.title for document in documents] == ["Quarterly Report.pdf"]
+
+
 def test_rename_document_missing_document_raises_document_not_found(db_session):
     document_repo = DocumentRepository(db_session)
     chunk_repo = ChunkRepository(db_session)
